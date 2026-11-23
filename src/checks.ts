@@ -1,4 +1,5 @@
 import { checksPassed, type ReviewDecision } from './core.ts';
+import { progressCheckName } from './review-progress.ts';
 export type Check = { id?: number; name: string; status: string; conclusion: string | null; app?: { id: number } };
 export type CheckEvidence = { total_count?: number; check_runs: Check[] };
 
@@ -37,10 +38,14 @@ export function finalReviewEvent(assessment: ReviewDecision, evidence: CheckEvid
   return reviewChecksSuccessful(evidence, repository) ? assessment : null;
 }
 
-export async function loadCheckEvidence(head: string, merge: string | null | undefined, read: (sha: string) => Promise<CheckEvidence | null>): Promise<CheckEvidence> {
+export async function loadCheckEvidence(head: string, merge: string | null | undefined, read: (sha: string) => Promise<CheckEvidence | null>, reviewerAppId = Number(process.env.REVIEWER_APP_ID)): Promise<CheckEvidence> {
   const refs = [head];
   if (merge && /^[a-f0-9]{40}$/i.test(merge) && merge !== head) refs.push(merge);
-  const evidence = await Promise.all(refs.map(read));
+  const evidence = (await Promise.all(refs.map(read))).map(item => {
+    if (!item || !Number.isSafeInteger(reviewerAppId) || reviewerAppId <= 0) return item;
+    const check_runs = item.check_runs.filter(check => check.name !== progressCheckName || check.app?.id !== reviewerAppId);
+    return { check_runs, total_count: (item.total_count ?? item.check_runs.length) - (item.check_runs.length - check_runs.length) };
+  });
   if (evidence.some(item => item === null)) return { check_runs: evidence.flatMap(item => item?.check_runs ?? []) };
   return { total_count: evidence.reduce((sum, item) => sum + (item?.total_count ?? item?.check_runs.length ?? 0), 0), check_runs: evidence.flatMap(item => item?.check_runs ?? []) };
 }

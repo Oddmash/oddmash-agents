@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { runReview } from './reviewer.ts';
+import { startReviewProgress } from './review-progress.ts';
 import { formatReviewBody } from './core.ts';
 import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
@@ -207,7 +208,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const pendingId = await acquirePendingReview(api, path, pr.head.sha, bot, true).catch(error => { throw new Error('Pending review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
     if (pendingId === null) return;
     let submitted = false;
+    const progress = process.env.REVIEWER_CHECK_PROGRESS_ENABLED === 'true' ? await authorize(target, appId, key, fetch, true).then(auth => startReviewProgress(auth.api, repository, pr.head.sha)).catch(() => { console.warn('Review progress permission unavailable'); return undefined; }) : undefined;
+    let progressResult: { conclusion: 'success' | 'failure' | 'neutral' | 'cancelled'; title: string } = { conclusion: 'cancelled', title: 'Review not submitted' };
     try {
+      await progress?.update('Collecting changes', 'Preparing the current commit review.');
       let mergeReason = !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
       const withheld = (reason: string) => { mergeReason = reason; console.log('Maintainer auto-merge withheld: ' + reason); };
       const candidate = config.autoMerge ? await mergeCandidate(api, target, pr.number, withheld).catch(error => {
@@ -215,7 +219,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         return null;
       }) : null;
       if (approved && !candidate) return;
-      const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: candidate?.acceptance, privateRepositoryId: target.private ? target.repositoryId : undefined }).catch(async error => {
+      const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: candidate?.acceptance, privateRepositoryId: target.private ? target.repositoryId : undefined, progress: progress?.update }).catch(async error => {
         await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', error instanceof Error ? error.message : 'review processing failed');
         throw error;
       });
@@ -230,6 +234,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         return;
       }
       const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks, target.recheck);
+      await progress?.update('Publishing review', 'Rechecking the current commit and submitting the result.');
+      const completedResult = event === 'APPROVE' ? { conclusion: 'success' as const, title: 'Review approved' } : event === 'REQUEST_CHANGES' ? { conclusion: 'failure' as const, title: 'Changes requested' } : { conclusion: 'neutral' as const, title: 'Maintainer review needed' };
       const proof = event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === current.head.sha && candidate.pull.base.sha === current.base.sha && candidate.pull.merge_commit_sha === current.merge_commit_sha ? `\n\n${mergeProof(candidate)}` : '';
       const body = formatReviewBody(event, finalMarker, result.report, current.user) + (requestTag ? `\n\n${requestTag}` : '') + proof;
       const attemptMerge = async (reviewId: number) => {
@@ -249,6 +255,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if (approved) {
         if (event === 'APPROVE') {
           await api(`${path}/reviews/${approved.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
+          progressResult = completedResult;
+          await progress?.finish(progressResult.conclusion, progressResult.title);
           await attemptMerge(approved.id);
         }
         return;
@@ -263,6 +271,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) }).catch(error => { throw new Error('Submit review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
         submitted = true;
       }
+      progressResult = completedResult;
+      await progress?.finish(progressResult.conclusion, progressResult.title);
       if (event === 'APPROVE') await attemptMerge(pendingId);
       await publishAutomationStatus(api, repository, pr.number, bot, current.head.sha, 'review', 'review completed', true);
       const label = event === 'APPROVE' ? 'review: approved' : event === 'REQUEST_CHANGES' ? 'review: changes requested' : 'review: needs human';
@@ -276,7 +286,11 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         if (attached.name !== label && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' });
       }
       if (target.requestComment) await completeCommentReaction(api, repository, target.requestComment, eyesId, event === 'APPROVE');
+    } catch (error) {
+      if (!submitted && progressResult.conclusion === 'cancelled') progressResult = { conclusion: 'failure', title: 'Review processing failed' };
+      throw error;
     } finally {
+      await progress?.finish(progressResult.conclusion, progressResult.title);
       if (!submitted) {
         try {
           const pending = await api<Review>(`${path}/reviews/${pendingId}`);

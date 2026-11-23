@@ -46,6 +46,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-5.4
           REVIEWER_APP_SLUG: ${{ vars.REVIEWER_APP_SLUG }}
+          REVIEWER_APP_ID: ${{ vars.REVIEWER_APP_ID }}
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PR_NUMBER: ${{ inputs.pr_number }}
         run: node src/organization.ts
