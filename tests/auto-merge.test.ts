@@ -87,7 +87,7 @@ test('allows ordinary source and additive tests only under known product paths',
 test('mint write token only after exact-head approval and protected current CI', async () => {
   let writes = 0;
   let mints = 0;
-  const makeApi = (passing = true, pull = pr) => githubApi('fixture-token', async (input, init) => {
+  const makeApi = (passing = true, pull = pr, skippedVerify = false) => githubApi('fixture-token', async (input, init) => {
     const url = String(input);
     if (url.endsWith('/pulls/10')) return Response.json(pull);
     if (url.endsWith('/issues/9')) return Response.json(issue);
@@ -95,7 +95,7 @@ test('mint write token only after exact-head approval and protected current CI',
     if (url.endsWith('/branches/main')) return Response.json(branch);
     if (url.includes('/compare/')) return Response.json({ behind_by: 0, merge_base_commit: { sha: base } });
     if (url.includes('/reviews?')) return Response.json([{ id: 5, user: { login: 'oddmash-reviewer[bot]', id: 100 }, state: 'APPROVED', commit_id: head }]);
-    if (url.includes('/check-runs?')) return Response.json({ total_count: 1, check_runs: [{ id: 1, name: 'verify', app: { id: 15368 }, status: 'completed', conclusion: passing ? 'success' : 'failure' }] });
+    if (url.includes('/check-runs?')) return Response.json({ total_count: skippedVerify ? 2 : 1, check_runs: [{ id: 1, name: 'verify', app: { id: 15368 }, status: 'completed', conclusion: passing ? 'success' : 'failure' }, ...(skippedVerify ? [{ id: 2, name: 'verify', app: { id: 15368 }, status: 'completed', conclusion: 'skipped' }] : [])] });
     if (url.endsWith('/status')) return Response.json({ total_count: 0, state: 'pending', statuses: [] });
     if (url.endsWith('/merge')) { writes++; assert.deepEqual(JSON.parse(String(init?.body)), { sha: head, merge_method: 'merge' }); return Response.json({ merged: true }); }
     if (url.endsWith('/installation/token')) return new Response(null, { status: 204 });
@@ -104,6 +104,7 @@ test('mint write token only after exact-head approval and protected current CI',
   const mint = async () => { mints++; return makeApi(); };
   assert.equal(await mergeAuthorized(makeApi(false), target, candidate, 'oddmash-reviewer[bot]', 5, true, mint), false);
   assert.equal(await mergeAuthorized(makeApi(), target, candidate, 'oddmash-reviewer[bot]', 5, false, mint), false);
+  assert.equal(await mergeAuthorized(makeApi(true, pr, true), target, candidate, 'oddmash-reviewer[bot]', 5, true, mint), false);
   assert.equal(mints, 0);
   assert.equal(await mergeAuthorized(makeApi(), target, candidate, 'oddmash-reviewer[bot]', 5, true, mint), true);
   assert.equal(mints, 1);
