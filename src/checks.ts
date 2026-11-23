@@ -1,4 +1,4 @@
-export type Check = { id?: number; name: string; status: string; conclusion: string | null };
+export type Check = { id?: number; name: string; status: string; conclusion: string | null; app?: { id: number } };
 export type CheckEvidence = { total_count?: number; check_runs: Check[] };
 
 export async function loadCheckEvidence(head: string, merge: string | null | undefined, read: (sha: string) => Promise<CheckEvidence | null>): Promise<CheckEvidence> {

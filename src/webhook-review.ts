@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { runReview } from './reviewer.ts';
 import { checksPassed, formatReviewBody } from './core.ts';
 import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
-import { authorize, type Target } from './webhook.ts';
+import { mergeCandidate, mergeAuthorized } from './auto-merge.ts';
+import { authorize, authorizeMerge, type Target } from './webhook.ts';
 
 type Pull = { number: number; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 type Review = { id: number; body: string | null; user: { login: string }; state: string; commit_id: string };
@@ -24,7 +25,7 @@ export async function acquirePendingReview(api: Api, path: string, head: string,
 
 const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human'];
 
-export async function reviewWebhook(target: Target, config: { appId: string; key: string; slug: string; openaiKey: string; model: string }) {
+export async function reviewWebhook(target: Target, config: { appId: string; key: string; slug: string; openaiKey: string; model: string; autoMerge?: boolean }) {
   const { appId, key, slug, openaiKey, model } = config;
   const bot = slug + '[bot]';
   if (!/^[a-z0-9-]+\[bot\]$/i.test(bot) || !openaiKey) throw new Error('Missing app configuration');
@@ -53,7 +54,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     if (pendingId === null) return;
     let submitted = false;
     try {
-      const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository] });
+      const candidate = config.autoMerge ? await mergeCandidate(api, target, pr.number).catch(() => null) : null;
+      const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: candidate?.acceptance });
       const current = await api<Pull>(path);
       if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft) return;
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
@@ -82,6 +84,12 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       await api(`${root}/issues/${pr.number}/labels`, { method: 'POST', body: JSON.stringify({ labels: [label] }) });
       for (const attached of current.labels) {
         if (attached.name !== label && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' });
+      }
+      if (event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === result.head && candidate.pull.base.sha === current.base.sha) {
+        try {
+          const merged = await mergeAuthorized(api, target, candidate, bot, pendingId, result.issueVerified, () => authorizeMerge(target, appId, key));
+          if (merged) console.log('Maintainer auto-merge completed');
+        } catch { console.error('Maintainer auto-merge withheld'); }
       }
     } finally {
       if (!submitted) {
