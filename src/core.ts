@@ -115,7 +115,7 @@ export function inlineComment(context: ReviewContext, finding: Finding): string 
 
 export function formatReport(context: ReviewContext, findings: Finding[]): string {
   const lines = [reviewMarker(context)];
-  if (!findings.length) lines.push('No actionable findings in the reviewed changes. This is not an approval or proof of correctness.');
+  if (!findings.length) lines.push('No validated findings in the reviewed changes. This is not an approval or proof of correctness.');
   for (const f of findings) {
     lines.push(`- **${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.recommendation)}`);
   }
