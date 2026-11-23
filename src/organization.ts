@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { runReview } from './reviewer.ts';
-import { checksPassed } from './core.ts';
+import { checksPassed, formatReviewBody } from './core.ts';
 import { publicRepositories as repositories, reviewTarget } from './routing.ts';
 import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
 
@@ -46,8 +46,7 @@ for (const repository of repositories) {
     const finalChecks = await readChecks(current);
     const passing = (finalChecks.total_count ?? 0) > 0 && finalChecks.total_count === finalChecks.check_runs.length && checksPassed(finalChecks.check_runs);
     const event = result.decision === 'APPROVE' && !passing ? 'COMMENT' : result.decision;
-    const body = event === 'APPROVE' ? 'No actionable findings in the reviewed changes. Available checks passed. Maintainer review remains required for merge.' : event === 'REQUEST_CHANGES' ? 'Actionable findings were identified. Please review the inline comments and update the PR.' : 'Maintainer verification is required. See the review report for findings or incomplete coverage/check evidence.';
-    await api(`${path}/reviews`, { method: 'POST', body: JSON.stringify({ commit_id: result.head, event, body: `${marker}\n${body}\n\n${result.report}` }) });
+    await api(`${path}/reviews`, { method: 'POST', body: JSON.stringify({ commit_id: result.head, event, body: formatReviewBody(event, marker, result.report) }) });
     const label = event === 'APPROVE' ? 'review: approved' : event === 'REQUEST_CHANGES' ? 'review: changes requested' : 'review: needs human';
     await api(`${root}/issues/${pr.number}/labels`, { method: 'POST', body: JSON.stringify({ labels: [label] }) });
     for (const attached of current.labels) {

@@ -1,11 +1,26 @@
 import { createHash } from 'node:crypto';
 import { runReview } from './reviewer.ts';
-import { checksPassed } from './core.ts';
+import { checksPassed, formatReviewBody } from './core.ts';
 import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
 import { authorize, type Target } from './webhook.ts';
 
 type Pull = { number: number; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string } }; labels: { name: string }[]; merge_commit_sha?: string | null };
-type Review = { body: string | null; user: { login: string }; state: string; commit_id: string };
+type Review = { id: number; body: string | null; user: { login: string }; state: string; commit_id: string };
+
+type Api = ReturnType<typeof import('./webhook.ts').githubApi>;
+
+export async function acquirePendingReview(api: Api, path: string, head: string, bot: string): Promise<number | null> {
+  try {
+    const pending = await api<Review>(`${path}/reviews`, { method: 'POST', body: JSON.stringify({ commit_id: head, body: '<!-- oddmash-review-lock -->' }) });
+    if (pending.state !== 'PENDING' || pending.user.login !== bot || !Number.isSafeInteger(pending.id)) throw new Error('Unexpected pending review response');
+    return pending.id;
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('(422)')) throw error;
+    const reviews = await api<Review[]>(`${path}/reviews?per_page=100`);
+    if (reviews.some(review => review.user.login === bot && (review.state === 'PENDING' || review.commit_id === head && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED'].includes(review.state)))) return null;
+    throw error;
+  }
+}
 
 const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human'];
 
@@ -33,26 +48,46 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const marker = `<!-- oddmash-app-review:${fingerprint} -->`;
     if (own.some(review => review.body?.includes(marker))) return;
     if (checks.check_runs.some(check => check.status !== 'completed')) return;
-    const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model, post: true, allowedRepositories: [repository] });
-    const current = await api<Pull>(path);
-    if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft) return;
-    const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
-    if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && (review.body?.includes(marker) || ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)))) return;
-    const finalChecks = await readChecks(current);
-    const passing = (finalChecks.total_count ?? 0) > 0 && finalChecks.total_count === finalChecks.check_runs.length && checksPassed(finalChecks.check_runs);
-    const event = result.decision === 'APPROVE' && !passing ? 'COMMENT' : result.decision;
-    const body = event === 'APPROVE' ? 'No actionable findings in the reviewed changes. Available checks passed. Maintainer review remains required for merge.' : event === 'REQUEST_CHANGES' ? 'Actionable findings were identified. Please review the inline comments and update the PR.' : 'Maintainer verification is required. See the review report for findings or incomplete coverage/check evidence.';
-    await api(`${path}/reviews`, { method: 'POST', body: JSON.stringify({ commit_id: result.head, event, body: `${marker}\n${body}\n\n${result.report}` }) });
-    const label = event === 'APPROVE' ? 'review: approved' : event === 'REQUEST_CHANGES' ? 'review: changes requested' : 'review: needs human';
-    const labels = await api<{ name: string }[]>(`${root}/labels?per_page=100`);
-    if (!labels.some(item => item.name === label)) {
-      try { await api(`${root}/labels`, { method: 'POST', body: JSON.stringify({ name: label, color: label === 'review: approved' ? '0e8a16' : label === 'review: changes requested' ? 'd73a4a' : 'fbca04' }) }); }
-      catch { const existing = await api<{ name: string }>(`${root}/labels/${encodeURIComponent(label)}`); if (existing.name !== label) throw new Error('Label unavailable'); }
+    if (reviews.some(review => review.user.login === bot && review.state === 'PENDING')) return;
+    const pendingId = await acquirePendingReview(api, path, pr.head.sha, bot);
+    if (pendingId === null) return;
+    let submitted = false;
+    try {
+      const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository] });
+      const current = await api<Pull>(path);
+      if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft) return;
+      const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
+      if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && (review.body?.includes(marker) || ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)))) return;
+      const finalChecks = await readChecks(current);
+      const passing = (finalChecks.total_count ?? 0) > 0 && finalChecks.total_count === finalChecks.check_runs.length && checksPassed(finalChecks.check_runs);
+      const event = result.decision === 'APPROVE' && !passing ? 'COMMENT' : result.decision;
+      await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body: formatReviewBody(event, marker, result.report) }) });
+      submitted = true;
+      if (event !== 'APPROVE' && result.comments.length) {
+        const existing = await api<{ body: string; user: { login: string } }[]>(`${path}/comments?per_page=100`);
+        if (existing.length < 100) for (const comment of result.comments) {
+          const marker = comment.body.match(/<!-- oddmash-finding:[a-f0-9]{24} -->/)?.[0];
+          if (!marker || existing.some(item => item.user.login === bot && item.body.includes(marker))) continue;
+          const latest = await api<Pull>(path);
+          if (latest.head.sha !== result.head || latest.state !== 'open' || latest.draft || latest.base.repo.private) break;
+          await api(`${path}/comments`, { method: 'POST', body: JSON.stringify({ ...comment, commit_id: result.head }) });
+        }
+      }
+      const label = event === 'APPROVE' ? 'review: approved' : event === 'REQUEST_CHANGES' ? 'review: changes requested' : 'review: needs human';
+      const labels = await api<{ name: string }[]>(`${root}/labels?per_page=100`);
+      if (!labels.some(item => item.name === label)) {
+        try { await api(`${root}/labels`, { method: 'POST', body: JSON.stringify({ name: label, color: label === 'review: approved' ? '0e8a16' : label === 'review: changes requested' ? 'd73a4a' : 'fbca04' }) }); }
+        catch { const existing = await api<{ name: string }>(`${root}/labels/${encodeURIComponent(label)}`); if (existing.name !== label) throw new Error('Label unavailable'); }
+      }
+      await api(`${root}/issues/${pr.number}/labels`, { method: 'POST', body: JSON.stringify({ labels: [label] }) });
+      for (const attached of current.labels) {
+        if (attached.name !== label && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' });
+      }
+    } finally {
+      if (!submitted) {
+        const pending = await api<Review>(`${path}/reviews/${pendingId}`);
+        if (pending.state === 'PENDING' && pending.user.login === bot && pending.body?.includes('<!-- oddmash-review-lock -->')) await api(`${path}/reviews/${pendingId}`, { method: 'DELETE' });
+      }
     }
-    await api(`${root}/issues/${pr.number}/labels`, { method: 'POST', body: JSON.stringify({ labels: [label] }) });
-    for (const attached of current.labels) {
-      if (attached.name !== label && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' });
-    }
-
   }
 }

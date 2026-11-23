@@ -95,7 +95,7 @@ export function validateFindings(value: unknown, files: ChangedFile[]): Finding[
   return result;
 }
 
-const clean = (value: string) => safeText(value).replace(/[<>]/g, '').replace(/@/g, '@\u200b').replace(/\r/g, '').replace(/\n/g, ' ');
+const clean = (value: string) => safeText(value).replace(/[<>]/g, '').replace(/@/g, '@\u200b').replace(/\r/g, '').replace(/\n/g, ' ').replace(/\s*[\u2013\u2014\u2015]\s*/g, ' - ');
 export function reviewMarker(context: ReviewContext): string {
   const id = createHash('sha256').update(`${context.repository}:${context.number}:${context.head}`).digest('hex').slice(0, 24);
   return `<!-- oddmash-review:${id} -->`;
@@ -107,20 +107,24 @@ export function findingMarker(context: ReviewContext, finding: Finding): string 
 }
 
 export function inlineComment(context: ReviewContext, finding: Finding): string {
-  const lines = [findingMarker(context, finding), `**${finding.severity.toUpperCase()} / ${finding.confidence} confidence** — ${clean(finding.rule)}`, '', `Evidence: ${clean(finding.evidence)}`, '', `Recommendation: ${clean(finding.recommendation)}`, '', `Verify: ${clean(finding.verification)}`];
-  if (finding.suggestion) lines.push('', 'Proposed replacement for this line (review before applying):', '', '```suggestion', finding.suggestion, '```');
+  const lines = [findingMarker(context, finding), `**${finding.severity.toUpperCase()}: ${clean(finding.rule)}**`, '', clean(finding.evidence), '', `Fix: ${clean(finding.recommendation)}`];
+  if (finding.severity === 'high') lines.push('', `Verify: ${clean(finding.verification)}`);
+  if (finding.suggestion) lines.push('', '```suggestion', finding.suggestion, '```');
   return lines.join('\n');
 }
 
 export function formatReport(context: ReviewContext, findings: Finding[]): string {
-  const lines = [reviewMarker(context), '## Oddmash Reviewer — advisory report', '', `Commit: \`${context.head}\``, `Reviewed files: ${context.files.length}; omitted: ${context.omitted.length}.`, '', '### CI evidence', ...context.checks.map(c => `- ${clean(c.name)}: ${clean(c.conclusion ?? c.status)}`)];
-  if (!context.checks.length) lines.push('- No check results available at review time.');
-  lines.push('', '### Findings');
+  const lines = [reviewMarker(context)];
   if (!findings.length) lines.push('No validated findings in the reviewed changes. This is not an approval or proof of correctness.');
   for (const f of findings) {
-    lines.push('', `- **${f.severity.toUpperCase()} / ${f.confidence} confidence** — ${clean(f.rule)} (${clean(f.path)}:${f.line})`, `  - Evidence: ${clean(f.evidence)}`, `  - Recommendation: ${clean(f.recommendation)}`, `  - Verify: ${clean(f.verification)}`);
-    if (f.suggestion) lines.push('', '```suggestion', f.suggestion, '```');
+    lines.push(`- **${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.recommendation)}`);
   }
-  if (context.omitted.length) lines.push('', 'Some changes were omitted due to size, sensitivity, or unavailable patches. Manual review is required.');
+  if (context.omitted.length) lines.push('Some changes require manual review.');
   return lines.join('\n');
+}
+
+export function formatReviewBody(event: ReviewDecision, marker: string, report: string): string {
+  if (event === 'APPROVE') return `${marker}\nThanks for contributing! @qtaghdi, this PR is ready for your review.`;
+  if (event === 'REQUEST_CHANGES') return `${marker}\nPlease address the findings before approval.\n\n${report}`;
+  return `${marker}\nMaintainer review required.\n\n${report}`;
 }
