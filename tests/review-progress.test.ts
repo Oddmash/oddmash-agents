@@ -37,3 +37,21 @@ test('failed progress publication does not interrupt review processing', async (
   await progress.finish('success', 'Review approved');
   assert.equal(attempts, 1);
 });
+
+test('terminal publication can retry on the original check after failure', async () => {
+  const calls: { path: string; body: Record<string, unknown> }[] = [];
+  const api = async <T>(path: string, init?: RequestInit): Promise<T> => {
+    calls.push({ path, body: JSON.parse(String(init?.body)) });
+    if (calls.length === 1) return { id: 42 } as T;
+    if (calls.length === 3) throw new Error('Temporary failure');
+    return {} as T;
+  };
+  const progress = await startReviewProgress(api, 'Oddmash/example', 'a'.repeat(40));
+  await progress.update('Reviewing', '2 files');
+  await progress.finish('success', 'Review approved');
+  await progress.finish('success', 'Review approved');
+  await progress.finish('success', 'Review approved');
+  assert.equal(calls.length, 4);
+  assert.ok(calls.slice(1).every(call => call.path.endsWith('/42')));
+  assert.deepEqual(calls.slice(2).map(call => call.body.status), ['completed', 'completed']);
+});

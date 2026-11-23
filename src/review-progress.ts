@@ -11,12 +11,13 @@ export async function startReviewProgress(api: Api, repository: string, head: st
     try {
       const body = { name: progressCheckName, status, output: { title, summary }, ...(id ? {} : { head_sha: head }), ...(conclusion ? { conclusion, completed_at: new Date().toISOString() } : {}) };
       const result = await api<{ id: number }>(id ? `${path}/${id}` : path, { method: id ? 'PATCH' : 'POST', body: JSON.stringify(body) });
-      if (Number.isSafeInteger(result.id) && result.id > 0) id = result.id;
-    } catch { console.warn('Review progress unavailable'); }
+      if (!id && Number.isSafeInteger(result.id) && result.id > 0) id = result.id;
+      return true;
+    } catch { console.warn('Review progress unavailable'); return false; }
   };
   await write('queued', 'Review queued', 'Waiting to collect review evidence.');
   return {
     update: async (title: string, summary: string) => { if (id) await write('in_progress', title, summary); },
-    finish: async (conclusion: Conclusion, title: string) => { if (id && !finished) { finished = true; await write('completed', title, 'See the pull request review for details.', conclusion); } }
+    finish: async (conclusion: Conclusion, title: string) => { if (id && !finished) finished = await write('completed', title, 'See the pull request review for details.', conclusion); }
   };
 }
