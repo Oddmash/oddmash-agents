@@ -1,11 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acquirePendingReview, attachReviewFindings, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint } from '../src/webhook-review.ts';
+import { acquirePendingReview, attachReviewFindings, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock } from '../src/webhook-review.ts';
 import { githubApi } from '../src/webhook.ts';
 
 const path = '/repos/Oddmash/example/pulls/1';
 const bot = 'oddmash-reviewer[bot]';
 const head = 'a'.repeat(40);
+
+test('only expired webhook locks owned by the bot are eligible for recovery', () => {
+  const now = 1_800_000_000_000;
+  const body = `<!-- oddmash-review-lock -->\n<!-- oddmash-webhook-lock:${now - 361_000} -->`;
+  const review = { id: 1, state: 'PENDING', user: { login: bot }, commit_id: head, body };
+  assert.equal(expiredWebhookLock(review, bot, now), true);
+  assert.equal(expiredWebhookLock(review, bot, now - 10_000), false);
+  assert.equal(expiredWebhookLock({ ...review, user: { login: 'other' } }, bot, now), false);
+  assert.equal(expiredWebhookLock({ ...review, state: 'APPROVED' }, bot, now), false);
+  assert.equal(expiredWebhookLock({ ...review, body: '<!-- oddmash-review-lock -->' }, bot, now), false);
+});
 
 test('finds the existing bot advisory to update instead of submitting a duplicate', () => {
   const old = { id: 1, state: 'COMMENTED', user: { login: bot }, commit_id: head, body: '<!-- oddmash-app-review:old -->\nMaintainer review required.' };

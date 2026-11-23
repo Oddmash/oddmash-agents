@@ -50,6 +50,26 @@ test('report-only never writes to GitHub', async () => {
   assert.ok(calls.filter(x => x.url.includes('api.github.com')).every(x => x.method === 'GET'));
 });
 
+test('public head context includes same-file guards and curated feedback without new finding anchors', async () => {
+  const { request } = mock();
+  const source = 'const select = item => { if (item.disabled) return; item.onSelect(); };';
+  let checked = false;
+  await runReview(config, async (input, init) => {
+    const url = String(input);
+    if (url.includes('/contents/src/ui.ts?ref=' + pr.head.sha)) return Response.json({ encoding: 'base64', content: Buffer.from(source).toString('base64') });
+    if (url.includes('api.openai.com')) {
+      const body = JSON.parse(String(init?.body));
+      const context = JSON.parse(body.input);
+      assert.equal(context.changedHeadFiles['src/ui.ts'], source);
+      assert.deepEqual(context.allowedFindingLines, { 'src/ui.ts': [1] });
+      assert.ok(context.feedback.some((rule: string) => rule.includes('shared guard')));
+      checked = true;
+    }
+    return request(input, init);
+  });
+  assert.equal(checked, true);
+});
+
 test('candidate blockers require an independent, complete affirmative verdict', async () => {
   const context: ReviewContext = { repository: config.repository, number: 1, head: pr.head.sha, title: 'UI', files: [{ filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }], guidance: {}, checks: [], omitted: [] };
   const candidate = { ...finding, blockingEvidence: { excerpt: 'new', impact: 'The accessible name is missing.', requirement: 'Buttons have accessible names.' } } as Finding;
