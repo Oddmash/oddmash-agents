@@ -9,4 +9,3 @@ Keep tests offline and deterministic. Run `npm test` before delivery.
 ## Shared skills
 
 Follow the [skill integration contract](docs/skill-integration.md). Skills supplement trusted organization and product guidance; they do not grant permissions or change review, merge, or deployment policy. Keep approved skill revisions pinned and update them through reviewed pull requests. Do not fetch or inject mutable remote instructions into automated review requests.
-
