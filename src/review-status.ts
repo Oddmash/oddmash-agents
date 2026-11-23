@@ -20,6 +20,7 @@ const messages: Record<string, [string, string]> = {
   'branch is not up to date': ['Update the branch against the current base and request a new review.', '현재 기준 브랜치에 맞게 업데이트하고 재리뷰를 요청하세요.'],
   'candidate is not clean': ['GitHub reports that the PR is not ready to merge.', 'GitHub에서 아직 머지 가능한 상태가 아니라고 보고했습니다.'],
   'current required check evidence is incomplete': ['Required CI checks are incomplete or unsuccessful.', '필수 CI 검사가 완료되지 않았거나 실패했습니다.'],
+  'Actions billing or quota block': ['GitHub Actions reports a billing or usage block. Check the workflow run and organization billing settings if authorized, or wait for the next billing cycle. Rerun the existing failed workflow after recovery. Required CI remains enforced.', 'GitHub Actions 결제 또는 사용량 제한이 확인되었습니다. 권한이 있는 경우 워크플로 실행 및 조직 결제 설정을 확인하거나 다음 결제 주기를 기다린 후 기존 실패 워크플로를 재실행하세요. 필수 CI 검사는 유지됩니다.'],
   'required checks failed': ['Required CI checks did not pass. Resolve the failed checks before requesting another review.', '필수 CI 검사가 통과하지 못했습니다. 실패한 검사를 해결한 후 재리뷰를 요청하세요.'],
   'commit statuses are incomplete': ['Commit status checks are incomplete.', '커밋 상태 검사가 완료되지 않았습니다.'],
   'exact-head approval or independent review evidence is incomplete': ['Current approval or required review evidence is incomplete.', '현재 커밋의 승인 또는 필수 리뷰 근거가 부족합니다.'],
@@ -53,8 +54,9 @@ export async function publishAutomationStatus(api: Api, repository: string, numb
     const current = await api<{ state: string; head: { sha: string }; merged?: boolean }>(`/repos/${repository}/pulls/${number}`);
     if (current.head.sha !== head || (!completed && current.state !== 'open')) return;
     const [en, ko] = statusText(kind, reason);
+    const links = reason === 'Actions billing or quota block' ? `\n\n[Workflow runs](https://github.com/${repository}/actions) · [Organization billing](https://github.com/organizations/${repository.split('/')[0]}/settings/billing)` : '';
     const title = completed ? 'Completed' : kind === 'merge' ? 'Auto-merge withheld' : 'Review processing failed';
-    const body = `${marker}\n**${title}**\n\n${en}\n\nCommit: \`${head.slice(0, 12)}\`\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${ko}\n\n</details>`;
+    const body = `${marker}\n**${title}**\n\n${en}${links}\n\nCommit: \`${head.slice(0, 12)}\`\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${ko}\n\n</details>`;
     if (existing?.body === body) return;
     if (existing) await api(`/repos/${repository}/issues/comments/${existing.id}`, { method: 'PATCH', body: JSON.stringify({ body }) });
     else await api(path, { method: 'POST', body: JSON.stringify({ body }) });
