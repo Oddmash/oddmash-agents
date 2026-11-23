@@ -7,6 +7,7 @@ import { authorize, authorizeMerge, reactToComment, type Target } from './webhoo
 import { replyToReview } from './review-discussion.ts';
 import { retryableJobError } from './review-job.ts';
 import { publishAutomationStatus } from './review-status.ts';
+import { actionsQuotaBlocked } from './actions-quota.ts';
 
 type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 export type Review = { id: number; node_id?: string; body: string | null; user: { login: string }; state: string; commit_id: string };
@@ -178,6 +179,11 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     if (approved && (!config.autoMerge || target.private)) return;
     const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
     const checks = await readChecks(pr);
+    if (actionsQuotaBlocked(checks.check_runs)) {
+      if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha);
+      await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'Actions billing or quota block');
+      return;
+    }
     const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks, target.recheck);
     if (approved && !canRetryApprovedMerge(approved, marker)) return;
     if (own.some(review => review.body?.includes(marker))) return;
