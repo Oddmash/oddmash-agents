@@ -6,4 +6,4 @@
 4. Integrate trusted, pinned execution with a per-PR concurrency group. For automation, trigger on PR changes and check completion without ever executing the PR's code in a privileged context. Check head SHA again before posting; add cross-run finding-level deduplication and stale-comment handling before expanding the pilot.
 5. Add Maintainer, Design Auditor and Release Manager as separate advisory modules only after reviewer precision and cost are documented. Developer automation is a separate approval-gated project.
 
-Current limits: CLI only, no webhook/App installation, no live API test, first 100 files with strict review budgets, base guidance capped at 24,000 characters, no skill-reference traversal yet, and one summary comment per head SHA. Manual review remains required.
+Current limits: CLI and manually dispatched Actions, no webhook/App installation, first 100 files with strict review budgets, base guidance capped at 24,000 characters, no skill-reference traversal yet, and deduplicated inline comments per finding and head SHA. Suggestions replace one added line and require human review. Manual review remains required.

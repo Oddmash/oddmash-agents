@@ -6,7 +6,7 @@ Advisory agents for Oddmash products. The first agent, Reviewer, helps maintaine
 
 - Analyzes public, explicitly opted-in open PRs using GitHub's changed-file and check APIs.
 - Uses organization and trusted base-branch root and nested `AGENTS.md` guidance.
-- Produces English, evidence-linked, severity-ranked reports; posting is explicitly enabled and deduplicated per commit.
+- Produces English, evidence-linked, severity-ranked reports and optional inline GitHub Suggested changes; posting is explicitly enabled and deduplicated per finding and commit.
 - Never checks out or executes contributor code, approves, merges, deploys or modifies source.
 
 This is a report-only pilot by default. No GitHub App or production integration has been activated.
