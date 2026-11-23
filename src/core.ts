@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 
 export type ChangedFile = { filename: string; previous_filename?: string; patch?: string; status: string; additions?: number; deletions?: number };
 export type KoreanFinding = { rule: string; evidence: string; recommendation: string; verification: string };
-export type Finding = { path: string; line: number; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium'; rule: string; evidence: string; recommendation: string; verification: string; suggestion?: string; korean?: KoreanFinding };
+export type BlockingEvidence = { excerpt: string; impact: string; requirement: string };
+export type Finding = { path: string; line: number; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium'; rule: string; evidence: string; recommendation: string; verification: string; blockingEvidence?: BlockingEvidence; suggestion?: string; korean?: KoreanFinding };
 export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[] };
 
 export type ReviewDecision = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
@@ -13,9 +14,13 @@ export function checksPassed(checks: ReviewContext['checks']): boolean {
   return checks.every(check => check.conclusion === 'success');
 }
 
+export function isBlockingFinding(context: ReviewContext, finding: Finding): boolean {
+  return finding.confidence === 'high' && ['high', 'medium'].includes(finding.severity) && validatedBlockingEvidence(finding, context.files) !== undefined;
+}
+
 export function reviewAssessment(context: ReviewContext, findings: Finding[], modelValid: boolean): ReviewDecision {
   if (!modelValid || !context.files.length) return 'COMMENT';
-  if (findings.some(finding => finding.confidence === 'high' && ['high', 'medium'].includes(finding.severity))) return 'REQUEST_CHANGES';
+  if (findings.some(finding => isBlockingFinding(context, finding))) return 'REQUEST_CHANGES';
   if (findings.length || context.omitted.length) return 'COMMENT';
   return 'APPROVE';
 }
@@ -99,6 +104,18 @@ function addedLineText(patch: string, target: number): string | undefined {
   }
 }
 
+function validatedBlockingEvidence(finding: Finding, files: ChangedFile[], privateReview = false): BlockingEvidence | undefined {
+  const proof = finding.blockingEvidence;
+  if (!proof || typeof proof !== 'object') return undefined;
+  const fields = [proof.excerpt, proof.impact, proof.requirement];
+  if (!fields.every(value => typeof value === 'string' && value.trim().length > 0 && value.length <= 1000 && !sensitiveValue.test(value) && (!privateReview || !privateSensitiveText(value)))) return undefined;
+  const file = files.find(file => file.filename === finding.path);
+  if (!file || !patchComplete(file)) return undefined;
+  const line = addedLineText(file.patch ?? '', finding.line);
+  if (!line || proof.excerpt.trim() !== line.trim() || proof.excerpt.trim().length < 3) return undefined;
+  return { excerpt: proof.excerpt, impact: proof.impact, requirement: proof.requirement };
+}
+
 export function guidancePaths(files: ChangedFile[]): string[] {
   const paths = new Set(['AGENTS.md']);
   for (const file of files) {
@@ -126,7 +143,8 @@ export function validateFindings(value: unknown, files: ChangedFile[], privateRe
     const suggestion = typeof f.suggestion === 'string' && f.confidence === 'high' && /\.(?:tsx?|jsx?|css|scss)$/.test(f.path) && !/(?:^|\/)(?:\.github|scripts|server|auth|security)(?:\/|$)/i.test(f.path) && !/security|privacy|credential|authorization|authentication/i.test(f.rule) && f.suggestion.trim().length > 0 && f.suggestion.length <= 1000 && f.suggestion.split('\n').length <= 8 && !/```|[\u0000-\u0008\u000b-\u001f\u007f]/.test(f.suggestion) && !sensitiveValue.test(f.suggestion) && (!privateReview || !privateSensitiveText(f.suggestion)) && original !== undefined && f.suggestion !== original ? f.suggestion : undefined;
     const korean = f.korean;
     const translated = korean && typeof korean === 'object' && [korean.rule, korean.evidence, korean.recommendation, korean.verification].every(x => typeof x === 'string' && x.trim().length > 0 && x.length <= 1000 && !sensitiveValue.test(x) && (!privateReview || !privateSensitiveText(x)) && /[가-힣]/.test(x)) ? { rule: korean.rule, evidence: korean.evidence, recommendation: korean.recommendation, verification: korean.verification } : undefined;
-    result.push({ path: f.path, line: f.line, severity: f.severity, confidence: f.confidence, rule: f.rule, evidence: f.evidence, recommendation: f.recommendation, verification: f.verification, ...(suggestion ? { suggestion } : {}), ...(translated ? { korean: translated } : {}) });
+    const blockingEvidence = validatedBlockingEvidence(f, files, privateReview);
+    result.push({ path: f.path, line: f.line, severity: f.severity, confidence: f.confidence, rule: f.rule, evidence: f.evidence, recommendation: f.recommendation, verification: f.verification, ...(blockingEvidence ? { blockingEvidence } : {}), ...(suggestion ? { suggestion } : {}), ...(translated ? { korean: translated } : {}) });
   }
   return result;
 }
@@ -146,12 +164,13 @@ const koreanText = (value: string) => clean(value).replace(/[\[\]`*_!]/g, match 
 const koreanDetails = (lines: string[]) => ['<details>', '<summary>한국어 (Korean)</summary>', '', ...lines, '', '</details>'].join('\n');
 
 export function inlineComment(context: ReviewContext, finding: Finding): string {
-  const lines = [findingMarker(context, finding), `**${finding.severity.toUpperCase()}: ${clean(finding.rule)}**`, '', clean(finding.evidence), '', `Fix: ${clean(finding.recommendation)}`];
+  const blocking = isBlockingFinding(context, finding);
+  const lines = [findingMarker(context, finding), `**${blocking ? 'BLOCKING' : 'ADVISORY'} / ${finding.severity.toUpperCase()}: ${clean(finding.rule)}**`, '', clean(finding.evidence), '', `${blocking ? 'Fix' : 'Consider'}: ${clean(finding.recommendation)}`];
   if (finding.severity === 'high') lines.push('', `Verify: ${clean(finding.verification)}`);
   if (finding.suggestion) lines.push('', '```suggestion', finding.suggestion, '```');
   if (finding.korean) {
     const ko = finding.korean;
-    const translated = [koreanText(ko.rule), '', koreanText(ko.evidence), '', `수정: ${koreanText(ko.recommendation)}`];
+    const translated = [koreanText(ko.rule), '', koreanText(ko.evidence), '', `${blocking ? '수정' : '제안'}: ${koreanText(ko.recommendation)}`];
     if (finding.severity === 'high') translated.push('', `확인: ${koreanText(ko.verification)}`);
     lines.push('', koreanDetails(translated));
   }
@@ -162,12 +181,12 @@ export function formatReport(context: ReviewContext, findings: Finding[], modelV
   const lines = [reviewMarker(context)];
   if (!findings.length) lines.push('No validated findings in the reviewed changes. This is not an approval or proof of correctness.');
   for (const f of findings) {
-    lines.push(`- **${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.recommendation)}`);
+    lines.push(`- **${isBlockingFinding(context, f) ? 'BLOCKING' : 'ADVISORY'} / ${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.recommendation)}`);
   }
   if (context.omitted.length) lines.push('Some changes require manual review.');
   if (!context.files.length) lines.push('No changed file could be reviewed.');
   else if (!modelValid) lines.push('The review response contained findings that could not be validated against the changed lines.');
-  const translated = findings.filter(f => f.korean).map(f => `- **${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.recommendation)}`);
+  const translated = findings.filter(f => f.korean).map(f => `- **${isBlockingFinding(context, f) ? '수정 필수' : '참고 의견'} / ${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.recommendation)}`);
   if (!findings.length) translated.push('검토한 변경 사항에서 확인된 문제는 없습니다. 승인 또는 정확성을 보장하지 않습니다.');
   if (context.omitted.length) translated.push('일부 변경 사항은 수동 검토가 필요합니다.');
   if (!context.files.length) translated.push('검토할 수 있는 변경 파일이 없습니다.');

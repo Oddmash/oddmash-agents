@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runReview } from '../src/reviewer.ts';
+import { confirmBlockingFindings, runReview } from '../src/reviewer.ts';
+import { reviewAssessment, type Finding, type ReviewContext } from '../src/core.ts';
 
 const config = { repository: 'Oddmash/example', number: 1, githubToken: 'fixture', openaiKey: 'fixture', model: 'fixture', post: false, allowedRepositories: ['Oddmash/example'] };
 const pr = { title: 'UI change', state: 'open', draft: false, base: { sha: 'a'.repeat(40), repo: { private: false, full_name: config.repository } }, head: { sha: 'b'.repeat(40) }, changed_files: 1 };
@@ -9,6 +10,7 @@ const mock = (options: { private?: boolean; exhausted?: boolean; findings?: bool
   const calls: { url: string; method: string; body?: string }[] = [];
   let prReads = 0;
   let postedBody = '';
+  let postedReview = '';
   const request = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, method: init?.method ?? 'GET', body: typeof init?.body === 'string' ? init.body : undefined });
@@ -30,7 +32,10 @@ const mock = (options: { private?: boolean; exhausted?: boolean; findings?: bool
       return new Response('', { status: 404 });
     }
     if (url.includes('/comments?')) return Response.json(postedBody ? [{ body: postedBody }] : []);
-    if (url.endsWith('/comments') && init?.method === 'POST') { assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer fixture'); postedBody = JSON.parse(String(init.body)).body; return Response.json({ id: 1 }); }
+    if (url.includes('/reviews?')) return Response.json(postedReview ? [{ id: 1, body: postedReview, state: 'COMMENTED', commit_id: pr.head.sha, user: { id: 2 } }] : []);
+    if (url.endsWith('/reviews') && init?.method === 'POST') { assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer fixture'); const payload = JSON.parse(String(init.body)); postedBody = payload.comments[0].body; postedReview = payload.body; return Response.json({ id: 1 }); }
+    if (url.endsWith('/user')) return Response.json({ id: 2 });
+    if (url.endsWith('/reviews/1') && init?.method === 'PUT') { postedReview = JSON.parse(String(init.body)).body; return Response.json({ id: 1 }); }
     if (url.endsWith('/pulls/1')) { prReads++; return Response.json({ ...pr, head: options.stale && prReads > 1 ? { sha: 'c'.repeat(40) } : pr.head, base: { ...pr.base, repo: { ...pr.base.repo, private: options.private ?? false } } }); }
     throw new Error('Unexpected request');
   };
@@ -43,6 +48,26 @@ test('report-only never writes to GitHub', async () => {
   assert.equal(result.posted, false);
   assert.match(result.report, /No validated findings/);
   assert.ok(calls.filter(x => x.url.includes('api.github.com')).every(x => x.method === 'GET'));
+});
+
+test('candidate blockers require an independent, complete affirmative verdict', async () => {
+  const context: ReviewContext = { repository: config.repository, number: 1, head: pr.head.sha, title: 'UI', files: [{ filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }], guidance: {}, checks: [], omitted: [] };
+  const candidate = { ...finding, blockingEvidence: { excerpt: 'new', impact: 'The accessible name is missing.', requirement: 'Buttons have accessible names.' } } as Finding;
+  const reply = (verdicts: unknown): typeof fetch => async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.text.format.name, 'oddmash_blocker_confirmation');
+    assert.equal(JSON.parse(body.input).candidates.length, 1);
+    return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ verdicts }) }] }] });
+  };
+  const approved = await confirmBlockingFindings(context, [candidate], config, reply([{ index: 0, confirmed: true }]));
+  assert.equal(reviewAssessment(context, approved, true), 'REQUEST_CHANGES');
+  for (const result of [[{ index: 0, confirmed: false }], [{ index: 1, confirmed: true }], []]) {
+    const reviewed = await confirmBlockingFindings(context, [candidate], config, reply(result));
+    assert.equal(reviewAssessment(context, reviewed, true), 'COMMENT');
+  }
+  const failed = await confirmBlockingFindings(context, [candidate], config, async () => new Response(null, { status: 429 }));
+  assert.equal(reviewAssessment(context, failed, true), 'COMMENT');
+  await confirmBlockingFindings(context, [finding as Finding], config, async () => { throw new Error('Advisory findings must not call the model again'); });
 });
 
 test('issue acceptance sends explicit zero-based criterion IDs and validates exact evidence', async () => {
@@ -77,12 +102,14 @@ test('posts a suggested change on the exact right-side line and skips repeat fin
   const post = calls.find(x => x.method === 'POST' && x.url.includes('api.github.com'));
   assert.ok(post?.body);
   const payload = JSON.parse(post.body);
-  assert.equal(payload.path, 'src/ui.ts');
-  assert.equal(payload.line, 1);
-  assert.equal(payload.side, 'RIGHT');
+  assert.equal(payload.event, 'COMMENT');
+  assert.equal(payload.comments.length, 1);
+  assert.equal(payload.comments[0].path, 'src/ui.ts');
+  assert.equal(payload.comments[0].line, 1);
+  assert.equal(payload.comments[0].side, 'RIGHT');
   assert.equal(payload.commit_id, pr.head.sha);
-  assert.match(payload.body, /```suggestion\nconst label = "Open";\n```/);
-  assert.match(payload.body, /<summary>한국어 \(Korean\)<\/summary>/);
+  assert.match(payload.comments[0].body, /```suggestion\nconst label = "Open";\n```/);
+  assert.match(payload.comments[0].body, /<summary>한국어 \(Korean\)<\/summary>/);
   const second = await runReview({ ...config, post: true }, request);
   assert.equal(second.posted, false);
   assert.equal(calls.filter(x => x.method === 'POST' && x.url.includes('api.github.com')).length, 1);
@@ -93,6 +120,15 @@ test('never posts after head changes', async () => {
   const result = await runReview({ ...config, post: true }, request);
   assert.equal(result.posted, false);
   assert.ok(calls.filter(x => x.url.includes('api.github.com')).every(x => x.method === 'GET'));
+});
+
+test('refreshes an existing CLI advisory without creating another review when findings disappear', async () => {
+  const { request, calls } = mock({ findings: true });
+  await runReview({ ...config, post: true }, request);
+  const result = await runReview({ ...config, post: true }, async (input, init) => String(input).includes('api.openai.com') ? Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: [] }) }] }] }) : request(input, init));
+  assert.equal(result.posted, true);
+  assert.equal(calls.filter(call => call.method === 'POST' && call.url.includes('api.github.com')).length, 1);
+  assert.equal(calls.filter(call => call.method === 'PUT' && call.url.endsWith('/reviews/1')).length, 1);
 });
 
 test('approved private review uses scoped auth and excludes private sensitive data from model input', async () => {

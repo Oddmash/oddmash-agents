@@ -2,7 +2,7 @@ import { runReview } from './reviewer.ts';
 import { formatReviewBody } from './core.ts';
 import { publicRepositories as repositories, reviewTarget } from './routing.ts';
 import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvidence } from './checks.ts';
-import { acquirePendingReview, existingAdvisoryReview, reviewFingerprint, type Review } from './webhook-review.ts';
+import { acquirePendingReview, attachReviewFindings, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, type Review } from './webhook-review.ts';
 
 const target = reviewTarget(process.env.REVIEW_REPOSITORY ?? '', process.env.REVIEW_PR_NUMBER ?? '');
 const githubToken = process.env.GITHUB_TOKEN ?? '';
@@ -31,6 +31,7 @@ for (const repository of repositories) {
     const path = `${root}/pulls/${pr.number}`;
     const reviews = await api<Review[]>(`${path}/reviews?per_page=100`);
     if (reviews.length === 100) continue;
+    if (hasOfficialReview(reviews, bot)) continue;
     const own = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha);
     if (own.some(review => review.state === 'APPROVED' || review.state === 'CHANGES_REQUESTED')) continue;
     const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
@@ -44,7 +45,7 @@ for (const repository of repositories) {
     let submitted = false;
     try {
     processed++;
-    const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model: process.env.OPENAI_MODEL ?? 'gpt-5.4', post: true, allowedRepositories: repositories });
+    const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model: process.env.OPENAI_MODEL ?? 'gpt-5.4', post: false, allowedRepositories: repositories });
     const current = await api<Pull>(path);
     if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft) continue;
     const finalChecks = await readChecks(current);
@@ -55,9 +56,12 @@ for (const repository of repositories) {
     const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks);
     const body = formatReviewBody(event, finalMarker, result.report, current.user);
     const advisory = event === 'COMMENT' ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
-    if (advisory) {
+    const attachedCount = event !== 'APPROVE' ? await attachReviewFindings(api, path, pendingId, result.head, bot, result.comments) : 0;
+    if (advisory && !attachedCount) {
       if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
     } else {
+      const beforeSubmit = await api<Pull>(path);
+      if (beforeSubmit.head.sha !== result.head || beforeSubmit.base.sha !== current.base.sha || beforeSubmit.merge_commit_sha !== current.merge_commit_sha || beforeSubmit.state !== 'open' || beforeSubmit.draft || beforeSubmit.base.repo.private || beforeSubmit.base.repo.full_name !== repository) continue;
       await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) });
       submitted = true;
     }
