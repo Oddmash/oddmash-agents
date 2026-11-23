@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 export type ChangedFile = { filename: string; previous_filename?: string; patch?: string; status: string; additions?: number; deletions?: number };
 export type KoreanFinding = { rule: string; evidence: string; recommendation: string; verification: string };
 export type BlockingEvidence = { excerpt: string; impact: string; requirement: string };
-export type Finding = { path: string; line: number; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium'; rule: string; evidence: string; recommendation: string; verification: string; blockingEvidence?: BlockingEvidence; suggestion?: string; korean?: KoreanFinding };
-export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[] };
+export type Finding = { path: string; line: number; side?: 'LEFT' | 'RIGHT'; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium'; rule: string; evidence: string; recommendation: string; verification: string; blockingEvidence?: BlockingEvidence; suggestion?: string; korean?: KoreanFinding };
+export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[]; relatedBaseFiles?: Record<string, string>; changedHeadFiles?: Record<string, string>; focus?: string[]; feedback?: string[] };
 
 export type ReviewDecision = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
 
@@ -93,6 +93,19 @@ export function addedLines(patch: string): Set<number> {
   return lines;
 }
 
+export function deletedLines(patch: string): Set<number> {
+  const lines = new Set<number>();
+  let position = 0;
+  for (const line of patch.split('\n')) {
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@/.exec(line);
+    if (hunk) { position = Number(hunk[1]); continue; }
+    if (!position) continue;
+    if (line.startsWith('-')) { lines.add(position); position++; }
+    else if (line.startsWith(' ')) position++;
+  }
+  return lines;
+}
+
 function addedLineText(patch: string, target: number): string | undefined {
   let position = 0;
   for (const line of patch.split('\n')) {
@@ -105,6 +118,7 @@ function addedLineText(patch: string, target: number): string | undefined {
 }
 
 function validatedBlockingEvidence(finding: Finding, files: ChangedFile[], privateReview = false): BlockingEvidence | undefined {
+  if (finding.side === 'LEFT') return undefined;
   const proof = finding.blockingEvidence;
   if (!proof || typeof proof !== 'object') return undefined;
   const fields = [proof.excerpt, proof.impact, proof.requirement];
@@ -128,15 +142,17 @@ export function guidancePaths(files: ChangedFile[]): string[] {
 export function validateFindings(value: unknown, files: ChangedFile[], privateReview = false): Finding[] {
   if (!Array.isArray(value)) throw new Error('Invalid findings response');
   const known = new Map(files.map(file => [file.filename, addedLines(file.patch ?? '')]));
+  const removed = new Map(files.map(file => [file.filename, deletedLines(file.patch ?? '')]));
   const unique = new Set<string>();
   const result: Finding[] = [];
   for (const item of value.slice(0, 12)) {
     if (!item || typeof item !== 'object') continue;
     const f = item as Finding;
-    if (typeof f.path !== 'string' || !Number.isInteger(f.line) || !known.get(f.path)?.has(f.line)) continue;
+    if (f.side !== undefined && f.side !== 'LEFT' && f.side !== 'RIGHT') continue;
+    if (typeof f.path !== 'string' || !Number.isInteger(f.line) || !(f.side === 'LEFT' ? removed : known).get(f.path)?.has(f.line)) continue;
     if (!['high', 'medium', 'low'].includes(f.severity) || !['high', 'medium'].includes(f.confidence)) continue;
     if (![f.rule, f.evidence, f.recommendation, f.verification].every(x => typeof x === 'string' && x.trim().length > 0 && x.length <= 1000 && !sensitiveValue.test(x) && (!privateReview || !privateSensitiveText(x)))) continue;
-    const key = `${f.path}:${f.line}:${f.rule.toLowerCase().trim()}`;
+    const key = `${f.path}:${f.side ?? 'RIGHT'}:${f.line}:${f.rule.toLowerCase().trim()}`;
     if (unique.has(key)) continue;
     unique.add(key);
     const original = addedLineText(files.find(file => file.filename === f.path)?.patch ?? '', f.line);
@@ -144,7 +160,7 @@ export function validateFindings(value: unknown, files: ChangedFile[], privateRe
     const korean = f.korean;
     const translated = korean && typeof korean === 'object' && [korean.rule, korean.evidence, korean.recommendation, korean.verification].every(x => typeof x === 'string' && x.trim().length > 0 && x.length <= 1000 && !sensitiveValue.test(x) && (!privateReview || !privateSensitiveText(x)) && /[가-힣]/.test(x)) ? { rule: korean.rule, evidence: korean.evidence, recommendation: korean.recommendation, verification: korean.verification } : undefined;
     const blockingEvidence = validatedBlockingEvidence(f, files, privateReview);
-    result.push({ path: f.path, line: f.line, severity: f.severity, confidence: f.confidence, rule: f.rule, evidence: f.evidence, recommendation: f.recommendation, verification: f.verification, ...(blockingEvidence ? { blockingEvidence } : {}), ...(suggestion ? { suggestion } : {}), ...(translated ? { korean: translated } : {}) });
+    result.push({ path: f.path, line: f.line, ...(f.side === 'LEFT' ? { side: 'LEFT' as const } : {}), severity: f.severity, confidence: f.confidence, rule: f.rule, evidence: f.evidence, recommendation: f.recommendation, verification: f.verification, ...(blockingEvidence ? { blockingEvidence } : {}), ...(suggestion && f.side !== 'LEFT' ? { suggestion } : {}), ...(translated ? { korean: translated } : {}) });
   }
   return result;
 }
@@ -156,7 +172,7 @@ export function reviewMarker(context: ReviewContext): string {
 }
 
 export function findingMarker(context: ReviewContext, finding: Finding): string {
-  const id = createHash('sha256').update(`${context.repository}:${context.number}:${context.head}:${finding.path}:${finding.line}:${finding.rule.toLowerCase().trim()}`).digest('hex').slice(0, 24);
+  const id = createHash('sha256').update(`${context.repository}:${context.number}:${context.head}:${finding.path}:${finding.side === 'LEFT' ? 'LEFT:' : ''}${finding.line}:${finding.rule.toLowerCase().trim()}`).digest('hex').slice(0, 24);
   return `<!-- oddmash-finding:${id} -->`;
 }
 

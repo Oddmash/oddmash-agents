@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eligiblePull, linkedIssue, acceptanceOf, lowRisk, acceptanceSatisfied, protectedBranch, mergeAuthorized, type MergePull, type Candidate } from '../src/auto-merge.ts';
+import { eligiblePull, linkedIssue, acceptanceOf, lowRisk, acceptanceSatisfied, protectedBranch, mergeAuthorized, mergeProof, type MergePull, type Candidate } from '../src/auto-merge.ts';
 import { githubApi, mergeRepositoryAllowed } from '../src/webhook.ts';
 
 const target = { installation: 1, repository: 'Oddmash/kowrap', repositoryId: 42 };
@@ -11,6 +11,16 @@ const issue = { number: 9, state: 'open', user, body: '## Acceptance criteria\n\
 const files = [{ filename: 'docs/example.md', status: 'modified', patch: '@@ -1 +1,2 @@\n-old\n+example\n+output' }];
 const branch = { protected: true, commit: { sha: base }, protection: { enabled: true, required_status_checks: { enforcement_level: 'everyone', checks: [{ context: 'verify', app_id: 15368 }] } } };
 const candidate: Candidate = { pull: pr, acceptance: acceptanceOf(issue)! };
+
+test('merge retry proof binds approval to the exact PR, head, base, merge commit and issue', () => {
+  const marker = mergeProof(candidate);
+  assert.equal(marker, mergeProof({ ...candidate }));
+  assert.notEqual(marker, mergeProof({ ...candidate, pull: { ...pr, number: 11 } }));
+  assert.notEqual(marker, mergeProof({ ...candidate, pull: { ...pr, head: { ...pr.head, sha: 'd'.repeat(40) } } }));
+  assert.notEqual(marker, mergeProof({ ...candidate, pull: { ...pr, base: { ...pr.base, sha: 'd'.repeat(40) } } }));
+  assert.notEqual(marker, mergeProof({ ...candidate, pull: { ...pr, merge_commit_sha: 'd'.repeat(40) } }));
+  assert.notEqual(marker, mergeProof({ ...candidate, acceptance: { ...candidate.acceptance, digest: 'changed' } }));
+});
 
 test('only maintainer-owned same-repository eligible main PRs are candidates', () => {
   assert.equal(eligiblePull(pr, target), true);

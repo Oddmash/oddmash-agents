@@ -46,6 +46,7 @@ jobs:
           REVIEWER_APP_SLUG: ${{ vars.REVIEWER_APP_SLUG || secrets.REVIEWER_APP_SLUG }}
           REVIEWER_APP_ENABLED: ${{ vars.REVIEWER_APP_ENABLED || secrets.REVIEWER_APP_ENABLED }}
           REVIEWER_WEBHOOK_SECRET: ${{ secrets.REVIEWER_WEBHOOK_SECRET }}
+          REVIEWER_QUEUE_ENABLED: ${{ vars.REVIEWER_QUEUE_ENABLED || 'false' }}
           REVIEWER_AUTO_MERGE_ENABLED: ${{ vars.REVIEWER_AUTO_MERGE_ENABLED || 'true' }}
         run: node scripts/sync-vercel-env.mjs
       - name: Pull production settings
