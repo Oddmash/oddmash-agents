@@ -37,6 +37,12 @@ export function statusText(kind: Kind, reason: string): [string, string] {
   return kind === 'merge' ? ['Automatic merge could not complete. Check the current PR requirements and retry or merge manually.', '자동 머지를 완료하지 못했습니다. 현재 PR 조건을 확인하고 재시도하거나 수동 머지하세요.'] : ['Review processing failed. Request a new review or check the service logs.', '리뷰 처리에 실패했습니다. 재리뷰를 요청하거나 서비스 로그를 확인하세요.'];
 }
 
+export function billingHelpLink(repository: string): string {
+  return /^Oddmash\/[A-Za-z0-9_.-]+$/i.test(repository)
+    ? '[Organization billing (authorized maintainers)](https://github.com/organizations/Oddmash/settings/billing)'
+    : '[GitHub Actions billing guidance](https://docs.github.com/en/billing/concepts/product-billing/github-actions)';
+}
+
 export async function publishAutomationStatus(api: Api, repository: string, number: number, bot: string, head: string, kind: Kind, reason: string, completed = false, workflowRunUrl?: string) {
   if (!/^[a-f0-9]{40}$/i.test(head)) return;
   const marker = `<!-- oddmash-automation-status:${kind} -->`;
@@ -54,7 +60,7 @@ export async function publishAutomationStatus(api: Api, repository: string, numb
     const current = await api<{ state: string; head: { sha: string }; merged?: boolean }>(`/repos/${repository}/pulls/${number}`);
     if (current.head.sha !== head || (!completed && current.state !== 'open')) return;
     const [en, ko] = statusText(kind, reason);
-    const links = reason === 'Actions billing or quota block' ? `\n\n[Workflow run${workflowRunUrl ? '' : 's'}](${workflowRunUrl ?? `https://github.com/${repository}/actions`}) · [Organization billing](https://github.com/organizations/${repository.split('/')[0]}/settings/billing)` : '';
+    const links = reason === 'Actions billing or quota block' ? `\n\n[Workflow run${workflowRunUrl ? '' : 's'}](${workflowRunUrl ?? `https://github.com/${repository}/actions`}) · ${billingHelpLink(repository)}` : '';
     const title = completed ? 'Completed' : kind === 'merge' ? 'Auto-merge withheld' : 'Review processing failed';
     const body = `${marker}\n**${title}**\n\n${en}${links}\n\nCommit: \`${head.slice(0, 12)}\`\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${ko}\n\n</details>`;
     if (existing?.body === body) return;
