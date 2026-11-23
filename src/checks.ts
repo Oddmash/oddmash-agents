@@ -14,8 +14,8 @@ const reviewProfiles: Readonly<Record<string, { workflow: string; names: readonl
 
 function requiredReviewChecks(evidence: CheckEvidence, repository?: string): Check[][] {
   const profile = repository && Object.hasOwn(reviewProfiles, repository) ? reviewProfiles[repository] : undefined;
-  if (profile) return profile.names.map(name => evidence.check_runs.filter(check => check.app?.id === 15368 && (check.name === name || check.name === `${profile.workflow} / ${name}`)));
-  return [evidence.check_runs.filter(check => /^(?:CI \/ )?verify$/.test(check.name) && (check.app === undefined || check.app.id === 15368))];
+  if (profile) return [...profile.names, 'verify'].map(name => evidence.check_runs.filter(check => check.app?.id === 15368 && (check.name === name || check.name === `${profile.workflow} / ${name}`)));
+  return [evidence.check_runs.filter(check => /^(?:CI \/ )?verify$/.test(check.name) && check.app?.id === 15368)];
 }
 
 export function reviewChecksReady(evidence: CheckEvidence, repository?: string): boolean {
