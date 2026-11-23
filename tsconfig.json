@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rewriteRelativeImportExtensions": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
+    "strict": false
+  },
+  "include": [
+    "api/**/*.ts",
+    "src/**/*.ts",
+    "tests/**/*.ts"
+  ]
+}
