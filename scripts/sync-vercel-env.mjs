@@ -13,6 +13,7 @@ const entries = [
   { key: 'REVIEWER_APP_ID', value: process.env.REVIEWER_APP_ID, type: 'plain' },
   { key: 'REVIEWER_APP_SLUG', value: process.env.REVIEWER_APP_SLUG, type: 'plain' },
   ...(webhook ? [{ key: 'REVIEWER_WEBHOOK_SECRET', value: webhook, type: 'sensitive' }] : []),
+  { key: 'REVIEWER_AUTO_MERGE_ENABLED', value: process.env.REVIEWER_AUTO_MERGE_ENABLED === 'true' ? 'true' : 'false', type: 'plain' },
   { key: 'REVIEWER_APP_ENABLED', value: webhook && process.env.REVIEWER_APP_ENABLED === 'true' ? 'true' : 'false', type: 'plain' }
 ];
 for (const entry of entries) {

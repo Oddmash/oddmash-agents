@@ -50,3 +50,13 @@ export async function authorize(target: Target, appId: string, key: string, requ
   if (!publicOddmash(repository) || repository.id !== target.repositoryId || repository.full_name !== target.repository) throw new Error('Repository not eligible');
   return { api, token: result.token };
 }
+
+export async function authorizeMerge(target: Target, appId: string, key: string, request: typeof fetch = fetch) {
+  if (!['Oddmash/kowrap', 'Oddmash/oddmash-ui', 'Oddmash/interaction-inspector', 'Oddmash/Vertactics'].includes(target.repository) || !positive(target.repositoryId)) throw new Error('Merge target not eligible');
+  const jwtApi = githubApi(appJwt(appId, key), request);
+  const installation = await jwtApi<{ account: { login: string }; suspended_at: string | null }>('/app/installations/' + target.installation);
+  if (installation.account.login.toLowerCase() !== 'oddmash' || installation.suspended_at) throw new Error('Installation not eligible');
+  const result = await jwtApi<{ token: string; permissions: { contents?: string } }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [target.repositoryId], permissions: { contents: 'write' } }) });
+  if (result.permissions.contents !== 'write') throw new Error('Merge permission missing');
+  return githubApi(result.token, request);
+}
