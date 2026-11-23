@@ -84,17 +84,18 @@ export function acceptanceSatisfied(value: unknown, acceptance: Acceptance | und
   return seen.size === acceptance.criteria.length;
 }
 
-export async function mergeCandidate(api: Api, target: Target, number: number): Promise<Candidate | null> {
+export async function mergeCandidate(api: Api, target: Target, number: number, withheld: (reason: string) => void = () => {}): Promise<Candidate | null> {
+  const deny = (reason: string) => { withheld(reason); return null; };
   const root = '/repos/' + target.repository;
   const pr = await api<MergePull>(root + '/pulls/' + number);
-  if (!eligiblePull(pr, target)) return null;
+  if (!eligiblePull(pr, target)) return deny('ineligible author, repository, or branch');
   const issueNumber = linkedIssue(pr.body);
-  if (!issueNumber || issueNumber === number) return null;
+  if (!issueNumber || issueNumber === number) return deny('missing single closing issue link');
   const issue = await api<Issue>(root + '/issues/' + issueNumber);
   const acceptance = acceptanceOf(issue);
-  if (!acceptance || acceptance.issue !== issueNumber) return null;
+  if (!acceptance || acceptance.issue !== issueNumber) return deny('issue acceptance criteria are ineligible');
   const files = await api<ChangedFile[]>(root + '/pulls/' + number + '/files?per_page=100');
-  if (!lowRisk(files, pr.changed_files, target.repository)) return null;
+  if (!lowRisk(files, pr.changed_files, target.repository)) return deny('changed paths or review budget are ineligible');
   return { pull: pr, acceptance };
 }
 
@@ -103,32 +104,33 @@ export function protectedBranch(branch: Branch, base: string): boolean {
   return branch.protected === true && branch.commit.sha === base && p?.enabled === true && p.required_status_checks?.enforcement_level === 'everyone' && !!p.required_status_checks.checks?.some(c => c.context === 'verify' && c.app_id === 15368);
 }
 
-export async function mergeAuthorized(api: Api, target: Target, candidate: Candidate, bot: string, reviewId: number, issueVerified: boolean, mint: () => Promise<Api>): Promise<boolean> {
-  if (!issueVerified) return false;
+export async function mergeAuthorized(api: Api, target: Target, candidate: Candidate, bot: string, reviewId: number, issueVerified: boolean, mint: () => Promise<Api>, withheld: (reason: string) => void = () => {}): Promise<boolean> {
+  const deny = (reason: string) => { withheld(reason); return false; };
+  if (!issueVerified) return deny('issue evidence not verified');
   const root = '/repos/' + target.repository;
   const number = candidate.pull.number;
   const current = await mergeCandidate(api, target, number);
-  if (!current || current.acceptance.digest !== candidate.acceptance.digest || current.pull.head.sha !== candidate.pull.head.sha || current.pull.base.sha !== candidate.pull.base.sha || current.pull.merge_commit_sha !== candidate.pull.merge_commit_sha || current.pull.mergeable !== true || current.pull.mergeable_state !== 'clean') return false;
+  if (!current || current.acceptance.digest !== candidate.acceptance.digest || current.pull.head.sha !== candidate.pull.head.sha || current.pull.base.sha !== candidate.pull.base.sha || current.pull.merge_commit_sha !== candidate.pull.merge_commit_sha || current.pull.mergeable !== true || current.pull.mergeable_state !== 'clean') return deny('candidate changed or is not clean');
   const branch = await api<Branch>(root + '/branches/main');
-  if (!protectedBranch(branch, current.pull.base.sha)) return false;
+  if (!protectedBranch(branch, current.pull.base.sha)) return deny('required branch protection unavailable');
   const compare = await api<{ behind_by: number; merge_base_commit: { sha: string } }>(root + '/compare/' + current.pull.base.sha + '...' + current.pull.head.sha);
-  if (compare.behind_by !== 0 || compare.merge_base_commit.sha !== current.pull.base.sha) return false;
+  if (compare.behind_by !== 0 || compare.merge_base_commit.sha !== current.pull.base.sha) return deny('branch is not up to date');
   const reviews = await api<Review[]>(root + '/pulls/' + number + '/reviews?per_page=100');
-  if (reviews.length >= 100 || !reviews.some(r => r.id === reviewId && r.user.login === bot && r.state === 'APPROVED' && r.commit_id === current.pull.head.sha) || reviews.some(r => r.user.login !== bot && r.commit_id === current.pull.head.sha && r.state === 'COMMENTED' && !!r.body?.trim()) || reviews.some(r => r.state === 'CHANGES_REQUESTED' && !reviews.some(later => later.id > r.id && later.user.id === r.user.id && ['APPROVED', 'DISMISSED'].includes(later.state)))) return false;
+  if (reviews.length >= 100 || !reviews.some(r => r.id === reviewId && r.user.login === bot && r.state === 'APPROVED' && r.commit_id === current.pull.head.sha) || reviews.some(r => r.user.login !== bot && r.commit_id === current.pull.head.sha && r.state === 'COMMENTED' && !!r.body?.trim()) || reviews.some(r => r.state === 'CHANGES_REQUESTED' && !reviews.some(later => later.id > r.id && later.user.id === r.user.id && ['APPROVED', 'DISMISSED'].includes(later.state)))) return deny('exact-head approval or independent review evidence is incomplete');
   const checks = await loadCheckEvidence(current.pull.head.sha, current.pull.merge_commit_sha, ref => api<CheckEvidence>(root + '/commits/' + ref + '/check-runs?per_page=100'));
-  if (!checks.total_count || checks.total_count !== checks.check_runs.length || !checksPassed(checks.check_runs) || !checks.check_runs.some(c => c.name === 'verify' && c.conclusion === 'success' && c.status === 'completed' && c.app?.id === 15368)) return false;
+  if (!checks.total_count || checks.total_count !== checks.check_runs.length || !checksPassed(checks.check_runs) || !checks.check_runs.some(c => c.name === 'verify' && c.conclusion === 'success' && c.status === 'completed' && c.app?.id === 15368)) return deny('current required check evidence is incomplete');
   for (const ref of [current.pull.head.sha, current.pull.merge_commit_sha!]) {
     const status = await api<{ total_count: number; state: string; statuses: unknown[] }>(root + '/commits/' + ref + '/status');
-    if (status.total_count !== status.statuses.length || (status.total_count > 0 && status.state !== 'success')) return false;
+    if (status.total_count !== status.statuses.length || (status.total_count > 0 && status.state !== 'success')) return deny('commit statuses are incomplete');
   }
   const final = await api<MergePull>(root + '/pulls/' + number);
-  if (!eligiblePull(final, target) || final.head.sha !== current.pull.head.sha || final.base.sha !== current.pull.base.sha || final.merge_commit_sha !== current.pull.merge_commit_sha || final.mergeable_state !== 'clean' || final.mergeable !== true || linkedIssue(final.body) !== current.acceptance.issue) return false;
+  if (!eligiblePull(final, target) || final.head.sha !== current.pull.head.sha || final.base.sha !== current.pull.base.sha || final.merge_commit_sha !== current.pull.merge_commit_sha || final.mergeable_state !== 'clean' || final.mergeable !== true || linkedIssue(final.body) !== current.acceptance.issue) return deny('final PR state changed');
   const finalIssue = acceptanceOf(await api<Issue>(root + '/issues/' + current.acceptance.issue));
-  if (!finalIssue || finalIssue.digest !== current.acceptance.digest) return false;
+  if (!finalIssue || finalIssue.digest !== current.acceptance.digest) return deny('issue changed during review');
   const writer = await mint();
   try {
     const merged = await writer<{ merged: boolean }>(root + '/pulls/' + number + '/merge', { method: 'PUT', body: JSON.stringify({ sha: final.head.sha, merge_method: 'merge' }) });
-    return merged.merged === true;
+    return merged.merged === true || deny('GitHub did not merge the PR');
   } finally {
     try { await writer('/installation/token', { method: 'DELETE' }); } catch { console.error('Merge token revocation failed'); }
   }
