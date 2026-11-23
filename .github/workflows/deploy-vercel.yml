@@ -6,6 +6,7 @@ on:
     paths:
       - 'api/**'
       - 'src/**'
+      - 'scripts/sync-vercel-env.mjs'
       - 'package.json'
       - 'tsconfig.json'
       - 'vercel.json'
@@ -36,6 +37,16 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm install -g "vercel@$VERCEL_CLI_VERSION"
+      - name: Sync authorized reviewer configuration
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          REVIEWER_APP_PRIVATE_KEY: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
+          REVIEWER_APP_ID: ${{ vars.REVIEWER_APP_ID }}
+          REVIEWER_APP_SLUG: ${{ vars.REVIEWER_APP_SLUG }}
+          REVIEWER_APP_ENABLED: ${{ vars.REVIEWER_APP_ENABLED }}
+          REVIEWER_WEBHOOK_SECRET: ${{ secrets.REVIEWER_WEBHOOK_SECRET }}
+        run: node scripts/sync-vercel-env.mjs
       - name: Pull production settings
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -56,6 +67,7 @@ jobs:
         env:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+          REVIEWER_WEBHOOK_SECRET: ${{ secrets.REVIEWER_WEBHOOK_SECRET }}
         run: |
           node --input-type=module -e '
             const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
@@ -63,6 +75,17 @@ jobs:
             const endpoint = new URL("/api/github", process.env.DEPLOYMENT_URL);
             const response = await fetch(endpoint, { headers: { "x-vercel-protection-bypass": secret }, redirect: "error", signal: AbortSignal.timeout(30000) });
             if (!response.ok || (await response.json()).status !== "ok") throw new Error("Staged endpoint failed health check");
+            const webhook = process.env.REVIEWER_WEBHOOK_SECRET;
+            if (webhook) {
+              const { createHmac } = await import("node:crypto");
+              const body = "{}";
+              const headers = { "x-vercel-protection-bypass": secret, "content-type": "application/json", "x-github-event": "ping" };
+              const unsigned = await fetch(endpoint, { method: "POST", headers, body, redirect: "error", signal: AbortSignal.timeout(30000) });
+              if (unsigned.status !== 401) throw new Error("Unsigned webhook was not rejected");
+              const signature = "sha256=" + createHmac("sha256", webhook).update(body).digest("hex");
+              const signed = await fetch(endpoint, { method: "POST", headers: { ...headers, "x-hub-signature-256": signature }, body, redirect: "error", signal: AbortSignal.timeout(30000) });
+              if (signed.status !== 200) throw new Error("Signed webhook ping failed");
+            }
           '
       - name: Promote tested deployment
         env:
