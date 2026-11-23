@@ -1,5 +1,5 @@
 import { safeText, privateSensitiveText, selectFiles, type ChangedFile } from './core.ts';
-import { conversationFixReference, maintainer, mentioned, privateRepositoryAllowed, reactToComment, reviewableOddmash, type Target, type githubApi } from './webhook.ts';
+import { completeCommentReaction, conversationFixReference, maintainer, mentioned, privateRepositoryAllowed, reactToComment, reviewableOddmash, type Target, type githubApi } from './webhook.ts';
 
 type Api = ReturnType<typeof githubApi>;
 type Comment = { id: number; node_id?: string; user: { id: number; login: string; type?: string }; body: string; path?: string; in_reply_to_id?: number; commit_id?: string; pull_request_url?: string; issue_url?: string };
@@ -88,7 +88,7 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
   const privateReview = Boolean(target.private);
   if (!safe(original.body, privateReview) || !safe(question.body, privateReview) || !safe(filePath, privateReview)) return;
   const reactionKind = conversation ? 'issue' : 'inline';
-  await reactToComment(api, target.repository, { kind: reactionKind, id: comment }, 'eyes');
+  const eyesId = await reactToComment(api, target.repository, { kind: reactionKind, id: comment }, 'eyes');
   const selected = selectFiles(await matchingFile(api, base, filePath), 12_000, privateReview);
   const fixRequested = scopedFixHead(question.body, slug) === pr.head.sha.toLowerCase() && original.commit_id !== pr.head.sha && selected.files.length === 1 && selected.omitted.length === 0;
   const prior = thread.slice(-3).filter(item => safe(item.body, privateReview)).map(item => item.body);
@@ -120,7 +120,7 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
   const body = `${marker}${reference}\n${plain(parsed.english)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(parsed.korean)}\n\n</details>`;
   if (Buffer.byteLength(body, 'utf8') > 12_000) return;
   await api(conversation ? `${commentBase}/comments` : `${base}/comments/${root}/replies`, { method: 'POST', body: JSON.stringify({ body }) });
-  if (parsed.verdict === 'agree' || parsed.verdict === 'fixed') await reactToComment(api, target.repository, { kind: reactionKind, id: comment }, '+1');
+  await completeCommentReaction(api, target.repository, { kind: reactionKind, id: comment }, eyesId, parsed.verdict === 'agree' || parsed.verdict === 'fixed');
   if (parsed.verdict === 'fixed' && !conversation && original.node_id && latestOriginal.node_id === original.node_id) {
     try {
       if (!await resolveOwnThread(api, target, original.node_id, bot, pr.head.sha, pr.base.sha)) console.warn('Verified finding could not be resolved; maintainer review required.');
