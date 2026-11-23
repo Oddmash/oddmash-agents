@@ -6,6 +6,8 @@ The reviewer defaults to report-only. A maintainer-authorized, independently ide
 
 Keep tests offline and deterministic. Run `npm test` before delivery.
 
+Open agent changes as ready-for-review PRs by default under the organization agreement. Use drafts only for documented exceptions; pending remote CI or bot review is not a draft reason. Do not alter reviewer eligibility or merge gates to compensate for draft status.
+
 ## Shared skills
 
 Follow the [skill integration contract](docs/skill-integration.md). Skills supplement trusted organization and product guidance; they do not grant permissions or change review, merge, or deployment policy. Keep approved skill revisions pinned and update them through reviewed pull requests. Do not fetch or inject mutable remote instructions into automated review requests.

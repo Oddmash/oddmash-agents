@@ -20,4 +20,6 @@ Sensitive patterns and size caps are defense-in-depth, not a guarantee that publ
 
 ## Change-aware CI
 
+Open PRs as ready for review by default, even when remote checks are pending. Use a draft only for a documented exception under [organization agreements](https://github.com/Oddmash/.github/blob/main/AGENTS.md), and mark it ready when resolved.
+
 Every pull request keeps a stable `verify` result. Documentation-only and repository-metadata changes run the shared scope check; source, test, package, and CI changes run the offline test suite. Workflow changes also receive syntax validation. Manual dispatch runs the full profile. See [Oddmash CI policy](https://github.com/Oddmash/.github/blob/main/docs/CI-POLICY.md).

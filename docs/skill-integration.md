@@ -13,7 +13,7 @@ The reference is for maintainers developing and verifying the reviewer. It is no
 ## Upgrade procedure
 
 1. Review changes to the exact skill path and any required references against the current pinned revision.
-2. Update the reference in this document through a pull request. Record the reason, affected consumers, compatibility, and verification evidence.
+2. Update the reference in this document through a ready-for-review pull request by default, reserving drafts for documented organization exceptions. Record the reason, affected consumers, compatibility, and verification evidence.
 3. Run the relevant deterministic tests and review the affected behavior before merging.
 4. If an agent needs runtime consumption in the future, implement and review it separately with a trusted, immutable, locally available artifact and explicit data-handling boundaries. Do not fetch mutable instructions during a review.
 5. Roll back by reverting the reference change and, if applicable, the independently reviewed deployment.
