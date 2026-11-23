@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   let payload;
   try { payload = JSON.parse(new TextDecoder().decode(bytes)); } catch { return new Response('Bad request', { status: 400 }); }
   if (!payload || typeof payload !== 'object') return new Response('Bad request', { status: 400 });
-  const target = route(request.headers.get('x-github-event'), payload);
+  const target = route(request.headers.get('x-github-event'), payload, process.env.REVIEWER_APP_SLUG ?? '', request.headers.get('x-github-delivery') ?? '');
   if (!target) return new Response('Ignored', { status: 200 });
   const config = { appId: process.env.REVIEWER_APP_ID ?? '', key: process.env.REVIEWER_APP_PRIVATE_KEY ?? '', slug: process.env.REVIEWER_APP_SLUG ?? '', openaiKey: process.env.OPENAI_API_KEY ?? '', model: process.env.OPENAI_MODEL ?? 'gpt-5.4', autoMerge: process.env.REVIEWER_AUTO_MERGE_ENABLED === 'true' };
   if (process.env.REVIEWER_APP_ENABLED !== 'true' || !config.appId || !config.key || !config.slug || !config.openaiKey) return new Response('Unavailable', { status: 503 });

@@ -17,6 +17,8 @@ test('finds the existing bot advisory to update instead of submitting a duplicat
   assert.equal(canRetryApprovedMerge({ ...old, state: 'APPROVED' }, marker), true);
   assert.equal(canRetryApprovedMerge({ ...old, state: 'APPROVED', body: marker }, marker), false);
   assert.equal(canRetryApprovedMerge(old, marker), false);
+  assert.notEqual(marker, reviewFingerprint('Oddmash/example', 1, head, 'b'.repeat(40), checks, 'comment-123'));
+  assert.equal(reviewFingerprint('Oddmash/example', 1, head, 'b'.repeat(40), checks, 'comment-123'), reviewFingerprint('Oddmash/example', 1, head, 'b'.repeat(40), checks, 'comment-123'));
 });
 
 test('acquires only its own pending review lock', async () => {

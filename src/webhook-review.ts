@@ -4,6 +4,7 @@ import { formatReviewBody } from './core.ts';
 import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized } from './auto-merge.ts';
 import { authorize, authorizeMerge, type Target } from './webhook.ts';
+import { replyToReview } from './review-discussion.ts';
 
 type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 export type Review = { id: number; body: string | null; user: { login: string }; state: string; commit_id: string };
@@ -14,8 +15,8 @@ export function existingAdvisoryReview(reviews: Review[], bot: string, head: str
   return reviews.filter(review => review.user.login === bot && review.commit_id === head && review.state === 'COMMENTED' && review.body?.includes('<!-- oddmash-app-review:')).at(-1);
 }
 
-export function reviewFingerprint(repository: string, number: number, head: string, base: string, checks: CheckEvidence): string {
-  const fingerprint = createHash('sha256').update(JSON.stringify(['v2', repository, number, head, base, checks.total_count, checks.check_runs.map(check => [check.id, check.status, check.conclusion]).sort()])).digest('hex').slice(0, 24);
+export function reviewFingerprint(repository: string, number: number, head: string, base: string, checks: CheckEvidence, recheck?: string): string {
+  const fingerprint = createHash('sha256').update(JSON.stringify(['v2', repository, number, head, base, checks.total_count, checks.check_runs.map(check => [check.id, check.status, check.conclusion]).sort(), ...(recheck ? [recheck] : [])])).digest('hex').slice(0, 24);
   return `<!-- oddmash-app-review:${fingerprint} -->`;
 }
 
@@ -46,6 +47,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
   const repository = target.repository;
   const root = '/repos/' + repository;
   const eligibleBase = (item: Pull) => item.base.repo.full_name === repository && item.base.repo.id === target.repositoryId && item.base.repo.private === Boolean(target.private);
+  if (target.reply && target.number) {
+    await replyToReview(api, target, { slug, openaiKey, model });
+    return;
+  }
   const prs = target.number ? [await api<Pull>(root + '/pulls/' + target.number)] : await api<Pull[]>(root + '/pulls?state=open&per_page=100');
   for (const pr of prs.filter(pr => !target.sha || pr.head.sha === target.sha || pr.merge_commit_sha === target.sha).slice(0, 3)) {
     await reviewOne(await api<Pull>(root + '/pulls/' + pr.number));
@@ -55,13 +60,16 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const path = `${root}/pulls/${pr.number}`;
     const reviews = await api<Review[]>(`${path}/reviews?per_page=100`);
     if (reviews.length === 100) return;
+    const requestTag = target.recheck ? `<!-- oddmash-recheck:${createHash('sha256').update(target.recheck).digest('hex').slice(0, 24)} -->` : undefined;
+    if (requestTag && reviews.some(review => review.user.login === bot && review.body?.includes(requestTag))) return;
     const own = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha);
-    if (own.some(review => review.state === 'CHANGES_REQUESTED')) return;
-    const approved = own.filter(review => review.state === 'APPROVED').at(-1);
+    const decisive = own.filter(review => ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)).at(-1);
+    if (!target.recheck && decisive?.state === 'CHANGES_REQUESTED') return;
+    const approved = !target.recheck && decisive?.state === 'APPROVED' ? decisive : undefined;
     if (approved && (!config.autoMerge || target.private)) return;
     const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
     const checks = await readChecks(pr);
-    const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks);
+    const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks, target.recheck);
     if (approved && !canRetryApprovedMerge(approved, marker)) return;
     if (own.some(review => review.body?.includes(marker))) return;
     if (!reviewChecksReady(checks)) return;
@@ -80,12 +88,12 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const current = await api<Pull>(path);
       if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft || !eligibleBase(current)) return;
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
-      if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)))) return;
+      if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state) && (!approved || review.id > approved.id))))) return;
       const finalChecks = await readChecks(current);
       const event = finalReviewEvent(result.assessment, finalChecks);
       if (!event) return;
-      const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks);
-      const body = formatReviewBody(event, finalMarker, result.report, current.user);
+      const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks, target.recheck);
+      const body = formatReviewBody(event, finalMarker, result.report, current.user) + (requestTag ? `\n\n${requestTag}` : '');
       const attemptMerge = async (reviewId: number) => {
         if (!candidate || candidate.pull.head.sha !== result.head || candidate.pull.base.sha !== current.base.sha) return;
         if (!result.issueVerified) { withheld('issue acceptance evidence not verified'); return; }
@@ -103,7 +111,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         }
         return;
       }
-      const advisory = event === 'COMMENT' ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
+      const advisory = event === 'COMMENT' && !target.recheck ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
       if (advisory) {
         if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
       } else {
