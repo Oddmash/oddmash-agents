@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addedLines, selectFiles, safeText, guidancePaths, validateFindings, formatReport, reviewMarker, reviewDecision, checksPassed, type ReviewContext, type Finding } from '../src/core.ts';
+import { addedLines, selectFiles, safeText, guidancePaths, validateFindings, formatReport, formatReviewBody, inlineComment, reviewMarker, reviewDecision, checksPassed, type ReviewContext, type Finding } from '../src/core.ts';
 
 const file = { filename: 'src/ui/button.tsx', status: 'modified', patch: '@@ -1,2 +1,3 @@\n const label = "Open";\n-old\n+new\n+other' };
 const finding = { path: file.filename, line: 2, severity: 'medium', confidence: 'high', rule: 'Accessibility', evidence: 'The label is absent.', recommendation: 'Provide a visible label.', verification: 'Inspect the accessible name.' };
@@ -52,4 +52,16 @@ test('skipped conditional jobs require a passing aggregate verify check', () => 
   assert.equal(checksPassed([skipped, verify]), true);
   assert.equal(checksPassed([skipped]), false);
   assert.equal(checksPassed([skipped, { ...verify, conclusion: 'failure' }]), false);
+});
+
+test('review output is concise without CI summaries or typographic dashes', () => {
+  const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: [file], omitted: [], guidance: {}, checks: [{ name: 'CI', status: 'completed', conclusion: 'success' }] };
+  const example = { ...finding, rule: 'Label — accessibility', evidence: 'Missing — label' } as Finding;
+  const report = formatReport(context, [example]);
+  assert.doesNotMatch(report, /CI evidence|CI: success|[\u2013\u2014\u2015]/);
+  assert.doesNotMatch(inlineComment(context, example), /[\u2013\u2014\u2015]|Verify:/);
+  const approved = formatReviewBody('APPROVE', '<!-- marker -->', report);
+  assert.match(approved, /@qtaghdi/);
+  assert.doesNotMatch(approved, /Label|CI|Findings/);
+  assert.match(formatReviewBody('REQUEST_CHANGES', '<!-- marker -->', report), /Please address/);
 });

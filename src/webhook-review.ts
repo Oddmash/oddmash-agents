@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { runReview } from './reviewer.ts';
-import { checksPassed } from './core.ts';
+import { checksPassed, formatReviewBody } from './core.ts';
 import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
 import { authorize, type Target } from './webhook.ts';
 
@@ -61,8 +61,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const finalChecks = await readChecks(current);
       const passing = (finalChecks.total_count ?? 0) > 0 && finalChecks.total_count === finalChecks.check_runs.length && checksPassed(finalChecks.check_runs);
       const event = result.decision === 'APPROVE' && !passing ? 'COMMENT' : result.decision;
-      const body = event === 'APPROVE' ? 'No actionable findings in the reviewed changes. Available checks passed. Maintainer review remains required for merge.' : event === 'REQUEST_CHANGES' ? 'Actionable findings were identified. Please review the inline comments and update the PR.' : 'Maintainer verification is required. See the review report for findings or incomplete coverage/check evidence.';
-      await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body: `${marker}\n${body}\n\n${result.report}` }) });
+      await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body: formatReviewBody(event, marker, result.report) }) });
       submitted = true;
       if (event !== 'APPROVE' && result.comments.length) {
         const existing = await api<{ body: string; user: { login: string } }[]>(`${path}/comments?per_page=100`);
