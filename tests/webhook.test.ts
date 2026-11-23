@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { githubApi, reactToComment, route, validSignature } from '../src/webhook.ts';
+import { githubApi, ignoredReviewRequest, reactToComment, route, validSignature } from '../src/webhook.ts';
 
 const repo = { id: 7, full_name: 'Oddmash/new-project', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
 const event = { action: 'opened', installation: { id: 3 }, repository: repo, pull_request: { number: 2, draft: false } };
@@ -53,6 +53,55 @@ test('adds reactions to the exact comment type and uses only supported statuses'
   await reactToComment(api, repo.full_name, { kind: 'issue', id: 123 }, 'eyes');
   await reactToComment(api, repo.full_name, { kind: 'inline', id: 456 }, '+1');
   assert.deepEqual(calls, [[`/repos/${repo.full_name}/issues/comments/123/reactions`, 'eyes'], [`/repos/${repo.full_name}/pulls/comments/456/reactions`, '+1']]);
+});
+
+test('explicit review command accepts following context without interpreting mentions as commands', () => {
+  const actor = { id: 135234546, login: 'qtaghdi', type: 'User' };
+  const slug = 'oddmash-reviewer';
+  const comment = { ...event, action: 'created', sender: actor, issue: { number: 2, pull_request: {} }, comment: { id: 5, user: actor, body: '' } };
+  const withBody = (body: string) => ({ ...comment, comment: { ...comment.comment, body } });
+  const context = `Exact-head CI passed for ${'a'.repeat(40)}. Please review the current head.`;
+  for (const body of [
+    `@${slug} /review\n\n${context}`,
+    `  @${slug}[bot] /rereview\r\n${context}  `,
+    `\n@ODDMASH-REVIEWER\t/REVIEW\n${context}`,
+    `@${slug}\n/review`,
+    `@${slug} /review\n${'x'.repeat(2000 - (`@${slug} /review\n`).length)}`
+  ]) {
+    assert.deepEqual(route('issue_comment', withBody(body), slug)?.requestComment, { kind: 'issue', id: 5 });
+    assert.equal(ignoredReviewRequest('issue_comment', withBody(body), slug), undefined);
+  }
+  for (const body of [
+    `Please ask @${slug} /review`,
+    `@${slug} /reviewing\n${context}`,
+    `@${slug} /review please`,
+    `@${slug}\nIs this required?`,
+    `> @${slug} /review\n${context}`,
+    `\`\`\`\n@${slug} /review\n\`\`\``,
+    `${context}\n@${slug} /review`
+  ]) assert.equal(route('issue_comment', withBody(body), slug), null);
+  const inline = { ...withBody(`@${slug} /rereview\n${context}`), comment: { ...withBody(`@${slug} /rereview\n${context}`).comment, in_reply_to_id: 4 } };
+  assert.deepEqual(route('pull_request_review_comment', inline, slug)?.requestComment, { kind: 'inline', id: 5, root: 4 });
+  const discussion = { ...inline, comment: { ...inline.comment, body: `@${slug}\nIs this required?` } };
+  assert.deepEqual(route('pull_request_review_comment', discussion, slug)?.reply, { comment: 5, root: 4 });
+  const valid = withBody(`@${slug} /review\n${context}`);
+  for (const payload of [
+    { ...valid, sender: { ...actor, id: 10 } },
+    { ...valid, comment: { ...valid.comment, user: { ...actor, id: 10 } } },
+    { ...valid, sender: { ...actor, type: 'Bot' } },
+    { ...valid, action: 'edited' },
+    { ...valid, repository: { ...repo, private: true, visibility: 'private' } },
+    { ...valid, issue: { number: 2 } },
+    { ...valid, installation: { id: 0 } }
+  ]) {
+    assert.equal(route('issue_comment', payload, slug), null);
+    assert.equal(ignoredReviewRequest('issue_comment', payload, slug), undefined);
+  }
+  const invalid = withBody(`@${slug} /review please`);
+  assert.match(ignoredReviewRequest('issue_comment', invalid, slug) ?? '', /first line/);
+  const oversized = withBody(`@${slug} /review\n${'x'.repeat(2000)}`);
+  assert.equal(route('issue_comment', oversized, slug), null);
+  assert.match(ignoredReviewRequest('issue_comment', oversized, slug) ?? '', /2000 characters/);
 });
 
 test('only explicitly approved private repository identities are eligible', () => {

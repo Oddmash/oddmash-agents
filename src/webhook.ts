@@ -35,7 +35,22 @@ export function reviewableOddmash(repo: Repository | undefined): boolean {
 
 export const maintainer = (actor: Actor | undefined) => actor?.id === 135234546 && actor.login === 'qtaghdi' && actor.type === 'User';
 export const mentioned = (body: string, slug: string) => /^[a-z0-9-]+$/i.test(slug) && new RegExp(`(?:^|\\s)@${slug}(?:\\[bot\\])?(?=$|[\\s,.!?])`, 'i').test(body);
-export const reviewCommand = (body: string, slug: string) => /^[a-z0-9-]+$/i.test(slug) && new RegExp(`^@${slug}(?:\\[bot\\])?(?:\\s+/(?:re)?review)?$`, 'i').test(body.trim());
+export function reviewCommand(body: string, slug: string): boolean {
+  if (!/^[a-z0-9-]+$/i.test(slug)) return false;
+  const mention = `@${slug}(?:\\[bot\\])?`;
+  const trimmed = body.trim();
+  if (new RegExp(`^${mention}(?:\\s+/(?:re)?review)?$`, 'i').test(trimmed)) return true;
+  const firstLine = trimmed.split(/\r\n|\n|\r/, 1)[0].trim();
+  return new RegExp(`^${mention}[ \\t]+/(?:re)?review$`, 'i').test(firstLine);
+}
+
+export function ignoredReviewRequest(event: string | null, payload: Payload, slug: string): string | undefined {
+  if (event !== 'issue_comment' || payload.action !== 'created' || !reviewableOddmash(payload.repository) || !positive(payload.installation?.id) || !maintainer(payload.sender) || !maintainer(payload.comment?.user) || !positive(payload.comment?.id) || !payload.issue?.pull_request || !positive(payload.issue.number)) return;
+  const body = payload.comment.body;
+  if (typeof body !== 'string' || !mentioned(body, slug)) return;
+  if (body.length > 2000) return 'Review request exceeds 2000 characters';
+  if (!reviewCommand(body, slug)) return 'Review command not recognized; put an explicit review command on the first line';
+}
 
 export function route(event: string | null, p: Payload, slug = '', delivery = ''): Target | null {
   if (!reviewableOddmash(p.repository) || !positive(p.installation?.id)) return null;

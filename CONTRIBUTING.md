@@ -1,6 +1,6 @@
 # Development and local pilot
 
-Requires Node.js 24+. No runtime dependency installation is required. CI runs the offline tests on push and pull requests.
+Requires Node.js 24+. Run `npm install --ignore-scripts` before testing the webhook endpoint or running type checks. CI runs the offline tests on push and pull requests.
 
 Run `npm test` for offline verification. To review a public PR, configure `OPENAI_API_KEY`, `OPENAI_MODEL` (a model supporting structured outputs), and `ODDMASH_ALLOWED_REPOSITORIES` (comma-separated exact repository names) in your environment using your normal secret manager. An optional read-only `GITHUB_TOKEN` raises public API rate limits. Do not commit credentials.
 
