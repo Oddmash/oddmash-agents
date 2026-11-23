@@ -49,7 +49,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     if (own.some(review => review.body?.includes(marker))) return;
     if (checks.check_runs.some(check => check.status !== 'completed')) return;
     if (reviews.some(review => review.user.login === bot && review.state === 'PENDING')) return;
-    const pendingId = await acquirePendingReview(api, path, pr.head.sha, bot);
+    const pendingId = await acquirePendingReview(api, path, pr.head.sha, bot).catch(error => { throw new Error('Pending review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
     if (pendingId === null) return;
     let submitted = false;
     try {
@@ -61,7 +61,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const finalChecks = await readChecks(current);
       const passing = (finalChecks.total_count ?? 0) > 0 && finalChecks.total_count === finalChecks.check_runs.length && checksPassed(finalChecks.check_runs);
       const event = result.decision === 'APPROVE' && !passing ? 'COMMENT' : result.decision;
-      await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body: formatReviewBody(event, marker, result.report) }) });
+      await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body: formatReviewBody(event, marker, result.report) }) }).catch(error => { throw new Error('Submit review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
       submitted = true;
       if (event !== 'APPROVE' && result.comments.length) {
         const existing = await api<{ body: string; user: { login: string } }[]>(`${path}/comments?per_page=100`);
@@ -85,8 +85,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
     } finally {
       if (!submitted) {
-        const pending = await api<Review>(`${path}/reviews/${pendingId}`);
-        if (pending.state === 'PENDING' && pending.user.login === bot && pending.body?.includes('<!-- oddmash-review-lock -->')) await api(`${path}/reviews/${pendingId}`, { method: 'DELETE' });
+        try {
+          const pending = await api<Review>(`${path}/reviews/${pendingId}`);
+          if (pending.state === 'PENDING' && pending.user.login === bot && pending.body?.includes('<!-- oddmash-review-lock -->')) await api(`${path}/reviews/${pendingId}`, { method: 'DELETE' });
+        } catch { console.error('Pending review cleanup failed'); }
       }
     }
   }
