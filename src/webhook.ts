@@ -102,8 +102,18 @@ export function githubApi(token: string, request: typeof fetch = fetch) {
 export async function reactToComment(api: ReturnType<typeof githubApi>, repository: string, comment: { kind: 'inline' | 'issue'; id: number }, content: 'eyes' | '+1') {
   const resource = comment.kind === 'inline' ? 'pulls' : 'issues';
   try {
-    await api(`/repos/${repository}/${resource}/comments/${comment.id}/reactions`, { method: 'POST', body: JSON.stringify({ content }) });
+    const result = await api<{ id?: number }>(`/repos/${repository}/${resource}/comments/${comment.id}/reactions`, { method: 'POST', body: JSON.stringify({ content }) });
+    return positive(result?.id) ? result.id : undefined;
   } catch { console.warn('Reviewer comment reaction unavailable.'); }
+}
+
+export async function completeCommentReaction(api: ReturnType<typeof githubApi>, repository: string, comment: { kind: 'inline' | 'issue'; id: number }, eyesId: number | undefined, agreed: boolean) {
+  if (agreed && !await reactToComment(api, repository, comment, '+1')) return;
+  if (!positive(eyesId)) return;
+  const resource = comment.kind === 'inline' ? 'pulls' : 'issues';
+  try {
+    await api(`/repos/${repository}/${resource}/comments/${comment.id}/reactions/${eyesId}`, { method: 'DELETE' });
+  } catch { console.warn('Reviewer pending reaction cleanup unavailable.'); }
 }
 
 export async function authorize(target: Target, appId: string, key: string, request: typeof fetch = fetch) {
