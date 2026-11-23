@@ -3,7 +3,7 @@ import { runReview } from './reviewer.ts';
 import { formatReviewBody } from './core.ts';
 import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized } from './auto-merge.ts';
-import { authorize, authorizeMerge, type Target } from './webhook.ts';
+import { authorize, authorizeMerge, reactToComment, type Target } from './webhook.ts';
 import { replyToReview } from './review-discussion.ts';
 
 type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
@@ -13,6 +13,20 @@ type Api = ReturnType<typeof import('./webhook.ts').githubApi>;
 
 export function existingAdvisoryReview(reviews: Review[], bot: string, head: string): Review | undefined {
   return reviews.filter(review => review.user.login === bot && review.commit_id === head && review.state === 'COMMENTED' && review.body?.includes('<!-- oddmash-app-review:')).at(-1);
+}
+
+export function hasOfficialReview(reviews: Review[], bot: string): boolean {
+  return reviews.some(review => review.user.login === bot && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state) && review.body?.includes('<!-- oddmash-app-review:'));
+}
+
+export async function acknowledgePendingChecks(api: Api, repository: string, number: number, bot: string, comment: NonNullable<Target['requestComment']>) {
+  const path = `/repos/${repository}/${comment.kind === 'issue' ? 'issues' : 'pulls'}/${number}/comments`;
+  const marker = `<!-- oddmash-recheck-wait:${comment.id} -->`;
+  const existing = await api<{ body: string; user: { login: string } }[]>(`${path}?per_page=100`);
+  if (existing.length >= 100 || existing.some(item => item.user.login === bot && item.body.includes(marker))) return;
+  if (comment.kind === 'inline' && !comment.root) return;
+  const body = `${marker}\nReview requested. Please request it again once the required checks have finished.\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n리뷰 요청을 확인했습니다. 필수 검사가 완료되면 다시 요청해 주세요.\n\n</details>`;
+  await api(comment.kind === 'inline' ? `${path}/${comment.root}/replies` : path, { method: 'POST', body: JSON.stringify({ body }) });
 }
 
 export function reviewFingerprint(repository: string, number: number, head: string, base: string, checks: CheckEvidence, recheck?: string): string {
@@ -86,6 +100,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const path = `${root}/pulls/${pr.number}`;
     const reviews = await api<Review[]>(`${path}/reviews?per_page=100`);
     if (reviews.length === 100) return;
+    if (!target.recheck && hasOfficialReview(reviews, bot)) return;
+    if (target.requestComment) await reactToComment(api, repository, target.requestComment, 'eyes');
     const requestTag = target.recheck ? `<!-- oddmash-recheck:${createHash('sha256').update(target.recheck).digest('hex').slice(0, 24)} -->` : undefined;
     if (requestTag && reviews.some(review => review.user.login === bot && review.body?.includes(requestTag))) return;
     const own = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha);
@@ -98,7 +114,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks, target.recheck);
     if (approved && !canRetryApprovedMerge(approved, marker)) return;
     if (own.some(review => review.body?.includes(marker))) return;
-    if (!reviewChecksReady(checks)) return;
+    if (!reviewChecksReady(checks) || (target.requestComment && !checks.check_runs.every(check => ['success', 'skipped'].includes(check.conclusion ?? '')))) {
+      if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment);
+      return;
+    }
     if (reviews.some(review => review.user.login === bot && review.state === 'PENDING')) return;
     const pendingId = await acquirePendingReview(api, path, pr.head.sha, bot).catch(error => { throw new Error('Pending review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
     if (pendingId === null) return;
@@ -158,6 +177,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         if (attached.name !== label && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' });
       }
       if (event === 'APPROVE' && !target.private) await attemptMerge(pendingId);
+      if (event === 'APPROVE' && target.requestComment) await reactToComment(api, repository, target.requestComment, '+1');
     } finally {
       if (!submitted) {
         try {

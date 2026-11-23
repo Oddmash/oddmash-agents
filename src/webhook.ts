@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual, createSign } from 'node:crypto';
 type Repository = { id: number; full_name: string; private: boolean; visibility: string; owner: { login: string }; archived?: boolean };
 type Actor = { id: number; login: string; type?: string };
 type Payload = { action?: string; installation?: { id: number }; repository?: Repository; pull_request?: { number: number; draft: boolean }; check_suite?: { head_sha: string; pull_requests?: { number: number }[] }; sender?: Actor; requested_reviewer?: Actor; issue?: { number: number; pull_request?: object }; comment?: { id: number; user: Actor; body: string; in_reply_to_id?: number } };
-export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string; private?: boolean; recheck?: string; reply?: { comment: number; root: number } };
+export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string; private?: boolean; recheck?: string; requestComment?: { kind: 'inline' | 'issue'; id: number; root?: number }; reply?: { comment: number; root: number } };
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 const shaPattern = /^[a-f0-9]{40}$/i;
 
@@ -34,7 +34,7 @@ export function reviewableOddmash(repo: Repository | undefined): boolean {
 
 export const maintainer = (actor: Actor | undefined) => actor?.id === 135234546 && actor.login === 'qtaghdi' && actor.type === 'User';
 export const mentioned = (body: string, slug: string) => /^[a-z0-9-]+$/i.test(slug) && new RegExp(`(?:^|\\s)@${slug}(?:\\[bot\\])?(?=$|[\\s,.!?])`, 'i').test(body);
-export const reviewCommand = (body: string, slug: string) => /^[a-z0-9-]+$/i.test(slug) && new RegExp(`^@${slug}(?:\\[bot\\])?\\s+/(?:re)?review$`, 'i').test(body.trim());
+export const reviewCommand = (body: string, slug: string) => /^[a-z0-9-]+$/i.test(slug) && new RegExp(`^@${slug}(?:\\[bot\\])?(?:\\s+/(?:re)?review)?$`, 'i').test(body.trim());
 
 export function route(event: string | null, p: Payload, slug = '', delivery = ''): Target | null {
   if (!reviewableOddmash(p.repository) || !positive(p.installation?.id)) return null;
@@ -43,8 +43,8 @@ export function route(event: string | null, p: Payload, slug = '', delivery = ''
   if (event === 'pull_request' && ['opened', 'reopened', 'synchronize', 'ready_for_review'].includes(p.action ?? '') && p.pull_request?.draft === false && positive(p.pull_request.number)) return { ...target, number: p.pull_request.number };
   if (event === 'pull_request' && p.action === 'review_requested' && maintainer(p.sender) && p.requested_reviewer?.login === `${slug}[bot]` && p.requested_reviewer.type === 'Bot' && p.pull_request?.draft === false && positive(p.pull_request.number) && /^[a-f0-9-]{36}$/i.test(delivery)) return { ...target, number: p.pull_request.number, recheck: delivery };
   if (p.action === 'created' && maintainer(p.sender) && maintainer(p.comment?.user) && positive(p.comment?.id) && typeof p.comment.body === 'string' && p.comment.body.length <= 2000) {
-    if (event === 'issue_comment' && p.issue?.pull_request && positive(p.issue.number) && reviewCommand(p.comment.body, slug)) return { ...target, number: p.issue.number, recheck: `comment-${p.comment.id}` };
-    if (event === 'pull_request_review_comment' && p.pull_request?.draft === false && positive(p.pull_request.number) && positive(p.comment.in_reply_to_id) && mentioned(p.comment.body, slug)) return { ...target, number: p.pull_request.number, ...(reviewCommand(p.comment.body, slug) ? { recheck: `comment-${p.comment.id}` } : { reply: { comment: p.comment.id, root: p.comment.in_reply_to_id } }) };
+    if (event === 'issue_comment' && p.issue?.pull_request && positive(p.issue.number) && reviewCommand(p.comment.body, slug)) return { ...target, number: p.issue.number, recheck: `comment-${p.comment.id}`, requestComment: { kind: 'issue', id: p.comment.id } };
+    if (event === 'pull_request_review_comment' && p.pull_request?.draft === false && positive(p.pull_request.number) && positive(p.comment.in_reply_to_id) && mentioned(p.comment.body, slug)) return { ...target, number: p.pull_request.number, ...(reviewCommand(p.comment.body, slug) ? { recheck: `comment-${p.comment.id}`, requestComment: { kind: 'inline' as const, id: p.comment.id, root: p.comment.in_reply_to_id } } : { reply: { comment: p.comment.id, root: p.comment.in_reply_to_id } }) };
   }
   if (event === 'check_suite' && p.action === 'completed' && shaPattern.test(p.check_suite?.head_sha ?? '')) return { ...target, sha: p.check_suite!.head_sha };
   return null;
@@ -65,11 +65,18 @@ export function githubApi(token: string, request: typeof fetch = fetch) {
   };
 }
 
+export async function reactToComment(api: ReturnType<typeof githubApi>, repository: string, comment: { kind: 'inline' | 'issue'; id: number }, content: 'eyes' | '+1') {
+  const resource = comment.kind === 'inline' ? 'pulls' : 'issues';
+  try {
+    await api(`/repos/${repository}/${resource}/comments/${comment.id}/reactions`, { method: 'POST', body: JSON.stringify({ content }) });
+  } catch { console.warn('Reviewer comment reaction unavailable.'); }
+}
+
 export async function authorize(target: Target, appId: string, key: string, request: typeof fetch = fetch) {
   const jwtApi = githubApi(appJwt(appId, key), request);
   const installation = await jwtApi<{ account: { login: string }; suspended_at: string | null }>('/app/installations/' + target.installation);
   if (installation.account.login.toLowerCase() !== 'oddmash' || installation.suspended_at) throw new Error('Installation not eligible');
-  const result = await jwtApi<{ token: string }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [target.repositoryId], permissions: { contents: 'read', pull_requests: 'write', checks: 'read' } }) });
+  const result = await jwtApi<{ token: string }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [target.repositoryId], permissions: { contents: 'read', pull_requests: 'write', checks: 'read', ...(target.requestComment?.kind === 'issue' ? { issues: 'write' } : {}) } }) });
   const api = githubApi(result.token, request);
   const repository = await api<Repository>('/repos/' + target.repository);
   if (!reviewableOddmash(repository) || repository.private !== Boolean(target.private) || repository.id !== target.repositoryId || repository.full_name !== target.repository) throw new Error('Repository not eligible');

@@ -2,7 +2,7 @@ import { runReview } from './reviewer.ts';
 import { formatReviewBody } from './core.ts';
 import { publicRepositories as repositories, reviewTarget } from './routing.ts';
 import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvidence } from './checks.ts';
-import { acquirePendingReview, attachReviewFindings, existingAdvisoryReview, reviewFingerprint, type Review } from './webhook-review.ts';
+import { acquirePendingReview, attachReviewFindings, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, type Review } from './webhook-review.ts';
 
 const target = reviewTarget(process.env.REVIEW_REPOSITORY ?? '', process.env.REVIEW_PR_NUMBER ?? '');
 const githubToken = process.env.GITHUB_TOKEN ?? '';
@@ -31,6 +31,7 @@ for (const repository of repositories) {
     const path = `${root}/pulls/${pr.number}`;
     const reviews = await api<Review[]>(`${path}/reviews?per_page=100`);
     if (reviews.length === 100) continue;
+    if (hasOfficialReview(reviews, bot)) continue;
     const own = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha);
     if (own.some(review => review.state === 'APPROVED' || review.state === 'CHANGES_REQUESTED')) continue;
     const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));

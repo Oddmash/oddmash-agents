@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acquirePendingReview, attachReviewFindings, canRetryApprovedMerge, existingAdvisoryReview, reviewFingerprint } from '../src/webhook-review.ts';
+import { acquirePendingReview, attachReviewFindings, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint } from '../src/webhook-review.ts';
 import { githubApi } from '../src/webhook.ts';
 
 const path = '/repos/Oddmash/example/pulls/1';
@@ -24,6 +24,15 @@ test('finds the existing bot advisory to update instead of submitting a duplicat
 test('acquires only its own pending review lock', async () => {
   const api = githubApi('fixture-token', async () => Response.json({ id: 42, state: 'PENDING', user: { login: bot }, commit_id: head }));
   assert.equal(await acquirePendingReview(api, path, head, bot), 42);
+});
+
+test('a submitted official review prevents automatic repeated reviews on later heads', () => {
+  const review = { id: 42, state: 'CHANGES_REQUESTED', user: { login: bot }, body: '<!-- oddmash-app-review:fixture -->', commit_id: 'b'.repeat(40) };
+  assert.equal(hasOfficialReview([review], bot), true);
+  assert.equal(hasOfficialReview([{ ...review, state: 'DISMISSED' }], bot), true);
+  assert.equal(hasOfficialReview([{ ...review, state: 'PENDING' }], bot), false);
+  assert.equal(hasOfficialReview([{ ...review, user: { login: 'another-reviewer' } }], bot), false);
+  assert.equal(hasOfficialReview([{ ...review, body: 'unrelated comment' }], bot), false);
 });
 
 test('does not acquire a concurrent pending review', async () => {

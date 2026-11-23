@@ -17,6 +17,7 @@ const config = { slug: 'oddmash-reviewer', openaiKey: 'fixture', model: 'fixture
 test('answers a verified maintainer thread once and does not change review state', async () => {
   const comments = [root, question];
   let modelCalls = 0;
+  const reactions: string[] = [];
   const api = githubApi('fixture', async (url, init) => {
     const path = new URL(String(url)).pathname;
     if (path === '/repos/Oddmash/example') return Response.json(repository);
@@ -28,6 +29,10 @@ test('answers a verified maintainer thread once and does not change review state
     if (path === `${base}/files`) {
       const page = new URL(String(url)).searchParams.get('page');
       return Response.json(page === '1' ? Array.from({ length: 100 }, (_, index) => ({ filename: `src/other-${index}.ts`, status: 'modified' })) : [{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }]);
+    }
+    if (path === '/repos/Oddmash/example/pulls/comments/5/reactions') {
+      reactions.push(JSON.parse(String(init?.body)).content);
+      return Response.json({ id: 9 });
     }
     assert.equal(path, `${base}/comments/4/replies`);
     assert.equal(init?.method, 'POST');
@@ -41,11 +46,12 @@ test('answers a verified maintainer thread once and does not change review state
     modelCalls++;
     assert.match(String(init?.body), /pause button/);
     assert.match(String(init?.body), /const paused = true/);
-    return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ english: 'The control is present. My earlier concern is not supported.', korean: '제어 버튼이 있으므로 이전 지적은 근거가 부족합니다.' }) }] }] });
+    return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ verdict: 'agree', english: 'The control is present. My earlier concern is not supported.', korean: '제어 버튼이 있으므로 이전 지적은 근거가 부족합니다.' }) }] }] });
   };
   await replyToReview(api, target, config, model);
   await replyToReview(api, target, config, model);
   assert.equal(modelCalls, 1);
+  assert.deepEqual(reactions, ['eyes', '+1']);
 });
 
 test('ignores unrelated or unsafe discussions before asking the model', async () => {

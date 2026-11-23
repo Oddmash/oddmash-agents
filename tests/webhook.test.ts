@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { route, validSignature } from '../src/webhook.ts';
+import { githubApi, reactToComment, route, validSignature } from '../src/webhook.ts';
 
 const repo = { id: 7, full_name: 'Oddmash/new-project', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
 const event = { action: 'opened', installation: { id: 3 }, repository: repo, pull_request: { number: 2, draft: false } };
@@ -37,12 +37,22 @@ test('maintainer can request a fresh review or mention the bot in its inline thr
   assert.equal(route('pull_request', { ...requested, sender: { ...actor, id: 10 } }, slug, delivery), null);
   const comment = { ...event, action: 'created', sender: actor, comment: { id: 5, user: actor, body: `@${slug} /review` }, issue: { number: 2, pull_request: {} } };
   assert.equal(route('issue_comment', comment, slug)?.recheck, 'comment-5');
+  assert.deepEqual(route('issue_comment', comment, slug)?.requestComment, { kind: 'issue', id: 5 });
+  assert.equal(route('issue_comment', { ...comment, comment: { ...comment.comment, body: `@${slug}` } }, slug)?.recheck, 'comment-5');
   assert.equal(route('issue_comment', { ...comment, issue: { number: 2 } }, slug), null);
   const reply = { ...comment, comment: { ...comment.comment, body: `@${slug}[bot] Is this required?`, in_reply_to_id: 4 } };
   assert.deepEqual(route('pull_request_review_comment', reply, slug)?.reply, { comment: 5, root: 4 });
   assert.equal(route('pull_request_review_comment', { ...reply, sender: { ...actor, type: 'Bot' } }, slug), null);
   assert.equal(route('pull_request_review_comment', { ...reply, action: 'edited' }, slug), null);
   assert.equal(route('pull_request_review_comment', { ...reply, comment: { ...reply.comment, body: '@other is this required?' } }, slug), null);
+});
+
+test('adds reactions to the exact comment type and uses only supported statuses', async () => {
+  const calls: [string, string][] = [];
+  const api = githubApi('fixture', async (url, init) => { calls.push([new URL(String(url)).pathname, JSON.parse(String(init?.body)).content]); return Response.json({ id: 1 }); });
+  await reactToComment(api, repo.full_name, { kind: 'issue', id: 123 }, 'eyes');
+  await reactToComment(api, repo.full_name, { kind: 'inline', id: 456 }, '+1');
+  assert.deepEqual(calls, [[`/repos/${repo.full_name}/issues/comments/123/reactions`, 'eyes'], [`/repos/${repo.full_name}/pulls/comments/456/reactions`, '+1']]);
 });
 
 test('only explicitly approved private repository identities are eligible', () => {
