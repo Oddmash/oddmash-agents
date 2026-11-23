@@ -12,6 +12,7 @@ In the Oddmash Reviewer GitHub App, enable the webhook at the project's producti
 
 ## Maintainer requests and discussion
 
+- Normal PRs should be opened ready for review; draft PRs are excluded until marked ready. Pending remote CI is not a reason to use draft status. The reviewer still waits for passing current checks before formal review.
 - Automatic review runs once per PR, after final checks. Later commits require a deliberate maintainer request. The maintainer (`qtaghdi`, verified numeric account ID) can use `@oddmash-reviewer`, `@oddmash-reviewer /review` or `@oddmash-reviewer /rereview` in the PR conversation or an inline reply. GitHub's native review request is supported if GitHub permits requesting the app as reviewer.
 - To attach verification context, place the explicit `/review` or `/rereview` command on the first non-empty line and the explanation on subsequent lines. The existing standalone commands also work. A bare mention with a question is not a fresh review request. Comments remain limited to 2000 characters; quoted commands, commands embedded in prose, and non-maintainer requests do not initiate reviews.
 - For troubleshooting, inspect GitHub App Recent Deliveries and the Vercel runtime log. A valid routed webhook returns `202 Accepted`; an ignored maintainer review request can include a fixed format or length diagnostic in its `200` response. Neither diagnostics nor acknowledgement logs include the comment body, repository name, credentials, or webhook payload. Successful delivery is not evidence that a review has finished.
