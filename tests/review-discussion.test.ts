@@ -83,7 +83,16 @@ test('resolves only the exact bot-owned inline finding after verified current-he
       if (path === `${base}/comments`) return Response.json(comments);
       if (path === `${base}/files`) return Response.json(scenario === 'missing-patch' ? [] : [{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }]);
       if (path.endsWith('/reactions')) return Response.json({ id: 9 });
-      if (path === `${base}/comments/4/replies`) { replies++; return Response.json({ id: 6 }); }
+      if (path === `${base}/comments/4/replies`) {
+        replies++;
+        const { body } = JSON.parse(String(init?.body));
+        if (['stale', 'missing-patch', 'invalid-evidence'].includes(scenario)) {
+          assert.match(body, /could not be verified/);
+          assert.match(body, /finding remains open/);
+          assert.doesNotMatch(body, /The patch adds the missing pause control/);
+        }
+        return Response.json({ id: 6 });
+      }
       assert.equal(path, '/graphql');
       const { query, variables } = JSON.parse(String(init?.body));
       if (query.startsWith('query')) return Response.json({ data: { repository: { pullRequest: { headRefOid: nextHead, baseRefOid: pull.base.sha, reviewThreads: { nodes: [{ id: 'thread-4', isResolved: false, comments: { nodes: [{ id: 'comment-4', author: { login: scenario === 'other-author' ? 'other' : bot.login } }] } }], pageInfo: { hasNextPage: false, endCursor: null } } } } } });
