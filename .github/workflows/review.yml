@@ -6,6 +6,10 @@ on:
         description: Open Oddmash UI pull request number
         type: number
         required: true
+      post_inline:
+        description: Post advisory inline comments (requires reviewer token)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -25,9 +29,20 @@ jobs:
           node-version: '24'
       - run: npm test
       - name: Generate advisory report
+        if: ${{ !inputs.post_inline }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-5.4
           ODDMASH_ALLOWED_REPOSITORIES: Oddmash/oddmash-ui
           PR_NUMBER: ${{ inputs.pr_number }}
         run: npm run review -- Oddmash/oddmash-ui "$PR_NUMBER"
+      - name: Post advisory inline review
+        if: ${{ inputs.post_inline }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.REVIEWER_GITHUB_TOKEN }}
+          OPENAI_MODEL: gpt-5.4
+          ODDMASH_ALLOWED_REPOSITORIES: Oddmash/oddmash-ui
+          ODDMASH_ALLOW_POST: 'true'
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: npm run review -- Oddmash/oddmash-ui "$PR_NUMBER" --post
