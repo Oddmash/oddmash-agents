@@ -55,6 +55,19 @@ test('adds reactions to the exact comment type and uses only supported statuses'
   assert.deepEqual(calls, [[`/repos/${repo.full_name}/issues/comments/123/reactions`, 'eyes'], [`/repos/${repo.full_name}/pulls/comments/456/reactions`, '+1']]);
 });
 
+test('routes explicit scoped conversation references only to the same PR', () => {
+  const actor = { id: 135234546, login: 'qtaghdi', type: 'User' };
+  const slug = 'oddmash-reviewer';
+  const body = `@${slug} Fixed in ${'a'.repeat(40)}: fixed the finding.\nOriginal: https://github.com/${repo.full_name}/pull/2#pullrequestreview-4\nFile: src/demo.ts`;
+  const payload = { ...event, action: 'created', sender: actor, comment: { id: 5, user: actor, body }, issue: { number: 2, pull_request: {} } };
+  const result = route('issue_comment', payload, slug);
+  assert.deepEqual(result?.reply, { comment: 5, root: 4, kind: 'conversation', rootKind: 'review', path: 'src/demo.ts' });
+  assert.equal(result?.recheck, undefined);
+  assert.equal(ignoredReviewRequest('issue_comment', payload, slug), undefined);
+  assert.equal(route('issue_comment', { ...payload, comment: { ...payload.comment, body: body.replace('/pull/2', '/pull/7') } }, slug), null);
+  assert.equal(route('issue_comment', { ...payload, sender: { ...actor, id: 9 } }, slug), null);
+});
+
 test('explicit review command accepts following context without interpreting mentions as commands', () => {
   const actor = { id: 135234546, login: 'qtaghdi', type: 'User' };
   const slug = 'oddmash-reviewer';
