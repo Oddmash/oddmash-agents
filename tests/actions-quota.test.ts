@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { actionsQuotaBlocked } from '../src/actions-quota.ts';
+import { actionsQuotaBlocked, actionsWorkflowUrl } from '../src/actions-quota.ts';
 
 const check = {
   app: { id: 15368 },
@@ -27,4 +27,10 @@ test('missing, unrelated and recovered check evidence does not prove a quota blo
     { ...check, output: { summary: 'The job was not started because the runner is offline.' } }
   ]) assert.equal(actionsQuotaBlocked([candidate]), false);
   assert.equal(actionsQuotaBlocked([]), false);
+});
+
+test('workflow links are constrained to the current repository and GitHub origin', () => {
+  const repository = 'Oddmash/example';
+  assert.equal(actionsWorkflowUrl({ ...check, details_url: 'https://github.com/Oddmash/example/actions/runs/123/job/456?private=value' }, repository), 'https://github.com/Oddmash/example/actions/runs/123');
+  for (const details_url of ['https://example.test/Oddmash/example/actions/runs/123', 'https://github.com/Oddmash/other/actions/runs/123', 'https://github.com/Oddmash/example/actions/runs/invalid']) assert.equal(actionsWorkflowUrl({ ...check, details_url }, repository), undefined);
 });
