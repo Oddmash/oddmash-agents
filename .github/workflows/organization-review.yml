@@ -3,14 +3,23 @@ on:
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch:
+    inputs:
+      repository:
+        description: Full public repository name (leave blank for a manual scan)
+        type: string
+        required: false
+      pr_number:
+        description: PR number (required for a targeted review)
+        type: string
+        required: false
 permissions:
   contents: read
 concurrency:
-  group: organization-reviewer
+  group: organization-reviewer-${{ inputs.repository || 'scan' }}-${{ inputs.pr_number || 'all' }}
   cancel-in-progress: false
 jobs:
   review:
-    if: github.ref == 'refs/heads/main' && vars.REVIEWER_APP_ID != '' && vars.REVIEWER_APP_SLUG != '' && vars.REVIEWER_APP_ENABLED == 'true'
+    if: github.ref == 'refs/heads/main' && vars.REVIEWER_APP_ID != '' && vars.REVIEWER_APP_SLUG != '' && vars.REVIEWER_APP_ENABLED == 'true' && (github.event_name != 'schedule' || vars.REVIEWER_EVENT_MODE != 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -37,4 +46,6 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-5.4
           REVIEWER_APP_SLUG: ${{ vars.REVIEWER_APP_SLUG }}
+          REVIEW_REPOSITORY: ${{ inputs.repository }}
+          REVIEW_PR_NUMBER: ${{ inputs.pr_number }}
         run: node src/organization.ts

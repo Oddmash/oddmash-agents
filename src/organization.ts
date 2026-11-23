@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import { runReview } from './reviewer.ts';
+import { publicRepositories as repositories, reviewTarget } from './routing.ts';
+import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
 
-const repositories = ['Oddmash/.github', 'Oddmash/interaction-inspector', 'Oddmash/oddmash-ui', 'Oddmash/Vertactics', 'Oddmash/kowrap'];
+const target = reviewTarget(process.env.REVIEW_REPOSITORY ?? '', process.env.REVIEW_PR_NUMBER ?? '');
 const githubToken = process.env.GITHUB_TOKEN ?? '';
 const openaiKey = process.env.OPENAI_API_KEY ?? '';
 const bot = `${process.env.REVIEWER_APP_SLUG ?? ''}[bot]`;
@@ -13,17 +15,16 @@ const api = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
   return response.status === 204 ? undefined as T : await response.json() as T;
 };
 
-type Pull = { number: number; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string } }; labels: { name: string }[] };
+type Pull = { number: number; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 type Review = { body: string | null; user: { login: string }; state: string; commit_id: string };
-type Check = { id: number; name: string; status: string; conclusion: string | null };
 const installation = await api<{ repositories: { full_name: string; private: boolean }[] }>('/installation/repositories?per_page=100');
 const enabled = new Set(installation.repositories.filter(repo => !repo.private).map(repo => repo.full_name));
 const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human'];
 let processed = 0;
 for (const repository of repositories) {
-  if (!enabled.has(repository) || processed >= 3) continue;
+  if (!enabled.has(repository) || processed >= 3 || (target && target.repository !== repository)) continue;
   const root = `/repos/${repository}`;
-  const prs = await api<Pull[]>(`${root}/pulls?state=open&per_page=30&sort=updated&direction=desc`);
+  const prs = target ? [await api<Pull>(`${root}/pulls/${target.number}`)] : await api<Pull[]>(`${root}/pulls?state=open&per_page=30&sort=updated&direction=desc`);
   for (const pr of prs) {
     if (processed >= 3) break;
     if (pr.draft || pr.state !== 'open' || pr.base.repo.private || pr.base.repo.full_name !== repository) continue;
@@ -32,16 +33,17 @@ for (const repository of repositories) {
     if (reviews.length === 100) continue;
     const own = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha);
     if (own.some(review => review.state === 'APPROVED' || review.state === 'CHANGES_REQUESTED')) continue;
-    const checks = await api<{ total_count: number; check_runs: Check[] }>(`${root}/commits/${pr.head.sha}/check-runs?per_page=100`);
+    const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
+    const checks = await readChecks(pr);
     const fingerprint = createHash('sha256').update(JSON.stringify([repository, pr.number, pr.head.sha, pr.base.sha, checks.total_count, checks.check_runs.map(check => [check.id, check.status, check.conclusion]).sort()])).digest('hex').slice(0, 24);
     const marker = `<!-- oddmash-app-review:${fingerprint} -->`;
     if (own.some(review => review.body?.includes(marker))) continue;
     processed++;
     const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model: process.env.OPENAI_MODEL ?? 'gpt-5.4', post: true, allowedRepositories: repositories });
     const current = await api<Pull>(path);
-    if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.state !== 'open' || current.draft) continue;
-    const finalChecks = await api<{ total_count: number; check_runs: Check[] }>(`${root}/commits/${pr.head.sha}/check-runs?per_page=100`);
-    const passing = finalChecks.total_count > 0 && finalChecks.total_count === finalChecks.check_runs.length && finalChecks.check_runs.every(check => check.status === 'completed' && check.conclusion === 'success');
+    if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft) continue;
+    const finalChecks = await readChecks(current);
+    const passing = (finalChecks.total_count ?? 0) > 0 && finalChecks.total_count === finalChecks.check_runs.length && finalChecks.check_runs.every(check => check.status === 'completed' && check.conclusion === 'success');
     const event = result.decision === 'APPROVE' && !passing ? 'COMMENT' : result.decision;
     const body = event === 'APPROVE' ? 'No actionable findings in the reviewed changes. Available checks passed. Maintainer review remains required for merge.' : event === 'REQUEST_CHANGES' ? 'Actionable findings were identified. Please review the inline comments and update the PR.' : 'Maintainer verification is required. See the review report for findings or incomplete coverage/check evidence.';
     await api(`${path}/reviews`, { method: 'POST', body: JSON.stringify({ commit_id: result.head, event, body: `${marker}\n${body}\n\n${result.report}` }) });

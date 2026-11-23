@@ -1,4 +1,5 @@
 import { guidancePaths, selectFiles, safeText, validateFindings, formatReport, findingMarker, inlineComment, reviewDecision, type ChangedFile, type ReviewContext, type ReviewDecision } from './core.ts';
+import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
 
 type Fetcher = typeof fetch;
 type Config = { repository: string; number: number; githubToken: string; openaiKey: string; model: string; post: boolean; allowedRepositories: string[] };
@@ -27,7 +28,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   const files = await api<ChangedFile[]>(`${prPath}/files?per_page=100&page=1`);
   const selected = selectFiles(files ?? []);
   if (pr.changed_files > (files?.length ?? 0)) selected.omitted.push('Additional files beyond the first page');
-  const checks = await api<{ total_count?: number; check_runs: ReviewContext['checks'] }>(`${path}/commits/${pr.head.sha}/check-runs?per_page=100`, {}, true, true);
+  const checks = await loadCheckEvidence(pr.head.sha, pr.merge_commit_sha, sha => api<CheckEvidence>(`${path}/commits/${sha}/check-runs?per_page=100`, {}, true, true));
   const guidance: Record<string, string> = {};
   let guidanceBudget = 24_000;
   async function readGuidance(repository: string, filename: string, ref: string) {
