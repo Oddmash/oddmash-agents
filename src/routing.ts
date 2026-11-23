@@ -1,4 +1,4 @@
-export const publicRepositories = ['Oddmash/.github', 'Oddmash/interaction-inspector', 'Oddmash/oddmash-ui', 'Oddmash/Vertactics', 'Oddmash/kowrap'];
+export const publicRepositories = ['Oddmash/.github', 'Oddmash/interaction-inspector', 'Oddmash/oddmash-ui', 'Oddmash/Vertactics', 'Oddmash/kowrap', 'Oddmash/boundra'];
 
 export function reviewTarget(repository: string, number: string): { repository: string; number: number } | null {
   if (!repository && !number) return null;
