@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { runReview } from './reviewer.ts';
 import { formatReviewBody } from './core.ts';
-import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvidence } from './checks.ts';
+import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, reactToComment, type Target } from './webhook.ts';
 import { replyToReview } from './review-discussion.ts';
@@ -188,9 +188,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks, target.recheck);
     if (approved && !canRetryApprovedMerge(approved, marker)) return;
     if (own.some(review => review.body?.includes(marker))) return;
-    if (!reviewChecksReady(checks) || (target.requestComment && !checks.check_runs.every(check => ['success', 'skipped'].includes(check.conclusion ?? '')))) {
+    if (!reviewChecksSuccessful(checks)) {
       if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha);
-      if (reviewChecksReady(checks) && checks.check_runs.some(check => !['success', 'skipped'].includes(check.conclusion ?? ''))) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
+      if (reviewChecksReady(checks)) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
+      if (shouldReconcilePendingChecks(checks, target.expectedHead, pr.head.sha, process.env.REVIEWER_QUEUE_ENABLED === 'true')) throw new Error('CI evidence pending');
       return;
     }
     const pending = reviews.find(review => review.user.login === bot && review.state === 'PENDING');
