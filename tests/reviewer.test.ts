@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runReview } from '../src/reviewer.ts';
+import { confirmBlockingFindings, runReview } from '../src/reviewer.ts';
+import { reviewAssessment, type Finding, type ReviewContext } from '../src/core.ts';
 
 const config = { repository: 'Oddmash/example', number: 1, githubToken: 'fixture', openaiKey: 'fixture', model: 'fixture', post: false, allowedRepositories: ['Oddmash/example'] };
 const pr = { title: 'UI change', state: 'open', draft: false, base: { sha: 'a'.repeat(40), repo: { private: false, full_name: config.repository } }, head: { sha: 'b'.repeat(40) }, changed_files: 1 };
@@ -47,6 +48,26 @@ test('report-only never writes to GitHub', async () => {
   assert.equal(result.posted, false);
   assert.match(result.report, /No validated findings/);
   assert.ok(calls.filter(x => x.url.includes('api.github.com')).every(x => x.method === 'GET'));
+});
+
+test('candidate blockers require an independent, complete affirmative verdict', async () => {
+  const context: ReviewContext = { repository: config.repository, number: 1, head: pr.head.sha, title: 'UI', files: [{ filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }], guidance: {}, checks: [], omitted: [] };
+  const candidate = { ...finding, blockingEvidence: { excerpt: 'new', impact: 'The accessible name is missing.', requirement: 'Buttons have accessible names.' } } as Finding;
+  const reply = (verdicts: unknown): typeof fetch => async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.text.format.name, 'oddmash_blocker_confirmation');
+    assert.equal(JSON.parse(body.input).candidates.length, 1);
+    return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ verdicts }) }] }] });
+  };
+  const approved = await confirmBlockingFindings(context, [candidate], config, reply([{ index: 0, confirmed: true }]));
+  assert.equal(reviewAssessment(context, approved, true), 'REQUEST_CHANGES');
+  for (const result of [[{ index: 0, confirmed: false }], [{ index: 1, confirmed: true }], []]) {
+    const reviewed = await confirmBlockingFindings(context, [candidate], config, reply(result));
+    assert.equal(reviewAssessment(context, reviewed, true), 'COMMENT');
+  }
+  const failed = await confirmBlockingFindings(context, [candidate], config, async () => new Response(null, { status: 429 }));
+  assert.equal(reviewAssessment(context, failed, true), 'COMMENT');
+  await confirmBlockingFindings(context, [finding as Finding], config, async () => { throw new Error('Advisory findings must not call the model again'); });
 });
 
 test('issue acceptance sends explicit zero-based criterion IDs and validates exact evidence', async () => {

@@ -46,7 +46,13 @@ test('formal outcomes fail closed without complete passing checks and validated 
   assert.equal(reviewDecision({ ...context, checks: [] }, [], true), 'COMMENT');
   assert.equal(reviewDecision({ ...context, omitted: ['large'] }, [], true), 'COMMENT');
   assert.equal(reviewDecision(context, [], false), 'COMMENT');
-  assert.equal(reviewDecision(context, [finding as Finding], true), 'REQUEST_CHANGES');
+  assert.equal(reviewDecision(context, [finding as Finding], true), 'COMMENT');
+  const proven = { ...finding, blockingEvidence: { excerpt: 'new', impact: 'The control cannot be named.', requirement: 'A button requires an accessible name.' } } as Finding;
+  assert.equal(reviewDecision(context, [proven], true), 'REQUEST_CHANGES');
+  assert.equal(reviewDecision(context, [{ ...proven, blockingEvidence: { ...proven.blockingEvidence!, excerpt: 'not in diff' } }], true), 'COMMENT');
+  assert.equal(reviewDecision(context, [{ ...proven, confidence: 'medium' }], true), 'COMMENT');
+  assert.match(inlineComment(context, proven), /BLOCKING/);
+  assert.match(inlineComment(context, finding as Finding), /ADVISORY/);
   assert.equal(reviewDecision(context, [{ ...finding, severity: 'low' } as Finding], true), 'COMMENT');
 });
 
