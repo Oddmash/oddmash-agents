@@ -50,6 +50,20 @@ test('report-only never writes to GitHub', async () => {
   assert.ok(calls.filter(x => x.url.includes('api.github.com')).every(x => x.method === 'GET'));
 });
 
+test('review reports explain image omissions and unfetched files without sending diagnostic metadata to the model', async () => {
+  const { request } = mock();
+  const result = await runReview(config, async (input, init) => {
+    const url = String(input);
+    if (url.includes('/files?')) return Response.json([{ filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }, { filename: 'docs/assets/demo.png', status: 'modified' }]);
+    if (url.endsWith('/pulls/1')) return Response.json({ ...pr, changed_files: 3 });
+    if (url.includes('api.openai.com')) assert.equal(JSON.parse(JSON.parse(String(init?.body)).input).omissionDetails, undefined);
+    return request(input, init);
+  });
+  assert.equal(result.assessment, 'COMMENT');
+  assert.match(result.report, /`docs\/assets\/demo.png`: Image has no text diff/);
+  assert.match(result.report, /\(1 unlisted\): Files beyond the fetched page/);
+});
+
 test('public head context includes same-file guards and curated feedback without new finding anchors', async () => {
   const { request } = mock();
   const source = 'const select = item => { if (item.disabled) return; item.onSelect(); };';
@@ -166,6 +180,7 @@ test('approved private review uses scoped auth and excludes private sensitive da
       assert.deepEqual(model.files.map((file: { filename: string }) => file.filename), ['src/ui.ts']);
       assert.equal(model.omitted.length, 3);
       assert.ok(model.omitted.every((file: string) => file === 'Omitted private file'));
+      assert.equal(model.omissionDetails, undefined);
       assert.doesNotMatch(payload.input, /fixture-hidden-name|synthetic-fixture-value|fixture-sensitive-guidance/);
       assert.equal(model.issueAcceptance, null);
       return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: [], acceptance: [], allRequirementsMet: false }) }] }] });
@@ -187,6 +202,8 @@ test('approved private review uses scoped auth and excludes private sensitive da
   assert.equal(modelCalls, 1);
   assert.equal(result.decision, 'COMMENT');
   assert.equal(result.issueVerified, false);
+  assert.match(result.report, /Protected path excluded/);
+  assert.doesNotMatch(result.report, /fixture-hidden-name|synthetic-fixture-value|fixture-sensitive-guidance|src\/renamed.ts|src\/other.ts/);
   await assert.rejects(runReview({ ...privateConfig, privateRepositoryId: 99 }, request), /not explicitly enabled/);
   await assert.rejects(runReview({ ...privateConfig, githubToken: '' }, request), /not explicitly enabled/);
 });
