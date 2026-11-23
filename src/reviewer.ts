@@ -39,7 +39,7 @@ export async function confirmBlockingFindings(context: ReviewContext, findings: 
 
 export function validateConfig(c: Config) {
   if (!repoPattern.test(c.repository) || !c.allowedRepositories.includes(c.repository) || !Number.isSafeInteger(c.number) || c.number < 1) throw new Error('Repository is not explicitly enabled or PR number is invalid');
-  if (c.privateRepositoryId !== undefined && (!privateRepositoryAllowed(c.repository, c.privateRepositoryId) || !c.githubToken || c.acceptance)) throw new Error('Private repository is not explicitly enabled');
+  if (c.privateRepositoryId !== undefined && (!privateRepositoryAllowed(c.repository, c.privateRepositoryId) || !c.githubToken || (c.acceptance && (privateSensitiveText(c.acceptance.body) || c.acceptance.criteria.some(privateSensitiveText))))) throw new Error('Private repository is not explicitly enabled');
   if ((c.post && !c.githubToken) || !c.openaiKey || !c.model) throw new Error('Required configuration missing');
 }
 
