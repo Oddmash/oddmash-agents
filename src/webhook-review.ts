@@ -146,10 +146,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const mergeStatus = (reason: string, completed = false) => publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'merge', reason, completed);
     const retryExistingApproval = async () => {
       if (existingApproval?.state !== 'APPROVED') return;
-      let reason = target.private ? 'private repository requires manual merge' : !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
+      let reason = !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
       const withheld = (value: string) => { reason = value; console.log('Maintainer auto-merge withheld: ' + value); };
       try {
-        if (config.autoMerge && !target.private) {
+        if (config.autoMerge) {
           const candidate = await mergeCandidate(api, target, pr.number, withheld);
           if (candidate && existingApproval.body?.includes(mergeProof(candidate))) {
             if (await mergeAuthorized(api, target, candidate, bot, existingApproval.id, true, () => authorizeMerge(target, appId, key), withheld)) { await mergeStatus('merge completed', true); return; }
@@ -175,7 +175,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const decisive = own.filter(review => ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)).at(-1);
     if (!target.recheck && decisive?.state === 'CHANGES_REQUESTED') return;
     const approved = !target.recheck && decisive?.state === 'APPROVED' ? decisive : undefined;
-    if (approved && (!config.autoMerge || target.private)) return;
+    if (approved && !config.autoMerge) return;
     const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
     const checks = await readChecks(pr);
     const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks, target.recheck);
@@ -195,9 +195,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     if (pendingId === null) return;
     let submitted = false;
     try {
-      let mergeReason = target.private ? 'private repository requires manual merge' : !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
+      let mergeReason = !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
       const withheld = (reason: string) => { mergeReason = reason; console.log('Maintainer auto-merge withheld: ' + reason); };
-      const candidate = config.autoMerge && !target.private ? await mergeCandidate(api, target, pr.number, withheld).catch(error => {
+      const candidate = config.autoMerge ? await mergeCandidate(api, target, pr.number, withheld).catch(error => {
         withheld(error instanceof Error && /^GitHub request failed \(\d{3}\)$/.test(error.message) ? error.message : 'candidate lookup failed');
         return null;
       }) : null;
