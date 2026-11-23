@@ -40,6 +40,7 @@ const sourceRoots: Record<string, RegExp> = {
   'Oddmash/oddmash-ui': /^(?:src|demo)\//,
   'Oddmash/interaction-inspector': /^(?:src|demo)\//,
   'Oddmash/Vertactics': /^apps\/(?:editor\/src|landing\/app)\//,
+  'Oddmash/boundra': /^packages\/(?:runtime|ui)\/src\//,
   'Oddmash/oddmash-website': /^dist\/(?:[^/]+)$/,
 };
 const testRoots: Record<string, RegExp> = {
@@ -47,6 +48,7 @@ const testRoots: Record<string, RegExp> = {
   'Oddmash/oddmash-ui': /^tests\//,
   'Oddmash/interaction-inspector': /^tests\//,
   'Oddmash/Vertactics': /^apps\/editor\/tests\//,
+  'Oddmash/boundra': /^packages\/(?:runtime|ui)\/tests\//,
 };
 
 export function lowRisk(files: ChangedFile[], count: number, repository = ''): boolean {
@@ -137,7 +139,7 @@ export async function mergeAuthorized(api: Api, target: Target, candidate: Candi
   const reviews = await api<Review[]>(root + '/pulls/' + number + '/reviews?per_page=100');
   if (reviews.length >= 100 || !reviews.some(r => r.id === reviewId && r.user.login === bot && r.state === 'APPROVED' && r.commit_id === current.pull.head.sha) || reviews.some(r => r.user.login !== bot && r.commit_id === current.pull.head.sha && r.state === 'COMMENTED' && !!r.body?.trim()) || reviews.some(r => r.state === 'CHANGES_REQUESTED' && !reviews.some(later => later.id > r.id && later.user.id === r.user.id && ['APPROVED', 'DISMISSED'].includes(later.state)))) return deny('exact-head approval or independent review evidence is incomplete');
   const checks = await loadCheckEvidence(current.pull.head.sha, current.pull.merge_commit_sha, ref => api<CheckEvidence>(root + '/commits/' + ref + '/check-runs?per_page=100'));
-  if (!reviewChecksSuccessful(checks) || !checks.check_runs.some(c => c.name === 'verify' && c.conclusion === 'success' && c.status === 'completed' && c.app?.id === 15368)) return deny('current required check evidence is incomplete');
+  if (!reviewChecksSuccessful(checks, target.repository) || !checks.check_runs.some(c => c.name === 'verify' && c.conclusion === 'success' && c.status === 'completed' && c.app?.id === 15368)) return deny('current required check evidence is incomplete');
   for (const ref of [current.pull.head.sha, current.pull.merge_commit_sha!]) {
     const status = await api<{ total_count: number; state: string; statuses: unknown[] }>(root + '/commits/' + ref + '/status');
     if (status.total_count !== status.statuses.length || (status.total_count > 0 && status.state !== 'success')) return deny('commit statuses are incomplete');

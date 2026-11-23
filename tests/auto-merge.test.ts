@@ -47,6 +47,14 @@ test('explicitly approved private identities are candidates but visibility and I
   assert.equal(acceptanceOf({ ...issue, body: issue.body + '\npassword: fixture-private-value' }, true), null);
 });
 
+test('all current public product repositories are eligible while organization governance remains manual', () => {
+  for (const repository of ['Oddmash/kowrap', 'Oddmash/oddmash-ui', 'Oddmash/interaction-inspector', 'Oddmash/Vertactics', 'Oddmash/boundra']) {
+    assert.equal(mergeRepositoryAllowed({ installation: 1, repository, repositoryId: 42 }), true);
+  }
+  assert.equal(mergeRepositoryAllowed({ installation: 1, repository: 'Oddmash/.github', repositoryId: 42 }), false);
+  assert.equal(mergeRepositoryAllowed({ installation: 1, repository: 'Oddmash/unknown', repositoryId: 42 }), false);
+});
+
 test('requires one linked issue and all explicit criteria', () => {
   assert.equal(linkedIssue('Closes #9'), 9);
   assert.equal(linkedIssue('Closes #9\nFixes #10'), null);
@@ -80,6 +88,9 @@ test('allows ordinary source and additive tests only under known product paths',
   assert.equal(lowRisk([{ ...files[0], filename: 'dist/auth.js' }], 1, 'Oddmash/oddmash-website'), false);
   assert.equal(lowRisk([{ ...files[0], filename: 'docs/deployment.md' }], 1, 'Oddmash/oddmash-agents'), false);
   assert.equal(lowRisk([{ ...files[0], filename: 'skills/example/SKILL.md' }], 1, 'Oddmash/oddmash-skills'), false);
+  assert.equal(lowRisk([{ ...files[0], filename: 'packages/runtime/src/client.ts' }], 1, 'Oddmash/boundra'), true);
+  assert.equal(lowRisk([{ filename: 'packages/runtime/tests/client.test.ts', status: 'added', patch: '@@ -0,0 +1 @@\n+assert.ok(true)' }], 1, 'Oddmash/boundra'), true);
+  assert.equal(lowRisk([{ ...files[0], filename: 'crates/rules/src/lib.rs' }], 1, 'Oddmash/boundra'), false);
   assert.equal(protectedBranch(branch, base), true);
   assert.equal(protectedBranch({ ...branch, protected: false }, base), false);
 });
@@ -87,7 +98,7 @@ test('allows ordinary source and additive tests only under known product paths',
 test('mint write token only after exact-head approval and protected current CI', async () => {
   let writes = 0;
   let mints = 0;
-  const makeApi = (passing = true, pull = pr, skippedVerify = false) => githubApi('fixture-token', async (input, init) => {
+  const makeApi = (passing = true, pull = pr, skippedVerify = false, boundraMatrix = false) => githubApi('fixture-token', async (input, init) => {
     const url = String(input);
     if (url.endsWith('/pulls/10')) return Response.json(pull);
     if (url.endsWith('/issues/9')) return Response.json(issue);
@@ -95,7 +106,11 @@ test('mint write token only after exact-head approval and protected current CI',
     if (url.endsWith('/branches/main')) return Response.json(branch);
     if (url.includes('/compare/')) return Response.json({ behind_by: 0, merge_base_commit: { sha: base } });
     if (url.includes('/reviews?')) return Response.json([{ id: 5, user: { login: 'oddmash-reviewer[bot]', id: 100 }, state: 'APPROVED', commit_id: head }]);
-    if (url.includes('/check-runs?')) return Response.json({ total_count: skippedVerify ? 2 : 1, check_runs: [{ id: 1, name: 'verify', app: { id: 15368 }, status: 'completed', conclusion: passing ? 'success' : 'failure' }, ...(skippedVerify ? [{ id: 2, name: 'verify', app: { id: 15368 }, status: 'completed', conclusion: 'skipped' }] : [])] });
+    if (url.includes('/check-runs?')) {
+      const check_runs = [{ id: 1, name: 'verify', app: { id: 15368 }, status: 'completed', conclusion: passing ? 'success' : 'failure' }, ...(skippedVerify ? [{ id: 2, name: 'verify', app: { id: 15368 }, status: 'completed', conclusion: 'skipped' }] : [])];
+      if (boundraMatrix) for (const name of ['verify-example', 'verify-runtime (20)', 'verify-runtime (22)', 'verify-runtime (24)', 'verify-cli-platforms (ubuntu-24.04)', 'verify-cli-platforms (macos-15)', 'verify-cli-platforms (macos-15-intel)', 'verify-cli-platforms (windows-2025)', 'benchmark-smoke']) check_runs.push({ id: check_runs.length + 1, name, app: { id: 15368 }, status: 'completed', conclusion: 'success' });
+      return Response.json({ total_count: check_runs.length, check_runs });
+    }
     if (url.endsWith('/status')) return Response.json({ total_count: 0, state: 'pending', statuses: [] });
     if (url.endsWith('/merge')) { writes++; assert.deepEqual(JSON.parse(String(init?.body)), { sha: head, merge_method: 'merge' }); return Response.json({ merged: true }); }
     if (url.endsWith('/installation/token')) return new Response(null, { status: 204 });
@@ -118,4 +133,13 @@ test('mint write token only after exact-head approval and protected current CI',
   assert.equal(await mergeAuthorized(makeApi(true, privatePull), privateTarget, privateCandidate, 'oddmash-reviewer[bot]', 5, true, mint), true);
   assert.equal(mints, 2);
   assert.equal(writes, 2);
+  const boundraTarget = { installation: 1, repository: 'Oddmash/boundra', repositoryId: 1218645367 };
+  const boundraIdentity = { id: boundraTarget.repositoryId, full_name: boundraTarget.repository };
+  const boundraPull = { ...pr, head: { sha: head, repo: boundraIdentity }, base: { ...pr.base, repo: { ...boundraIdentity, default_branch: 'main', private: false } } };
+  const boundraCandidate = { ...candidate, pull: boundraPull };
+  assert.equal(await mergeAuthorized(makeApi(true, boundraPull), boundraTarget, boundraCandidate, 'oddmash-reviewer[bot]', 5, true, mint), false);
+  assert.equal(mints, 2);
+  assert.equal(await mergeAuthorized(makeApi(true, boundraPull, false, true), boundraTarget, boundraCandidate, 'oddmash-reviewer[bot]', 5, true, mint), true);
+  assert.equal(mints, 3);
+  assert.equal(writes, 3);
 });
