@@ -1,0 +1,8 @@
+{
+  "framework": null,
+  "functions": {
+    "api/github.ts": {
+      "maxDuration": 300
+    }
+  }
+}
