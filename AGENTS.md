@@ -6,6 +6,8 @@ The reviewer defaults to report-only. A maintainer-authorized, independently ide
 
 Keep tests offline and deterministic. Run `npm test` before delivery.
 
+Repository-specific review check profiles supplement the aggregate `verify` gate with complete CI evidence for a known matrix workflow. Keep profiles in trusted agent source, require every named GitHub Actions job and aggregate `verify` to succeed with trusted app identity, and fail closed on missing or incomplete evidence. They do not replace protected-branch or automatic merge requirements.
+
 Open agent changes as ready-for-review PRs by default under the organization agreement. Use drafts only for documented exceptions; pending remote CI or bot review is not a draft reason. Do not alter reviewer eligibility or merge gates to compensate for draft status.
 
 ## Shared skills

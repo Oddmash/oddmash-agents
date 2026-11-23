@@ -2,24 +2,39 @@ import { checksPassed, type ReviewDecision } from './core.ts';
 export type Check = { id?: number; name: string; status: string; conclusion: string | null; app?: { id: number } };
 export type CheckEvidence = { total_count?: number; check_runs: Check[] };
 
-export function reviewChecksReady(evidence: CheckEvidence): boolean {
-  return !!evidence.total_count && evidence.total_count === evidence.check_runs.length && evidence.check_runs.every(check => check.status === 'completed') && evidence.check_runs.some(check => /^(?:CI \/ )?verify$/.test(check.name) && (check.app === undefined || check.app.id === 15368));
+const boundraChecks = [
+  'verify-example', 'verify-runtime (20)', 'verify-runtime (22)', 'verify-runtime (24)',
+  'verify-cli-platforms (ubuntu-24.04)', 'verify-cli-platforms (macos-15)',
+  'verify-cli-platforms (macos-15-intel)', 'verify-cli-platforms (windows-2025)', 'benchmark-smoke'
+];
+
+const reviewProfiles: Readonly<Record<string, { workflow: string; names: readonly string[] }>> = {
+  'Oddmash/boundra': { workflow: 'Boundra', names: boundraChecks }
+};
+
+function requiredReviewChecks(evidence: CheckEvidence, repository?: string): Check[][] {
+  const profile = repository && Object.hasOwn(reviewProfiles, repository) ? reviewProfiles[repository] : undefined;
+  if (profile) return [...profile.names, 'verify'].map(name => evidence.check_runs.filter(check => check.app?.id === 15368 && (check.name === name || check.name === `${profile.workflow} / ${name}`)));
+  return [evidence.check_runs.filter(check => /^(?:CI \/ )?verify$/.test(check.name) && check.app?.id === 15368)];
 }
 
-export function reviewChecksSuccessful(evidence: CheckEvidence): boolean {
-  if (!reviewChecksReady(evidence)) return false;
-  const required = evidence.check_runs.filter(check => /^(?:CI \/ )?verify$/.test(check.name) && (check.app === undefined || check.app.id === 15368));
-  return required.every(check => check.conclusion === 'success') && checksPassed(evidence.check_runs);
+export function reviewChecksReady(evidence: CheckEvidence, repository?: string): boolean {
+  return !!evidence.total_count && evidence.total_count === evidence.check_runs.length && evidence.check_runs.every(check => check.status === 'completed') && requiredReviewChecks(evidence, repository).every(group => group.length > 0);
 }
 
-export function shouldReconcilePendingChecks(evidence: CheckEvidence, expectedHead: string | undefined, head: string, queueEnabled: boolean): boolean {
-  return queueEnabled && expectedHead === head && /^[a-f0-9]{40}$/i.test(head) && !reviewChecksReady(evidence);
+export function reviewChecksSuccessful(evidence: CheckEvidence, repository?: string): boolean {
+  if (!reviewChecksReady(evidence, repository)) return false;
+  return requiredReviewChecks(evidence, repository).every(group => group.every(check => check.conclusion === 'success')) && checksPassed(evidence.check_runs);
 }
 
-export function finalReviewEvent(assessment: ReviewDecision, evidence: CheckEvidence): ReviewDecision | null {
-  if (!reviewChecksReady(evidence)) return null;
+export function shouldReconcilePendingChecks(evidence: CheckEvidence, expectedHead: string | undefined, head: string, queueEnabled: boolean, repository?: string): boolean {
+  return queueEnabled && expectedHead === head && /^[a-f0-9]{40}$/i.test(head) && !reviewChecksReady(evidence, repository);
+}
+
+export function finalReviewEvent(assessment: ReviewDecision, evidence: CheckEvidence, repository?: string): ReviewDecision | null {
+  if (!reviewChecksReady(evidence, repository)) return null;
   if (assessment === 'REQUEST_CHANGES') return assessment;
-  return reviewChecksSuccessful(evidence) ? assessment : null;
+  return reviewChecksSuccessful(evidence, repository) ? assessment : null;
 }
 
 export async function loadCheckEvidence(head: string, merge: string | null | undefined, read: (sha: string) => Promise<CheckEvidence | null>): Promise<CheckEvidence> {

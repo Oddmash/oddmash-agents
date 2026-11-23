@@ -36,7 +36,7 @@ for (const repository of repositories) {
     if (own.some(review => review.state === 'APPROVED' || review.state === 'CHANGES_REQUESTED')) continue;
     const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
     const checks = await readChecks(pr);
-    if (!reviewChecksReady(checks)) continue;
+    if (!reviewChecksReady(checks, repository)) continue;
     const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks);
     if (own.some(review => review.body?.includes(marker))) continue;
     if (reviews.some(review => review.user.login === bot && review.state === 'PENDING')) continue;
@@ -49,7 +49,7 @@ for (const repository of repositories) {
     const current = await api<Pull>(path);
     if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft) continue;
     const finalChecks = await readChecks(current);
-    const event = finalReviewEvent(result.assessment, finalChecks);
+    const event = finalReviewEvent(result.assessment, finalChecks, repository);
     if (!event) continue;
     const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
     if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))) continue;

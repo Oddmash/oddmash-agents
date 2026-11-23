@@ -39,10 +39,10 @@ test('does not approve when any aggregate verify check is skipped or cancelled',
 
 test('pending CI reconciliation is opt-in and bound to the expected head', () => {
   const head = 'a'.repeat(40);
-  const pending = { total_count: 1, check_runs: [{ name: 'verify', status: 'queued', conclusion: null }] };
+  const pending = { total_count: 1, check_runs: [{ name: 'verify', status: 'queued', conclusion: null, app: { id: 15368 } }] };
   const missing = { total_count: 0, check_runs: [] };
-  const failed = { total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'failure' }] };
-  const passed = { total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] };
+  const failed = { total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'failure', app: { id: 15368 } }] };
+  const passed = { total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success', app: { id: 15368 } }] };
   for (const evidence of [pending, missing]) {
     assert.equal(shouldReconcilePendingChecks(evidence, head, head, true), true);
     assert.equal(shouldReconcilePendingChecks(evidence, undefined, head, true), false);
@@ -59,4 +59,55 @@ test('pending CI reconciliation is opt-in and bound to the expected head', () =>
 test('unavailable check evidence is not successful even if another ref passed', async () => {
   const result = await loadCheckEvidence('a'.repeat(40), 'b'.repeat(40), async sha => sha.startsWith('a') ? null : { total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] });
   assert.equal(reviewChecksSuccessful(result), false);
+});
+
+test('Boundra requires every trusted matrix job and the aggregate verify gate', () => {
+  const repository = 'Oddmash/boundra';
+  const names = [
+    'verify-example', 'verify-runtime (20)', 'verify-runtime (22)', 'verify-runtime (24)',
+    'verify-cli-platforms (ubuntu-24.04)', 'verify-cli-platforms (macos-15)',
+    'verify-cli-platforms (macos-15-intel)', 'verify-cli-platforms (windows-2025)', 'benchmark-smoke', 'verify'
+  ];
+  const jobs = names.map((name, index) => ({ name: index % 2 ? `Boundra / ${name}` : name, status: 'completed', conclusion: 'success', app: { id: 15368 } }));
+  const full = { total_count: jobs.length, check_runs: jobs };
+  assert.equal(reviewChecksSuccessful(full, repository), true);
+  assert.equal(finalReviewEvent('APPROVE', full, repository), 'APPROVE');
+  const profileOnly = { total_count: jobs.length - 1, check_runs: jobs.slice(0, -1) };
+  assert.equal(reviewChecksReady(profileOnly, repository), false);
+  assert.equal(reviewChecksSuccessful(profileOnly, repository), false);
+  assert.equal(finalReviewEvent('APPROVE', profileOnly, repository), null);
+  assert.equal(reviewChecksSuccessful(profileOnly), false);
+  for (const conclusion of ['failure', 'skipped', 'cancelled']) {
+    const aggregateFailed = { total_count: jobs.length, check_runs: [...jobs.slice(0, -1), { ...jobs.at(-1)!, conclusion }] };
+    assert.equal(reviewChecksSuccessful(aggregateFailed, repository), false);
+    assert.equal(finalReviewEvent('APPROVE', aggregateFailed, repository), null);
+  }
+  assert.equal(reviewChecksReady({ total_count: jobs.length, check_runs: [...jobs.slice(0, -1), { ...jobs.at(-1)!, app: undefined }] }, repository), false);
+  const missing = { total_count: jobs.length - 1, check_runs: jobs.slice(1) };
+  assert.equal(reviewChecksReady(missing, repository), false);
+  assert.equal(finalReviewEvent('APPROVE', missing, repository), null);
+  const head = 'a'.repeat(40);
+  assert.equal(shouldReconcilePendingChecks(missing, head, head, true, repository), true);
+  assert.equal(shouldReconcilePendingChecks(full, head, head, true, repository), false);
+  for (const conclusion of ['failure', 'skipped', 'cancelled']) {
+    const failed = { total_count: jobs.length, check_runs: [{ ...jobs[0], conclusion }, ...jobs.slice(1)] };
+    assert.equal(reviewChecksReady(failed, repository), true);
+    assert.equal(finalReviewEvent('APPROVE', failed, repository), null);
+  }
+  for (const replacement of [{ ...jobs[0], app: { id: 42 } }, { ...jobs[0], app: undefined }, { ...jobs[0], name: 'Another workflow / verify-example' }]) {
+    assert.equal(reviewChecksReady({ total_count: jobs.length, check_runs: [replacement, ...jobs.slice(1)] }, repository), false);
+  }
+  assert.equal(reviewChecksReady({ ...full, total_count: jobs.length + 1 }, repository), false);
+  assert.equal(reviewChecksReady({ ...full, check_runs: [{ ...jobs[0], status: 'queued', conclusion: null }, ...jobs.slice(1)] }, repository), false);
+});
+
+test('default verify gate requires the trusted GitHub Actions app identity', () => {
+  const verify = { name: 'verify', status: 'completed', conclusion: 'success' };
+  for (const app of [undefined, { id: 42 }]) {
+    const evidence = { total_count: 1, check_runs: [{ ...verify, app }] };
+    assert.equal(reviewChecksReady(evidence), false);
+    assert.equal(reviewChecksSuccessful(evidence), false);
+    assert.equal(finalReviewEvent('APPROVE', evidence), null);
+  }
+  assert.equal(reviewChecksSuccessful({ total_count: 1, check_runs: [{ ...verify, app: { id: 15368 } }] }), true);
 });

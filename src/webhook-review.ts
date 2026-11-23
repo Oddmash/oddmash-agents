@@ -193,10 +193,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks, target.recheck);
     if (approved && !canRetryApprovedMerge(approved, marker)) return;
     if (own.some(review => review.body?.includes(marker))) return;
-    if (!reviewChecksSuccessful(checks)) {
+    if (!reviewChecksSuccessful(checks, repository)) {
       if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha);
-      if (reviewChecksReady(checks)) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
-      if (shouldReconcilePendingChecks(checks, target.expectedHead, pr.head.sha, process.env.REVIEWER_QUEUE_ENABLED === 'true')) throw new Error('CI evidence pending');
+      if (reviewChecksReady(checks, repository)) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
+      if (shouldReconcilePendingChecks(checks, target.expectedHead, pr.head.sha, process.env.REVIEWER_QUEUE_ENABLED === 'true', repository)) throw new Error('CI evidence pending');
       return;
     }
     const pending = reviews.find(review => review.user.login === bot && review.state === 'PENDING');
@@ -224,9 +224,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
       if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state) && (!approved || review.id > approved.id))))) return;
       const finalChecks = await readChecks(current);
-      const event = finalReviewEvent(result.assessment, finalChecks);
+      const event = finalReviewEvent(result.assessment, finalChecks, repository);
       if (!event) {
-        if (reviewChecksReady(finalChecks) && finalChecks.check_runs.some(check => !['success', 'skipped'].includes(check.conclusion ?? ''))) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
+        if (reviewChecksReady(finalChecks, repository) && !reviewChecksSuccessful(finalChecks, repository)) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
         return;
       }
       const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks, target.recheck);
