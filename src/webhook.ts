@@ -21,7 +21,8 @@ const privateRepositories: Record<string, number> = {
   "Oddmash/oddmash-agents": 1468182609,
   "Oddmash/oddmash-skills": 1468154482,
   "Oddmash/overtime-prototype": 1461455091,
-  "Oddmash/cash-out": 1462488077
+  "Oddmash/cash-out": 1462488077,
+  "Oddmash/oddmash-website": 1468561714
 };
 
 export function privateRepositoryAllowed(name: string, id: number | undefined): boolean {
