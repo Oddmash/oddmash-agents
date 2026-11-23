@@ -41,7 +41,7 @@ test('rejects sensitive paths, source and weakening existing tests', () => {
   assert.equal(lowRisk([{ ...files[0], filename: 'docs/AGENTS.md' }], 1), false);
   assert.equal(lowRisk([{ ...files[0], filename: '.github/workflows/ci.yml' }], 1), false);
   assert.equal(lowRisk([{ ...files[0], filename: 'tests/a.test.ts' }], 1), false);
-  assert.equal(lowRisk([{ ...files[0], filename: 'tests/a.test.ts', status: 'added' }], 1), true);
+  assert.equal(lowRisk([{ ...files[0], filename: 'tests/a.test.ts', status: 'added' }], 1), false);
   assert.equal(lowRisk(files, 2), false);
   assert.equal(protectedBranch(branch, base), true);
   assert.equal(protectedBranch({ ...branch, protected: false }, base), false);
@@ -56,6 +56,7 @@ test('mint write token only after exact-head approval and protected current CI',
     if (url.endsWith('/issues/9')) return Response.json(issue);
     if (url.includes('/files?')) return Response.json(files);
     if (url.endsWith('/branches/main')) return Response.json(branch);
+    if (url.includes('/compare/')) return Response.json({ behind_by: 0, merge_base_commit: { sha: base } });
     if (url.includes('/reviews?')) return Response.json([{ id: 5, user: { login: 'oddmash-reviewer[bot]', id: 100 }, state: 'APPROVED', commit_id: head }]);
     if (url.includes('/check-runs?')) return Response.json({ total_count: 1, check_runs: [{ id: 1, name: 'verify', app: { id: 15368 }, status: 'completed', conclusion: passing ? 'success' : 'failure' }] });
     if (url.endsWith('/status')) return Response.json({ total_count: 0, state: 'pending', statuses: [] });

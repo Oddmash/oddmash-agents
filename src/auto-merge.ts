@@ -24,10 +24,9 @@ export function lowRisk(files: ChangedFile[], count: number): boolean {
   if (!files.length || files.length !== count || count > 20) return false;
   return files.every(f => {
     const path = f.filename;
-    if (!f.patch || /(?:^|\/)(?:AGENTS\.md|CONTRIBUTING\.md|SECURITY\.md|CODEOWNERS|PROMPT\.md|SPEC\.md|CHANGELOG\.md|\.github|scripts|auth|security)(?:\/|$)/i.test(path)) return false;
+    if (!f.patch || /(?:policy|release|deploy|security|auth|architecture|credential|instructions|review)/i.test(path) || /(?:^|\/)(?:AGENTS\.md|CONTRIBUTING\.md|SECURITY\.md|CODEOWNERS|PROMPT\.md|SPEC\.md|CHANGELOG\.md|\.github|scripts|auth|security)(?:\/|$)/i.test(path)) return false;
     const docs = /^(?:README(?:\.[a-z-]+)?\.md|docs\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.md)$/i.test(path) && ['added', 'modified'].includes(f.status);
-    const test = /^(?:tests|src\/__tests__)\/(?:[a-z0-9_-]+\/)*[a-z0-9_.-]+\.(?:test|spec)\.(?:ts|tsx|js|jsx)$/i.test(path) && f.status === 'added';
-    return docs || test;
+    return docs;
   });
 }
 
@@ -92,6 +91,8 @@ export async function mergeAuthorized(api: Api, target: Target, candidate: Candi
   if (!current || current.acceptance.digest !== candidate.acceptance.digest || current.pull.head.sha !== candidate.pull.head.sha || current.pull.base.sha !== candidate.pull.base.sha || current.pull.merge_commit_sha !== candidate.pull.merge_commit_sha || current.pull.mergeable !== true || current.pull.mergeable_state !== 'clean') return false;
   const branch = await api<Branch>(root + '/branches/main');
   if (!protectedBranch(branch, current.pull.base.sha)) return false;
+  const compare = await api<{ behind_by: number; merge_base_commit: { sha: string } }>(root + '/compare/' + current.pull.base.sha + '...' + current.pull.head.sha);
+  if (compare.behind_by !== 0 || compare.merge_base_commit.sha !== current.pull.base.sha) return false;
   const reviews = await api<Review[]>(root + '/pulls/' + number + '/reviews?per_page=100');
   if (reviews.length >= 100 || !reviews.some(r => r.id === reviewId && r.user.login === bot && r.state === 'APPROVED' && r.commit_id === current.pull.head.sha) || reviews.some(r => r.user.login !== bot && r.commit_id === current.pull.head.sha && r.state === 'COMMENTED' && !!r.body?.trim()) || reviews.some(r => r.state === 'CHANGES_REQUESTED' && !reviews.some(later => later.id > r.id && later.user.id === r.user.id && ['APPROVED', 'DISMISSED'].includes(later.state)))) return false;
   const checks = await loadCheckEvidence(current.pull.head.sha, current.pull.merge_commit_sha, ref => api<CheckEvidence>(root + '/commits/' + ref + '/check-runs?per_page=100'));
