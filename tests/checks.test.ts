@@ -55,3 +55,8 @@ test('pending CI reconciliation is opt-in and bound to the expected head', () =>
   assert.equal(reviewChecksSuccessful(failed), false);
   assert.equal(reviewChecksSuccessful(passed), true);
 });
+
+test('unavailable check evidence is not successful even if another ref passed', async () => {
+  const result = await loadCheckEvidence('a'.repeat(40), 'b'.repeat(40), async sha => sha.startsWith('a') ? null : { total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] });
+  assert.equal(reviewChecksSuccessful(result), false);
+});

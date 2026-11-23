@@ -26,5 +26,6 @@ export async function loadCheckEvidence(head: string, merge: string | null | und
   const refs = [head];
   if (merge && /^[a-f0-9]{40}$/i.test(merge) && merge !== head) refs.push(merge);
   const evidence = await Promise.all(refs.map(read));
+  if (evidence.some(item => item === null)) return { check_runs: evidence.flatMap(item => item?.check_runs ?? []) };
   return { total_count: evidence.reduce((sum, item) => sum + (item?.total_count ?? item?.check_runs.length ?? 0), 0), check_runs: evidence.flatMap(item => item?.check_runs ?? []) };
 }

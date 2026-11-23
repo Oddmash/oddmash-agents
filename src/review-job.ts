@@ -19,6 +19,7 @@ export function verifyReviewJob(job: ReviewJob, secret: string): boolean {
 
 export function retryableJobError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : '';
+  if (message === 'Reviewer failure record unavailable') return false;
   if (/quota|credit limit|missing app configuration|installation not eligible|repository not eligible|invalid delivery/i.test(message)) return false;
   const status = /(?:GitHub|Model) request failed \((\d{3})\)/.exec(message)?.[1];
   return !status || Number(status) >= 500 || ['408', '409', '429'].includes(status);
@@ -26,4 +27,17 @@ export function retryableJobError(error: unknown): boolean {
 
 export function retryDelay(deliveryCount: number) {
   return Math.min(300, 15 * 2 ** Math.max(0, deliveryCount - 1));
+}
+
+export async function publishFailureRecord(publish: () => Promise<unknown>, report: (message: string) => void): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await publish();
+      return;
+    } catch {
+      if (attempt === 0) continue;
+      report('Reviewer failure record unavailable after two publish attempts');
+      throw new Error('Reviewer failure record unavailable');
+    }
+  }
 }
