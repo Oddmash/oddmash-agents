@@ -1,6 +1,6 @@
 # Central webhook deployment
 
-The maintainer may opt all public Oddmash repositories into review by enabling the organization webhook. Private, internal, archived, external and draft targets are rejected. No contributor code is executed. Existing relay and scheduled review workflows remain unchanged until live webhook verification.
+The maintainer may opt all public Oddmash repositories into review by enabling the organization webhook. Internal, archived, external and draft targets are rejected. Four private repositories are explicitly approved by name and immutable ID: oddmash-agents, oddmash-skills, overtime-prototype and cash-out. New private repositories require separate approval. No contributor code is executed. Existing relay and scheduled review workflows remain unchanged until live webhook verification.
 
 ## Deployment
 
@@ -12,8 +12,12 @@ In the Oddmash Reviewer GitHub App, enable the webhook at the project's producti
 
 ## Verification and migration
 
-Check a signature-authenticated ping delivery, an ordinary public PR, a fork PR and completed checks. Verify review decisions, labels, and no review for private repositories. Existing review markers reduce duplicate reviews, but concurrent deliveries are not transactionally serialized. Background processing is bounded, not durable; redeliver or run a maintainer manual review after failures. Do not disable old workflows until live verification and a deduplication strategy are in place.
+Check a signature-authenticated ping delivery, an ordinary public PR, a fork PR and completed checks. Verify review decisions, labels, and no review for unapproved private repositories. Verify approved private PRs use authenticated check reads, omit sensitive files and do not enter the merge policy. Existing review markers reduce duplicate reviews, but concurrent deliveries are not transactionally serialized. Background processing is bounded, not durable; redeliver or run a maintainer manual review after failures. Do not disable old workflows until live verification and a deduplication strategy are in place.
 
 ## Maintainer-only auto-merge pilot
 
 The production deployment enables the separately gated merge policy for Kowrap, Oddmash UI, Interaction Inspector and Vertactics. Set the repository Actions variable `REVIEWER_AUTO_MERGE_ENABLED=false` and redeploy to stop it. Private repositories, organization policy, fork PRs and external contributors are excluded. Only `qtaghdi` (verified numeric account ID) PRs into protected main with a single standalone `Closes #N`, `Fixes #N` or `Resolves #N` line and a maintainer-authored open issue containing explicit acceptance criteria are eligible. Initial scope is ordinary Markdown documentation only; source, all tests, configuration, release, architecture, security and organizational policy changes remain manual. Missing evidence leaves the PR open. GitHub Actions verify must be required on the protected branch, current checks must pass, and exact-head independent app approval and validated acceptance evidence must exist. The merge module mints a repository-scoped Contents write token only after the checks and uses a head-SHA-guarded squash merge, without bypassing rules. Review-only behavior is unchanged for all ineligible PRs.
+
+## Private review data boundary
+
+Only the four explicitly approved private repository identities are eligible. Review uses a repository-scoped Contents read, Pull requests write and Checks read token. Eligible changed patches and bounded selected guidance are sent to the configured OpenAI API with `store: false`; no private repository is eligible for auto-merge. Credential-like values, sensitive configuration and workflow paths, deployment and auth-related files, data dumps and renamed sensitive paths are excluded; omitted filenames are not sent. The filter is conservative and is not a guarantee against all sensitive content. Incomplete coverage requires maintainer review. Do not add secrets to source or guidance.

@@ -80,3 +80,59 @@ test('never posts after head changes', async () => {
   assert.equal(result.posted, false);
   assert.ok(calls.filter(x => x.url.includes('api.github.com')).every(x => x.method === 'GET'));
 });
+
+test('approved private review uses scoped auth and excludes private sensitive data from model input', async () => {
+  const repo = 'Oddmash/oddmash-skills';
+  const privateId = 1468154482;
+  const privateConfig = { ...config, repository: repo, allowedRepositories: [repo], privateRepositoryId: privateId };
+  let modelCalls = 0;
+  const request: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes('api.openai.com')) {
+      modelCalls++;
+      const payload = JSON.parse(String(init?.body));
+      const model = JSON.parse(payload.input);
+      assert.equal(payload.store, false);
+      assert.deepEqual(model.files.map((file: { filename: string }) => file.filename), ['src/ui.ts']);
+      assert.equal(model.omitted.length, 3);
+      assert.ok(model.omitted.every((file: string) => file === 'Omitted private file'));
+      assert.doesNotMatch(payload.input, /fixture-hidden-name|synthetic-fixture-value|fixture-sensitive-guidance/);
+      assert.equal(model.issueAcceptance, null);
+      return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: [], acceptance: [], allRequirementsMet: false }) }] }] });
+    }
+    if (url.includes('/repos/Oddmash/.github/contents/')) { assert.equal(new Headers(init?.headers).has('Authorization'), false); return new Response(null, { status: 404 }); }
+    assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer fixture');
+    if (url.includes('/files?')) return Response.json([
+      { filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' },
+      { filename: '.github/workflows/fixture-hidden-name.yml', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' },
+      { filename: 'src/renamed.ts', previous_filename: 'config/fixture-hidden-name.ts', status: 'renamed', patch: '@@ -1 +1 @@\n-old\n+new' },
+      { filename: 'src/other.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+password: synthetic-fixture-value' }
+    ]);
+    if (url.includes('/check-runs?')) return Response.json({ total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] });
+    if (url.includes('/contents/')) return Response.json({ encoding: 'base64', content: Buffer.from('password: fixture-sensitive-guidance').toString('base64') });
+    if (url.endsWith('/pulls/1')) return Response.json({ ...pr, changed_files: 4, base: { ...pr.base, repo: { id: privateId, private: true, full_name: repo } } });
+    throw new Error('Unexpected fixture request');
+  };
+  const result = await runReview(privateConfig, request);
+  assert.equal(modelCalls, 1);
+  assert.equal(result.decision, 'COMMENT');
+  assert.equal(result.issueVerified, false);
+  await assert.rejects(runReview({ ...privateConfig, privateRepositoryId: 99 }, request), /not explicitly enabled/);
+  await assert.rejects(runReview({ ...privateConfig, githubToken: '' }, request), /not explicitly enabled/);
+});
+
+test('fully reviewed approved private PR can approve without any merge proof', async () => {
+  const repository = 'Oddmash/oddmash-skills';
+  const request: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes('api.openai.com')) return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: [], acceptance: [], allRequirementsMet: false }) }] }] });
+    if (url.includes('/files?')) return Response.json([{ filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
+    if (url.includes('/check-runs?')) { assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer fixture'); return Response.json({ total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] }); }
+    if (url.includes('/contents/')) return new Response(null, { status: 404 });
+    if (url.endsWith('/pulls/1')) return Response.json({ ...pr, base: { ...pr.base, repo: { id: 1468154482, private: true, full_name: repository } } });
+    throw new Error('Unexpected fixture request');
+  };
+  const result = await runReview({ ...config, repository, allowedRepositories: [repository], privateRepositoryId: 1468154482 }, request);
+  assert.equal(result.decision, 'APPROVE');
+  assert.equal(result.issueVerified, false);
+});

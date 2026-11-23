@@ -1,15 +1,17 @@
-import { guidancePaths, selectFiles, safeText, validateFindings, formatReport, findingMarker, inlineComment, reviewDecision, type ChangedFile, type ReviewContext, type ReviewDecision } from './core.ts';
+import { guidancePaths, selectFiles, safeText, privateSensitiveText, validateFindings, formatReport, findingMarker, inlineComment, reviewDecision, type ChangedFile, type ReviewContext, type ReviewDecision } from './core.ts';
+import { privateRepositoryAllowed } from './webhook.ts';
 import { acceptanceSatisfied, type Acceptance } from './auto-merge.ts';
 import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
 
 type Fetcher = typeof fetch;
-type Config = { repository: string; number: number; githubToken: string; openaiKey: string; model: string; post: boolean; allowedRepositories: string[]; acceptance?: Acceptance };
-type Pull = { title: string; state: string; draft: boolean; base: { sha: string; repo: { private: boolean; full_name: string } }; head: { sha: string }; changed_files: number; merge_commit_sha?: string | null };
+type Config = { repository: string; number: number; githubToken: string; openaiKey: string; model: string; post: boolean; allowedRepositories: string[]; acceptance?: Acceptance; privateRepositoryId?: number };
+type Pull = { title: string; state: string; draft: boolean; base: { sha: string; repo: { private: boolean; full_name: string; id?: number } }; head: { sha: string }; changed_files: number; merge_commit_sha?: string | null };
 const shaPattern = /^[a-f0-9]{40}$/i;
 const repoPattern = /^Oddmash\/[a-z0-9_.-]+$/i;
 
 export function validateConfig(c: Config) {
   if (!repoPattern.test(c.repository) || !c.allowedRepositories.includes(c.repository) || !Number.isSafeInteger(c.number) || c.number < 1) throw new Error('Repository is not explicitly enabled or PR number is invalid');
+  if (c.privateRepositoryId !== undefined && (!privateRepositoryAllowed(c.repository, c.privateRepositoryId) || !c.githubToken || c.acceptance)) throw new Error('Private repository is not explicitly enabled');
   if ((c.post && !c.githubToken) || !c.openaiKey || !c.model) throw new Error('Required configuration missing');
 }
 
@@ -25,18 +27,22 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   const path = `/repos/${c.repository}`;
   const prPath = `${path}/pulls/${c.number}`;
   const pr = await api<Pull>(prPath);
-  if (!pr || pr.base.repo.private || pr.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase() || pr.state !== 'open' || pr.draft || !shaPattern.test(pr.base.sha) || !shaPattern.test(pr.head.sha)) throw new Error('Only open, non-draft, public, explicitly enabled PRs are eligible');
+  const permittedPrivate = c.privateRepositoryId !== undefined && pr?.base.repo.private === true && pr.base.repo.id === c.privateRepositoryId && privateRepositoryAllowed(pr.base.repo.full_name, pr.base.repo.id);
+  if (!pr || (pr.base.repo.private ? !permittedPrivate : c.privateRepositoryId !== undefined) || pr.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase() || pr.state !== 'open' || pr.draft || !shaPattern.test(pr.base.sha) || !shaPattern.test(pr.head.sha)) throw new Error('Only open, non-draft, public or explicitly enabled private PRs are eligible');
   const files = await api<ChangedFile[]>(`${prPath}/files?per_page=100&page=1`);
-  const selected = selectFiles(files ?? []);
+  const privateReview = pr.base.repo.private;
+  const selected = selectFiles(files ?? [], 45_000, privateReview);
   if (pr.changed_files > (files?.length ?? 0)) selected.omitted.push('Additional files beyond the first page');
-  const checks = await loadCheckEvidence(pr.head.sha, pr.merge_commit_sha, sha => api<CheckEvidence>(`${path}/commits/${sha}/check-runs?per_page=100`, {}, true, true));
+  const checks = await loadCheckEvidence(pr.head.sha, pr.merge_commit_sha, sha => api<CheckEvidence>(`${path}/commits/${sha}/check-runs?per_page=100`, {}, true, !privateReview));
   const guidance: Record<string, string> = {};
   let guidanceBudget = 24_000;
   async function readGuidance(repository: string, filename: string, ref: string) {
     if (guidanceBudget <= 0) return;
     const content = await api<{ content: string; encoding: string }>(`/repos/${repository}/contents/${filename.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`, {}, true, repository === 'Oddmash/.github');
     if (!content || content.encoding !== 'base64') return;
-    const decoded = safeText(Buffer.from(content.content, 'base64').toString('utf8'));
+    const raw = Buffer.from(content.content, 'base64').toString('utf8');
+    if (privateReview && privateSensitiveText(raw)) return;
+    const decoded = safeText(raw);
     if (decoded.length > guidanceBudget || decoded.length > 12_000) return;
     guidance[`${repository}/${filename}`] = decoded;
     guidanceBudget -= decoded.length;
@@ -45,9 +51,9 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   await readGuidance('Oddmash/.github', 'docs/AI-CODE-REVIEW.md', 'main');
   for (const filename of guidancePaths(selected.files)) await readGuidance(c.repository, filename, pr.base.sha);
   const context: ReviewContext = {
-    repository: c.repository, number: c.number, head: pr.head.sha, title: safeText(pr.title).slice(0, 500),
+    repository: c.repository, number: c.number, head: pr.head.sha, title: privateReview && privateSensitiveText(pr.title) ? '[REDACTED]' : safeText(pr.title).slice(0, 500),
     ...selected, guidance,
-    checks: (checks?.check_runs ?? []).map(({ name, status, conclusion }) => ({ name: safeText(name).slice(0, 150), status, conclusion }))
+    checks: (checks?.check_runs ?? []).map(({ name, status, conclusion }) => ({ name: privateReview && privateSensitiveText(name) ? '[REDACTED]' : safeText(name).slice(0, 150), status, conclusion }))
   };
   const field = { type: 'string' };
   const schema = { type: 'object', additionalProperties: false, required: ['findings', 'acceptance', 'allRequirementsMet'], properties: { allRequirementsMet: { type: 'boolean' }, acceptance: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['criterion', 'fulfilled', 'path', 'line', 'evidence'], properties: { criterion: { type: 'integer' }, fulfilled: { type: 'boolean' }, path: field, line: { type: 'integer' }, evidence: field } } }, findings: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['path', 'line', 'severity', 'confidence', 'rule', 'evidence', 'recommendation', 'verification', 'suggestion', 'korean'], properties: { path: field, line: { type: 'integer' }, severity: { type: 'string', enum: ['high', 'medium', 'low'] }, confidence: { type: 'string', enum: ['high', 'medium'] }, rule: field, evidence: field, recommendation: field, verification: field, suggestion: { type: ['string', 'null'] }, korean: { type: 'object', additionalProperties: false, required: ['rule', 'evidence', 'recommendation', 'verification'], properties: { rule: field, evidence: field, recommendation: field, verification: field } } } } } } };
@@ -67,7 +73,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     const parsed = JSON.parse(output);
     const raw = parsed.findings;
     issueVerified = parsed.allRequirementsMet === true && acceptanceSatisfied(parsed.acceptance, c.acceptance, context.files) && context.omitted.length === 0;
-    findings = validateFindings(raw, context.files);
+    findings = validateFindings(raw, context.files, privateReview);
     modelValid = Array.isArray(raw) && raw.length === findings.length;
   }
   const report = formatReport(context, findings);
@@ -87,7 +93,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     const marker = findingMarker(context, finding);
     if (existing.has(marker)) continue;
     const current = await api<Pull>(prPath);
-    if (!current || current.head.sha !== pr.head.sha || current.state !== 'open' || current.draft) break;
+    if (!current || current.head.sha !== pr.head.sha || current.state !== 'open' || current.draft || current.base.repo.private !== privateReview || current.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase() || (privateReview && current.base.repo.id !== c.privateRepositoryId)) break;
     await api(`${prPath}/comments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: inlineComment(context, finding), commit_id: pr.head.sha, path: finding.path, line: finding.line, side: 'RIGHT' }) });
     existing.add(marker);
     posted = true;
