@@ -45,6 +45,19 @@ test('report-only never writes to GitHub', async () => {
   assert.ok(calls.filter(x => x.url.includes('api.github.com')).every(x => x.method === 'GET'));
 });
 
+test('issue acceptance sends explicit zero-based criterion IDs and validates exact evidence', async () => {
+  const { request } = mock();
+  const acceptance = { issue: 9, digest: 'fixture', body: '## Acceptance criteria\n- [ ] Document the output clearly.', criteria: ['Document the output clearly.'] };
+  const reviewed = await runReview({ ...config, acceptance }, async (input, init) => {
+    if (!String(input).includes('api.openai.com')) return request(input, init);
+    const payload = JSON.parse(String(init?.body));
+    assert.deepEqual(JSON.parse(payload.input).issueAcceptance.criteria, [{ criterion: 0, requirement: acceptance.criteria[0] }]);
+    assert.deepEqual(payload.text.format.schema.properties.acceptance.items.properties.criterion.enum, [0]);
+    return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: [], allRequirementsMet: true, acceptance: [{ criterion: 0, fulfilled: true, path: 'src/ui.ts', line: 1, evidence: 'The added line documents the output.' }] }) }] }] });
+  });
+  assert.equal(reviewed.issueVerified, true);
+});
+
 test('private repo never reaches model', async () => {
   const { request, calls } = mock({ private: true });
   await assert.rejects(runReview(config, request), /public/);
