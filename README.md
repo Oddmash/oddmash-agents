@@ -12,3 +12,8 @@ Advisory agents for Oddmash products. The first agent, Reviewer, helps maintaine
 This is a report-only pilot by default. The optional organization GitHub App can approve fully reviewed changes with passing checks or request changes for high-confidence findings. It requires maintainer configuration; no GitHub App is activated by default.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and [the rollout plan](docs/rollout.md) for the activation checklist.
+
+## Shared guidance
+
+[Oddmash Skills](https://github.com/Oddmash/oddmash-skills) owns reusable work methods. This repository owns executable agents and operational controls. See the [skill integration contract](docs/skill-integration.md) for the approved reference, upgrade procedure, and boundaries.
+
