@@ -1,8 +1,10 @@
 {
   "framework": null,
   "functions": {
-    "api/github.ts": {
-      "maxDuration": 300
+    "api/github.ts": { "maxDuration": 300 },
+    "api/review-jobs.ts": {
+      "maxDuration": 300,
+      "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "oddmash-review-jobs" }]
     }
   }
 }

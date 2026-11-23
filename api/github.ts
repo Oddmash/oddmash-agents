@@ -1,6 +1,9 @@
 import { waitUntil } from '@vercel/functions';
 import { route, validSignature } from '../src/webhook.ts';
 import { reviewWebhook } from '../src/webhook-review.ts';
+import { send } from '@vercel/queue';
+import { createReviewJob, reviewTopic } from '../src/review-job.ts';
+import { runtimeConfig } from '../src/runtime-config.ts';
 
 export function GET() {
   return Response.json({ service: 'Oddmash Reviewer', status: 'ok' });
@@ -17,8 +20,16 @@ export async function POST(request: Request) {
   if (!payload || typeof payload !== 'object') return new Response('Bad request', { status: 400 });
   const target = route(request.headers.get('x-github-event'), payload, process.env.REVIEWER_APP_SLUG ?? '', request.headers.get('x-github-delivery') ?? '');
   if (!target) return new Response('Ignored', { status: 200 });
-  const config = { appId: process.env.REVIEWER_APP_ID ?? '', key: process.env.REVIEWER_APP_PRIVATE_KEY ?? '', slug: process.env.REVIEWER_APP_SLUG ?? '', openaiKey: process.env.OPENAI_API_KEY ?? '', model: process.env.OPENAI_MODEL ?? 'gpt-5.4', autoMerge: process.env.REVIEWER_AUTO_MERGE_ENABLED === 'true' };
-  if (process.env.REVIEWER_APP_ENABLED !== 'true' || !config.appId || !config.key || !config.slug || !config.openaiKey) return new Response('Unavailable', { status: 503 });
+  const config = runtimeConfig();
+  if (!config) return new Response('Unavailable', { status: 503 });
+  if (process.env.REVIEWER_QUEUE_ENABLED === 'true') {
+    const delivery = request.headers.get('x-github-delivery') ?? '';
+    let job;
+    try { job = createReviewJob(delivery, target, secret); } catch { return new Response('Bad request', { status: 400 }); }
+    try { await send(reviewTopic, job, { idempotencyKey: delivery, retentionSeconds: 86400 }); }
+    catch { console.error('Reviewer queue publish failed'); return new Response('Unavailable', { status: 503 }); }
+    return new Response('Accepted', { status: 202 });
+  }
   waitUntil(reviewWebhook(target, config).catch(error => {
     const message = error instanceof Error ? error.message : '';
     const known = /^(?:GitHub request failed \(\d{3}\)|Model request failed \(\d{3}\)|Incomplete review response|Unexpected pending review response|Missing app configuration|Installation not eligible|Repository not eligible|Model quota, rate or credit limit reached; stop and check API billing before retrying|Pending review: Unexpected pending review response|Pending review: GitHub request failed \(\d{3}\)|Submit review: GitHub request failed \(\d{3}\))$/;
