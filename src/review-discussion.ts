@@ -70,7 +70,7 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
   const current = await api<Pull>(base);
   if (!eligible(current) || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha) return;
   const latest = await listComments(api, base);
-  if (!latest || latest.some(item => item.user.login === bot && item.body.includes(marker)) || !latest.some(item => item.id === question.id && item.body === question.body && maintainer(item.user))) return;
+  if (!latest || latest.some(item => item.user.login === bot && item.body.includes(marker)) || !latest.some(item => item.id === question.id && item.body === question.body && maintainer(item.user)) || !latest.some(item => item.id === original.id && item.user.login === bot && item.body === original.body && item.commit_id === original.commit_id)) return;
   const body = `${marker}\n${plain(parsed.english)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(parsed.korean)}\n\n</details>`;
   if (Buffer.byteLength(body, 'utf8') > 12_000) return;
   await api(`${base}/comments/${root}/replies`, { method: 'POST', body: JSON.stringify({ body }) });

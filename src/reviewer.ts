@@ -50,7 +50,6 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   await readGuidance('Oddmash/.github', 'AGENTS.md', 'main');
   await readGuidance('Oddmash/.github', 'docs/AI-CODE-REVIEW.md', 'main');
   for (const filename of guidancePaths(selected.files)) await readGuidance(c.repository, filename, pr.base.sha);
-  guidance['Oddmash reviewer quality criteria'] = 'Distinguish concrete visual clarity, accessibility, copyright/licensing and defensive security/privacy defects from preferences. Cite applicable standards and changed-code evidence. WCAG 2.2.2 does not prohibit repeating demonstrations when users can pause, stop or hide movement; respect reduced motion. An action button may change its label; a toggle with aria-pressed should keep its name stable. Do not request mutually incompatible patterns or assume missing accessibility behavior from a partial diff. Raise licensing findings only when actual provenance, license terms or distribution obligations support them; unknown provenance is a question, not proof of infringement. Never demand exploit reproduction or private values. If a concern lacks evidence, omit it or leave a nonblocking advisory.';
   const context: ReviewContext = {
     repository: c.repository, number: c.number, head: pr.head.sha, title: privateReview && privateSensitiveText(pr.title) ? '[REDACTED]' : safeText(pr.title).slice(0, 500),
     ...selected, guidance,
