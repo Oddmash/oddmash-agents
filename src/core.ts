@@ -38,8 +38,26 @@ export const privateSensitiveText = (value: string) => sensitiveValue.test(value
 
 export function patchComplete(file: ChangedFile): boolean {
   if (!file.patch) return false;
-  const lines = file.patch.split('\n');
-  return (file.additions === undefined || lines.filter(line => line.startsWith('+')).length === file.additions) && (file.deletions === undefined || lines.filter(line => line.startsWith('-')).length === file.deletions);
+  let oldRemaining = 0, newRemaining = 0, additions = 0, deletions = 0;
+  let sawHunk = false;
+  for (const line of file.patch.split('\n')) {
+    const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
+    if (hunk) {
+      if (oldRemaining || newRemaining) return false;
+      oldRemaining = Number(hunk[1] ?? 1);
+      newRemaining = Number(hunk[2] ?? 1);
+      sawHunk = true;
+      continue;
+    }
+    if (!sawHunk || line.startsWith('\\')) continue;
+    if (!oldRemaining && !newRemaining && line === '') continue;
+    if (line.startsWith('+')) { additions++; newRemaining--; }
+    else if (line.startsWith('-')) { deletions++; oldRemaining--; }
+    else if (line.startsWith(' ')) { oldRemaining--; newRemaining--; }
+    else return false;
+    if (oldRemaining < 0 || newRemaining < 0) return false;
+  }
+  return sawHunk && oldRemaining === 0 && newRemaining === 0 && (file.additions === undefined || additions === file.additions) && (file.deletions === undefined || deletions === file.deletions);
 }
 
 export function selectFiles(files: ChangedFile[], budget = 45_000, privateReview = false): { files: ChangedFile[]; omitted: string[] } {

@@ -16,6 +16,8 @@ test('omits sensitive and oversized files', () => {
   assert.deepEqual(result.omitted, ['.env', 'large.txt']);
   assert.equal(safeText('password: synthetic-fixture-value'), '[REDACTED]');
   assert.deepEqual(selectFiles([{ ...file, additions: 100, deletions: 1 }]).omitted, [file.filename]);
+  assert.equal(selectFiles([{ ...file, patch: `--- a/file\n+++ b/file\n${file.patch}`, additions: 2, deletions: 1 }]).files.length, 1);
+  assert.deepEqual(selectFiles([{ ...file, patch: '@@ -1 +1,2 @@\n-old\n+new', additions: 1, deletions: 1 }]).omitted, [file.filename]);
 });
 
 test('validates references and deduplicates findings', () => {
