@@ -7,7 +7,7 @@ import { authorize, authorizeMerge, type Target } from './webhook.ts';
 import { replyToReview } from './review-discussion.ts';
 
 type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
-export type Review = { id: number; body: string | null; user: { login: string }; state: string; commit_id: string };
+export type Review = { id: number; node_id?: string; body: string | null; user: { login: string }; state: string; commit_id: string };
 
 type Api = ReturnType<typeof import('./webhook.ts').githubApi>;
 
@@ -35,6 +35,32 @@ export async function acquirePendingReview(api: Api, path: string, head: string,
     if (reviews.some(review => review.user.login === bot && (review.state === 'PENDING' || review.commit_id === head && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED'].includes(review.state)))) return null;
     throw error;
   }
+}
+
+type InlineFinding = { body: string; path: string; line: number; side: 'RIGHT' };
+
+export async function attachReviewFindings(api: Api, path: string, pendingId: number, head: string, bot: string, findings: InlineFinding[]): Promise<number> {
+  if (!findings.length) return 0;
+  const existing: { body: string; user: { login: string } }[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const batch = await api<typeof existing>(`${path}/comments?per_page=100&page=${page}`);
+    existing.push(...batch);
+    if (batch.length < 100) break;
+    if (page === 10) { console.warn('Inline findings withheld: comment pagination budget exceeded.'); return 0; }
+  }
+  const comments = findings.filter(comment => {
+    const marker = comment.body.match(/<!-- oddmash-finding:[a-f0-9]{24} -->/)?.[0];
+    return marker && !existing.some(item => item.user.login === bot && item.body.includes(marker));
+  }).slice(0, 12);
+  if (!comments.length) return 0;
+  const review = await api<Review>(`${path}/reviews/${pendingId}`);
+  if (review.state !== 'PENDING' || review.user.login !== bot || review.commit_id !== head || !review.node_id || !review.body?.includes('<!-- oddmash-review-lock -->')) throw new Error('Pending review identity changed');
+  const variables = Object.fromEntries(comments.map((comment, index) => [`finding${index}`, { pullRequestReviewId: review.node_id, body: comment.body, path: comment.path, line: comment.line, side: comment.side }]));
+  const declarations = comments.map((_, index) => `$finding${index}: AddPullRequestReviewThreadInput!`).join(', ');
+  const fields = comments.map((_, index) => `finding${index}: addPullRequestReviewThread(input: $finding${index}) { thread { id } }`).join('\n');
+  const result = await api<{ errors?: unknown[]; data?: Record<string, { thread?: { id?: string } }> }>('/graphql', { method: 'POST', body: JSON.stringify({ query: `mutation BatchReviewFindings(${declarations}) { ${fields} }`, variables }) });
+  if (result.errors?.length || comments.some((_, index) => !result.data?.[`finding${index}`]?.thread?.id)) throw new Error('Pending review findings could not be attached');
+  return comments.length;
 }
 
 const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human'];
@@ -112,21 +138,14 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         return;
       }
       const advisory = event === 'COMMENT' && !target.recheck ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
-      if (advisory) {
+      const attached = event !== 'APPROVE' ? await attachReviewFindings(api, path, pendingId, result.head, bot, result.comments) : 0;
+      if (advisory && !attached) {
         if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
       } else {
+        const beforeSubmit = await api<Pull>(path);
+        if (beforeSubmit.head.sha !== result.head || beforeSubmit.base.sha !== current.base.sha || beforeSubmit.merge_commit_sha !== current.merge_commit_sha || beforeSubmit.state !== 'open' || beforeSubmit.draft || !eligibleBase(beforeSubmit)) return;
         await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) }).catch(error => { throw new Error('Submit review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
         submitted = true;
-      }
-      if (event !== 'APPROVE' && result.comments.length) {
-        const existing = await api<{ body: string; user: { login: string } }[]>(`${path}/comments?per_page=100`);
-        if (existing.length < 100) for (const comment of result.comments) {
-          const marker = comment.body.match(/<!-- oddmash-finding:[a-f0-9]{24} -->/)?.[0];
-          if (!marker || existing.some(item => item.user.login === bot && item.body.includes(marker))) continue;
-          const latest = await api<Pull>(path);
-          if (latest.head.sha !== result.head || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) break;
-          await api(`${path}/comments`, { method: 'POST', body: JSON.stringify({ ...comment, commit_id: result.head }) });
-        }
       }
       const label = event === 'APPROVE' ? 'review: approved' : event === 'REQUEST_CHANGES' ? 'review: changes requested' : 'review: needs human';
       const labels = await api<{ name: string }[]>(`${root}/labels?per_page=100`);

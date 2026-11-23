@@ -92,15 +92,10 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     if ((comments?.length ?? 0) < 100) break;
     if (page === 10) return { ...result, posted: false };
   }
-  let posted = false;
-  for (const finding of findings) {
-    const marker = findingMarker(context, finding);
-    if (existing.has(marker)) continue;
-    const current = await api<Pull>(prPath);
-    if (!current || current.head.sha !== pr.head.sha || current.state !== 'open' || current.draft || current.base.repo.private !== privateReview || current.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase() || (privateReview && current.base.repo.id !== c.privateRepositoryId)) break;
-    await api(`${prPath}/comments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: inlineComment(context, finding), commit_id: pr.head.sha, path: finding.path, line: finding.line, side: 'RIGHT' }) });
-    existing.add(marker);
-    posted = true;
-  }
-  return { ...result, posted };
+  const fresh = findings.filter(finding => !existing.has(findingMarker(context, finding))).map(finding => ({ body: inlineComment(context, finding), path: finding.path, line: finding.line, side: 'RIGHT' }));
+  if (!fresh.length) return { ...result, posted: false };
+  const current = await api<Pull>(prPath);
+  if (!current || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.state !== 'open' || current.draft || current.base.repo.private !== privateReview || current.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase() || (privateReview && current.base.repo.id !== c.privateRepositoryId)) return { ...result, posted: false };
+  await api(`${prPath}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: report, event: 'COMMENT', commit_id: pr.head.sha, comments: fresh }) });
+  return { ...result, posted: true };
 }

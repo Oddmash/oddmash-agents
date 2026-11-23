@@ -17,6 +17,7 @@ async function listComments(api: Api, base: string): Promise<Comment[] | null> {
     comments.push(...batch);
     if (batch.length < 100) return comments;
   }
+  console.warn('Reviewer discussion withheld: comment pagination budget exceeded; request maintainer review.');
   return null;
 }
 
@@ -71,5 +72,6 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
   const latest = await listComments(api, base);
   if (!latest || latest.some(item => item.user.login === bot && item.body.includes(marker)) || !latest.some(item => item.id === question.id && item.body === question.body && maintainer(item.user))) return;
   const body = `${marker}\n${plain(parsed.english)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(parsed.korean)}\n\n</details>`;
+  if (Buffer.byteLength(body, 'utf8') > 12_000) return;
   await api(`${base}/comments/${root}/replies`, { method: 'POST', body: JSON.stringify({ body }) });
 }

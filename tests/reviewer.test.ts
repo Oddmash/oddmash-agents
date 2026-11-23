@@ -30,7 +30,7 @@ const mock = (options: { private?: boolean; exhausted?: boolean; findings?: bool
       return new Response('', { status: 404 });
     }
     if (url.includes('/comments?')) return Response.json(postedBody ? [{ body: postedBody }] : []);
-    if (url.endsWith('/comments') && init?.method === 'POST') { assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer fixture'); postedBody = JSON.parse(String(init.body)).body; return Response.json({ id: 1 }); }
+    if (url.endsWith('/reviews') && init?.method === 'POST') { assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer fixture'); postedBody = JSON.parse(String(init.body)).comments[0].body; return Response.json({ id: 1 }); }
     if (url.endsWith('/pulls/1')) { prReads++; return Response.json({ ...pr, head: options.stale && prReads > 1 ? { sha: 'c'.repeat(40) } : pr.head, base: { ...pr.base, repo: { ...pr.base.repo, private: options.private ?? false } } }); }
     throw new Error('Unexpected request');
   };
@@ -77,12 +77,14 @@ test('posts a suggested change on the exact right-side line and skips repeat fin
   const post = calls.find(x => x.method === 'POST' && x.url.includes('api.github.com'));
   assert.ok(post?.body);
   const payload = JSON.parse(post.body);
-  assert.equal(payload.path, 'src/ui.ts');
-  assert.equal(payload.line, 1);
-  assert.equal(payload.side, 'RIGHT');
+  assert.equal(payload.event, 'COMMENT');
+  assert.equal(payload.comments.length, 1);
+  assert.equal(payload.comments[0].path, 'src/ui.ts');
+  assert.equal(payload.comments[0].line, 1);
+  assert.equal(payload.comments[0].side, 'RIGHT');
   assert.equal(payload.commit_id, pr.head.sha);
-  assert.match(payload.body, /```suggestion\nconst label = "Open";\n```/);
-  assert.match(payload.body, /<summary>한국어 \(Korean\)<\/summary>/);
+  assert.match(payload.comments[0].body, /```suggestion\nconst label = "Open";\n```/);
+  assert.match(payload.comments[0].body, /<summary>한국어 \(Korean\)<\/summary>/);
   const second = await runReview({ ...config, post: true }, request);
   assert.equal(second.posted, false);
   assert.equal(calls.filter(x => x.method === 'POST' && x.url.includes('api.github.com')).length, 1);

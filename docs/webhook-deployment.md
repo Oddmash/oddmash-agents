@@ -16,6 +16,7 @@ In the Oddmash Reviewer GitHub App, enable the webhook at the project's producti
 - A request starts a fresh evaluation of the current head, even if the app already requested changes. It does not discard an existing change request, approve automatically, or waive CI or merge prerequisites. Replayed requests are ignored after a result is recorded. If checks are not ready, wait for them and request again.
 - Reply to an existing Reviewer inline finding with `@oddmash-reviewer` and a question or rationale. The bot reads the bounded, filtered thread and relevant current diff, then replies in English with Korean in a collapsed section. It may acknowledge an unsupported finding. A discussion reply never changes review state; request a fresh review separately.
 - Only the maintainer's authenticated created-comment events trigger this follow-up workflow. Bot events, edits, unrelated threads and unauthorized private targets are ignored; each thread has a bounded reply budget. No new credentials are required.
+- Findings are attached to one pending review and submitted together as one GitHub review, retaining individual inline threads and suggested changes. An existing advisory may be updated when there are no new inline findings. Very large discussions exceeding the bounded pagination budget are withheld and logged for maintainer review rather than publishing potentially duplicate replies.
 
 ## Verification and migration
 
