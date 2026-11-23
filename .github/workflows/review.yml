@@ -1,0 +1,33 @@
+name: Reviewer pilot
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Open Oddmash UI pull request number
+        type: number
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: reviewer-pilot-${{ inputs.pr_number }}
+  cancel-in-progress: false
+jobs:
+  review:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: npm test
+      - name: Generate advisory report
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: gpt-5.4
+          ODDMASH_ALLOWED_REPOSITORIES: Oddmash/oddmash-ui
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: npm run review -- Oddmash/oddmash-ui "$PR_NUMBER"
