@@ -1,9 +1,10 @@
 import { safeText, privateSensitiveText, selectFiles, type ChangedFile } from './core.ts';
-import { maintainer, mentioned, type Target, type githubApi } from './webhook.ts';
+import { maintainer, mentioned, privateRepositoryAllowed, reviewableOddmash, type Target, type githubApi } from './webhook.ts';
 
 type Api = ReturnType<typeof githubApi>;
 type Comment = { id: number; user: { id: number; login: string; type?: string }; body: string; path: string; in_reply_to_id?: number; commit_id?: string; pull_request_url: string };
 type Pull = { state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { full_name: string; id: number; private: boolean } } };
+type Repository = Parameters<typeof reviewableOddmash>[0];
 
 const safe = (value: string, privateReview: boolean) => typeof value === 'string' && value.length <= 5000 && safeText(value) === value && (!privateReview || !privateSensitiveText(value));
 const plain = (value: string) => value.replace(/[<>]/g, '').replace(/@/g, '@\u200b').replace(/```/g, '').replace(/[\[\]!*_]/g, match => '\\' + match).replace(/[\u2013\u2014\u2015]/g, '-').trim();
@@ -31,6 +32,9 @@ async function matchingFile(api: Api, base: string, path: string): Promise<Chang
 
 export async function replyToReview(api: Api, target: Target, config: { slug: string; openaiKey: string; model: string }, request: typeof fetch = fetch) {
   if (!target.reply || !target.number) return;
+  if (!/^Oddmash\/[a-z0-9_.-]+$/i.test(target.repository) || (target.private && !privateRepositoryAllowed(target.repository, target.repositoryId))) return;
+  const repository = await api<Repository>(`/repos/${target.repository}`);
+  if (!repository || !reviewableOddmash(repository) || repository.full_name !== target.repository || repository.id !== target.repositoryId || repository.private !== Boolean(target.private)) return;
   const { comment, root } = target.reply;
   const { slug, model, openaiKey } = config;
   const bot = `${slug}[bot]`;
