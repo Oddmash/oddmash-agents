@@ -7,6 +7,7 @@ on:
       - 'api/**'
       - 'src/**'
       - 'package.json'
+      - 'tsconfig.json'
       - 'vercel.json'
       - '.github/workflows/deploy-vercel.yml'
 permissions:
@@ -31,6 +32,8 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: '24'
+      - run: npm install --ignore-scripts
+      - run: npm run typecheck
       - run: npm test
       - run: npm install -g "vercel@$VERCEL_CLI_VERSION"
       - name: Pull production settings
@@ -51,10 +54,16 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
       - name: Smoke test staged endpoint
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
         run: |
-          vercel curl "$DEPLOYMENT_URL/api/github" | node --input-type=module -e 'let b=""; for await (const c of process.stdin) b+=c; if(JSON.parse(b).status!=="ok") process.exit(1)'
+          node --input-type=module -e '
+            const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+            if (!secret) throw new Error("Configure VERCEL_AUTOMATION_BYPASS_SECRET for protected staging");
+            const endpoint = new URL("/api/github", process.env.DEPLOYMENT_URL);
+            const response = await fetch(endpoint, { headers: { "x-vercel-protection-bypass": secret }, redirect: "error", signal: AbortSignal.timeout(30000) });
+            if (!response.ok || (await response.json()).status !== "ok") throw new Error("Staged endpoint failed health check");
+          '
       - name: Promote tested deployment
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
