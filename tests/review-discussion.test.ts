@@ -19,7 +19,10 @@ test('answers a verified maintainer thread once and does not change review state
   const api = githubApi('fixture', async (url, init) => {
     const path = new URL(String(url)).pathname;
     if (path === base) return Response.json(pull);
-    if (path === `${base}/comments`) return Response.json(comments);
+    if (path === `${base}/comments`) {
+      const page = new URL(String(url)).searchParams.get('page');
+      return Response.json(page === '1' ? Array.from({ length: 100 }, (_, index) => ({ ...root, id: 100 + index, user: actor })) : comments);
+    }
     if (path === `${base}/files`) return Response.json([{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }]);
     assert.equal(path, `${base}/comments/4/replies`);
     assert.equal(init?.method, 'POST');

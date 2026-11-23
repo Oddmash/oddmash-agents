@@ -9,6 +9,16 @@ const safe = (value: string, privateReview: boolean) => typeof value === 'string
 const plain = (value: string) => value.replace(/[<>]/g, '').replace(/@/g, '@\u200b').replace(/```/g, '').replace(/[\[\]!*_]/g, match => '\\' + match).replace(/[\u2013\u2014\u2015]/g, '-').trim();
 const replyMarker = (id: number) => `<!-- oddmash-discussion:${id} -->`;
 
+async function listComments(api: Api, base: string): Promise<Comment[] | null> {
+  const comments: Comment[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const batch = await api<Comment[]>(`${base}/comments?per_page=100&page=${page}`);
+    comments.push(...batch);
+    if (batch.length < 100) return comments;
+  }
+  return null;
+}
+
 export async function replyToReview(api: Api, target: Target, config: { slug: string; openaiKey: string; model: string }, request: typeof fetch = fetch) {
   if (!target.reply || !target.number) return;
   const { comment, root } = target.reply;
@@ -18,8 +28,8 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
   const eligible = (pr: Pull) => pr.state === 'open' && !pr.draft && pr.base.repo.full_name === target.repository && pr.base.repo.id === target.repositoryId && pr.base.repo.private === Boolean(target.private) && /^[a-f0-9]{40}$/i.test(pr.head.sha);
   const pr = await api<Pull>(base);
   if (!eligible(pr)) return;
-  const comments = await api<Comment[]>(`${base}/comments?per_page=100`);
-  if (comments.length >= 100) return;
+  const comments = await listComments(api, base);
+  if (!comments) return;
   const original = comments.find(item => item.id === root && item.user.login === bot && item.user.type === 'Bot' && !item.in_reply_to_id && item.body.includes('<!-- oddmash-finding:'));
   const question = comments.find(item => item.id === comment && item.in_reply_to_id === root && maintainer(item.user) && mentioned(item.body, slug));
   if (!original || !question || original.pull_request_url !== `https://api.github.com${base}` || question.pull_request_url !== original.pull_request_url) return;
@@ -43,8 +53,8 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
   if (typeof parsed.english !== 'string' || typeof parsed.korean !== 'string' || !parsed.english.trim() || !/[가-힣]/.test(parsed.korean) || parsed.english.length > 1200 || parsed.korean.length > 1200 || !safe(parsed.english, privateReview) || !safe(parsed.korean, privateReview)) return;
   const current = await api<Pull>(base);
   if (!eligible(current) || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha) return;
-  const latest = await api<Comment[]>(`${base}/comments?per_page=100`);
-  if (latest.length >= 100 || latest.some(item => item.user.login === bot && item.body.includes(marker)) || !latest.some(item => item.id === question.id && item.body === question.body && maintainer(item.user))) return;
+  const latest = await listComments(api, base);
+  if (!latest || latest.some(item => item.user.login === bot && item.body.includes(marker)) || !latest.some(item => item.id === question.id && item.body === question.body && maintainer(item.user))) return;
   const body = `${marker}\n${plain(parsed.english)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(parsed.korean)}\n\n</details>`;
   await api(`${base}/comments/${root}/replies`, { method: 'POST', body: JSON.stringify({ body }) });
 }
