@@ -34,6 +34,11 @@ test('answers a verified maintainer thread once and does not change review state
       reactions.push(JSON.parse(String(init?.body)).content);
       return Response.json({ id: 9 });
     }
+    if (path === '/repos/Oddmash/example/pulls/comments/5/reactions/9') {
+      assert.equal(init?.method, 'DELETE');
+      reactions.push('remove-eyes');
+      return new Response(null, { status: 204 });
+    }
     assert.equal(path, `${base}/comments/4/replies`);
     assert.equal(init?.method, 'POST');
     const { body } = JSON.parse(String(init?.body));
@@ -51,7 +56,7 @@ test('answers a verified maintainer thread once and does not change review state
   await replyToReview(api, target, config, model);
   await replyToReview(api, target, config, model);
   assert.equal(modelCalls, 1);
-  assert.deepEqual(reactions, ['eyes', '+1']);
+  assert.deepEqual(reactions, ['eyes', '+1', 'remove-eyes']);
 });
 
 test('ignores unrelated or unsafe discussions before asking the model', async () => {
@@ -83,6 +88,7 @@ test('resolves only the exact bot-owned inline finding after verified current-he
       if (path === `${base}/comments`) return Response.json(comments);
       if (path === `${base}/files`) return Response.json(scenario === 'missing-patch' ? [] : [{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }]);
       if (path.endsWith('/reactions')) return Response.json({ id: 9 });
+      if (path.endsWith('/reactions/9')) return new Response(null, { status: 204 });
       if (path === `${base}/comments/4/replies`) {
         replies++;
         const { body } = JSON.parse(String(init?.body));
@@ -119,6 +125,7 @@ test('verifies a referenced conversation finding without resolving a thread or s
     if (path === base) return Response.json({ ...pull, head: { sha: nextHead } });
     if (path === `${base}/files`) return Response.json([{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }]);
     if (path.endsWith('/reactions')) return Response.json({ id: 9 });
+    if (path.endsWith('/reactions/9')) return new Response(null, { status: 204 });
     assert.equal(path, `${issuePath}/comments`);
     if (init?.method === 'POST') {
       replies++;
