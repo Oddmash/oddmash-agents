@@ -15,6 +15,7 @@ test('omits sensitive and oversized files', () => {
   assert.deepEqual(result.files, [file]);
   assert.deepEqual(result.omitted, ['.env', 'large.txt']);
   assert.equal(safeText('password: synthetic-fixture-value'), '[REDACTED]');
+  assert.deepEqual(selectFiles([{ ...file, additions: 100, deletions: 1 }]).omitted, [file.filename]);
 });
 
 test('validates references and deduplicates findings', () => {
@@ -34,6 +35,7 @@ test('formats non-blocking reports with stable markers', () => {
   assert.match(report, /not an approval/);
   assert.ok(report.startsWith(reviewMarker(context)));
   assert.notEqual(reviewMarker(context), reviewMarker({ ...context, head: 'b'.repeat(40) }));
+  assert.match(formatReport(context, [], false), /could not be validated against the changed lines/);
 });
 
 test('formal outcomes fail closed without complete passing checks and validated coverage', () => {

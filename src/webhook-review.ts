@@ -1,14 +1,23 @@
 import { createHash } from 'node:crypto';
 import { runReview } from './reviewer.ts';
-import { checksPassed, formatReviewBody } from './core.ts';
-import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
+import { formatReviewBody } from './core.ts';
+import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized } from './auto-merge.ts';
 import { authorize, authorizeMerge, type Target } from './webhook.ts';
 
 type Pull = { number: number; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
-type Review = { id: number; body: string | null; user: { login: string }; state: string; commit_id: string };
+export type Review = { id: number; body: string | null; user: { login: string }; state: string; commit_id: string };
 
 type Api = ReturnType<typeof import('./webhook.ts').githubApi>;
+
+export function existingAdvisoryReview(reviews: Review[], bot: string, head: string): Review | undefined {
+  return reviews.filter(review => review.user.login === bot && review.commit_id === head && review.state === 'COMMENTED' && review.body?.includes('<!-- oddmash-app-review:')).at(-1);
+}
+
+export function reviewFingerprint(repository: string, number: number, head: string, base: string, checks: CheckEvidence): string {
+  const fingerprint = createHash('sha256').update(JSON.stringify(['v2', repository, number, head, base, checks.total_count, checks.check_runs.map(check => [check.id, check.status, check.conclusion]).sort()])).digest('hex').slice(0, 24);
+  return `<!-- oddmash-app-review:${fingerprint} -->`;
+}
 
 export async function acquirePendingReview(api: Api, path: string, head: string, bot: string): Promise<number | null> {
   try {
@@ -46,10 +55,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     if (own.some(review => review.state === 'APPROVED' || review.state === 'CHANGES_REQUESTED')) return;
     const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
     const checks = await readChecks(pr);
-    const fingerprint = createHash('sha256').update(JSON.stringify([repository, pr.number, pr.head.sha, pr.base.sha, checks.total_count, checks.check_runs.map(check => [check.id, check.status, check.conclusion]).sort()])).digest('hex').slice(0, 24);
-    const marker = `<!-- oddmash-app-review:${fingerprint} -->`;
+    const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks);
     if (own.some(review => review.body?.includes(marker))) return;
-    if (checks.check_runs.some(check => check.status !== 'completed')) return;
+    if (!reviewChecksReady(checks)) return;
     if (reviews.some(review => review.user.login === bot && review.state === 'PENDING')) return;
     const pendingId = await acquirePendingReview(api, path, pr.head.sha, bot).catch(error => { throw new Error('Pending review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
     if (pendingId === null) return;
@@ -62,10 +70,17 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
       if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && (review.body?.includes(marker) || ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)))) return;
       const finalChecks = await readChecks(current);
-      const passing = (finalChecks.total_count ?? 0) > 0 && finalChecks.total_count === finalChecks.check_runs.length && checksPassed(finalChecks.check_runs);
-      const event = result.decision === 'APPROVE' && !passing ? 'COMMENT' : result.decision;
-      await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body: formatReviewBody(event, marker, result.report) }) }).catch(error => { throw new Error('Submit review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
-      submitted = true;
+      const event = finalReviewEvent(result.assessment, finalChecks);
+      if (!event) return;
+      const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks);
+      const body = formatReviewBody(event, finalMarker, result.report);
+      const advisory = event === 'COMMENT' ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
+      if (advisory) {
+        if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
+      } else {
+        await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) }).catch(error => { throw new Error('Submit review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
+        submitted = true;
+      }
       if (event !== 'APPROVE' && result.comments.length) {
         const existing = await api<{ body: string; user: { login: string } }[]>(`${path}/comments?per_page=100`);
         if (existing.length < 100) for (const comment of result.comments) {

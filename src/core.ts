@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export type ChangedFile = { filename: string; previous_filename?: string; patch?: string; status: string };
+export type ChangedFile = { filename: string; previous_filename?: string; patch?: string; status: string; additions?: number; deletions?: number };
 export type KoreanFinding = { rule: string; evidence: string; recommendation: string; verification: string };
 export type Finding = { path: string; line: number; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium'; rule: string; evidence: string; recommendation: string; verification: string; suggestion?: string; korean?: KoreanFinding };
 export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[] };
@@ -13,11 +13,16 @@ export function checksPassed(checks: ReviewContext['checks']): boolean {
   return checks.every(check => check.conclusion === 'success');
 }
 
-export function reviewDecision(context: ReviewContext, findings: Finding[], modelValid: boolean): ReviewDecision {
+export function reviewAssessment(context: ReviewContext, findings: Finding[], modelValid: boolean): ReviewDecision {
   if (!modelValid || !context.files.length) return 'COMMENT';
   if (findings.some(finding => finding.confidence === 'high' && ['high', 'medium'].includes(finding.severity))) return 'REQUEST_CHANGES';
-  if (findings.length || context.omitted.length || !checksPassed(context.checks)) return 'COMMENT';
+  if (findings.length || context.omitted.length) return 'COMMENT';
   return 'APPROVE';
+}
+
+export function reviewDecision(context: ReviewContext, findings: Finding[], modelValid: boolean): ReviewDecision {
+  const assessment = reviewAssessment(context, findings, modelValid);
+  return assessment === 'APPROVE' && !checksPassed(context.checks) ? 'COMMENT' : assessment;
 }
 
 const sensitivePath = /(^|\/)(\.env[^/]*|[^/]*(?:secret|credential|private[-_]?key)[^/]*|[^/]*\.(?:pem|key|p12|pfx))$/i;
@@ -31,12 +36,18 @@ const privateSensitivePath = /(?:^|\/)(?:\.github|\.vercel|\.aws|\.ssh|\.npmrc|\
 const privateSensitiveValue = /(?:\b(?:gh[opsu]_|github_pat_|xox[baprs]-|sk[-_]|AIza|AKIA|ASIA|ya29\.|glpat-)[A-Za-z0-9_-]{12,}|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|\b(?:https?|postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis):\/\/[^/\s:@]+:[^/\s@]+@|["'][A-Za-z0-9+/_=-]{40,}["'])/i;
 export const privateSensitiveText = (value: string) => sensitiveValue.test(value) || privateSensitiveValue.test(value);
 
+export function patchComplete(file: ChangedFile): boolean {
+  if (!file.patch) return false;
+  const lines = file.patch.split('\n');
+  return (file.additions === undefined || lines.filter(line => line.startsWith('+')).length === file.additions) && (file.deletions === undefined || lines.filter(line => line.startsWith('-')).length === file.deletions);
+}
+
 export function selectFiles(files: ChangedFile[], budget = 45_000, privateReview = false): { files: ChangedFile[]; omitted: string[] } {
   const selected: ChangedFile[] = [];
   const omitted: string[] = [];
   let remaining = budget;
   for (const file of files) {
-    if (sensitivePath.test(file.filename) || (file.previous_filename && sensitivePath.test(file.previous_filename)) || (privateReview && (privateSensitivePath.test(file.filename) || (file.previous_filename && privateSensitivePath.test(file.previous_filename)) || privateSensitiveText(file.filename) || (file.patch && privateSensitiveText(file.patch)))) || !file.patch || file.patch.length > remaining || selected.length >= 40 || sensitiveValue.test(file.patch)) {
+    if (sensitivePath.test(file.filename) || (file.previous_filename && sensitivePath.test(file.previous_filename)) || (privateReview && (privateSensitivePath.test(file.filename) || (file.previous_filename && privateSensitivePath.test(file.previous_filename)) || privateSensitiveText(file.filename) || (file.patch && privateSensitiveText(file.patch)))) || !file.patch || !patchComplete(file) || file.patch.length > remaining || selected.length >= 40 || sensitiveValue.test(file.patch)) {
       omitted.push(privateReview ? 'Omitted private file' : file.filename);
       continue;
     }
@@ -129,16 +140,20 @@ export function inlineComment(context: ReviewContext, finding: Finding): string 
   return lines.join('\n');
 }
 
-export function formatReport(context: ReviewContext, findings: Finding[]): string {
+export function formatReport(context: ReviewContext, findings: Finding[], modelValid = true): string {
   const lines = [reviewMarker(context)];
   if (!findings.length) lines.push('No validated findings in the reviewed changes. This is not an approval or proof of correctness.');
   for (const f of findings) {
     lines.push(`- **${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.recommendation)}`);
   }
   if (context.omitted.length) lines.push('Some changes require manual review.');
+  if (!context.files.length) lines.push('No changed file could be reviewed.');
+  else if (!modelValid) lines.push('The review response contained findings that could not be validated against the changed lines.');
   const translated = findings.filter(f => f.korean).map(f => `- **${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.recommendation)}`);
   if (!findings.length) translated.push('검토한 변경 사항에서 확인된 문제는 없습니다. 승인 또는 정확성을 보장하지 않습니다.');
   if (context.omitted.length) translated.push('일부 변경 사항은 수동 검토가 필요합니다.');
+  if (!context.files.length) translated.push('검토할 수 있는 변경 파일이 없습니다.');
+  else if (!modelValid) translated.push('리뷰 응답에 변경된 줄을 기준으로 검증할 수 없는 결과가 포함되었습니다.');
   if (translated.length) lines.push('', koreanDetails(translated));
   return lines.join('\n');
 }

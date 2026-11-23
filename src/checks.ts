@@ -1,5 +1,16 @@
+import { checksPassed, type ReviewDecision } from './core.ts';
 export type Check = { id?: number; name: string; status: string; conclusion: string | null; app?: { id: number } };
 export type CheckEvidence = { total_count?: number; check_runs: Check[] };
+
+export function reviewChecksReady(evidence: CheckEvidence): boolean {
+  return !!evidence.total_count && evidence.total_count === evidence.check_runs.length && evidence.check_runs.every(check => check.status === 'completed') && evidence.check_runs.some(check => /^(?:CI \/ )?verify$/.test(check.name) && (check.app === undefined || check.app.id === 15368));
+}
+
+export function finalReviewEvent(assessment: ReviewDecision, evidence: CheckEvidence): ReviewDecision | null {
+  if (!reviewChecksReady(evidence)) return null;
+  if (assessment === 'REQUEST_CHANGES') return assessment;
+  return checksPassed(evidence.check_runs) ? assessment : null;
+}
 
 export async function loadCheckEvidence(head: string, merge: string | null | undefined, read: (sha: string) => Promise<CheckEvidence | null>): Promise<CheckEvidence> {
   const refs = [head];

@@ -17,11 +17,12 @@ const mock = (options: { private?: boolean; exhausted?: boolean; findings?: bool
       const body = JSON.parse(String(init?.body));
       assert.equal(body.store, false);
       assert.ok(body.text.format.schema.properties.findings.items.required.includes('korean'));
+      assert.deepEqual(JSON.parse(body.input).allowedFindingLines, { 'src/ui.ts': [1] });
       return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: options.findings ? [finding] : [] }) }] }] });
     }
     if (url.includes('/files?')) return Response.json([{ filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
     if (url.includes('/check-runs?')) {
-      assert.equal(new Headers(init?.headers).has('Authorization'), false);
+      assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer fixture');
       return Response.json({ check_runs: [] });
     }
     if (url.includes('/contents/')) {
