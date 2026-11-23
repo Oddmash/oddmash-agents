@@ -65,3 +65,19 @@ test('review output is concise without CI summaries or typographic dashes', () =
   assert.doesNotMatch(approved, /Label|CI|Findings/);
   assert.match(formatReviewBody('REQUEST_CHANGES', '<!-- marker -->', report), /Please address/);
 });
+
+test('renders English first and Korean translation in a collapsed section', () => {
+  const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: [file], omitted: [], guidance: {}, checks: [] };
+  const bilingual = { ...finding, korean: { rule: '접근성', evidence: '레이블이 없습니다.', recommendation: '레이블을 추가하세요.', verification: '접근 가능한 이름을 확인하세요.' } };
+  const valid = validateFindings([bilingual], [file])[0];
+  assert.deepEqual(valid.korean, bilingual.korean);
+  for (const output of [inlineComment(context, valid), formatReport(context, [valid])]) {
+    assert.ok(output.indexOf('Accessibility') < output.indexOf('<details>'));
+    assert.match(output, /<summary>한국어 \(Korean\)<\/summary>/);
+    assert.match(output, /레이블을 추가하세요/);
+    assert.match(output, /<\/details>/);
+    assert.doesNotMatch(output, /<details open/);
+  }
+  assert.doesNotMatch(formatReviewBody('APPROVE', '<!-- marker -->', formatReport(context, [valid])), /<details>/);
+  assert.equal(validateFindings([{ ...bilingual, korean: { ...bilingual.korean, evidence: 'password: synthetic-fixture-value' } }], [file])[0].korean, undefined);
+});
