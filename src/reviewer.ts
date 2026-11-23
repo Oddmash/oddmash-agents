@@ -63,7 +63,10 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   const files = await api<ChangedFile[]>(`${prPath}/files?per_page=100&page=1`);
   const privateReview = pr.base.repo.private;
   const selected = selectFiles(files ?? [], 45_000, privateReview);
-  if (pr.changed_files > (files?.length ?? 0)) selected.omitted.push('Additional files beyond the first page');
+  if (pr.changed_files > (files?.length ?? 0)) {
+    selected.omitted.push('Additional files beyond the first page');
+    selected.omissionDetails.push({ reason: 'pagination', count: pr.changed_files - (files?.length ?? 0) });
+  }
   const checks = await loadCheckEvidence(pr.head.sha, pr.merge_commit_sha, sha => api<CheckEvidence>(`${path}/commits/${sha}/check-runs?per_page=100`, {}, true));
   const guidance: Record<string, string> = {};
   let guidanceBudget = 24_000;
@@ -107,7 +110,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   }
   const context: ReviewContext = {
     repository: c.repository, number: c.number, head: pr.head.sha, title: privateReview && privateSensitiveText(pr.title) ? '[REDACTED]' : safeText(pr.title).slice(0, 500),
-    ...selected, guidance, relatedBaseFiles, changedHeadFiles, focus: reviewFocus(c.repository), feedback: reviewFeedback,
+    files: selected.files, omitted: selected.omitted, guidance, relatedBaseFiles, changedHeadFiles, focus: reviewFocus(c.repository), feedback: reviewFeedback,
     checks: (checks?.check_runs ?? []).map(({ name, status, conclusion }) => ({ name: privateReview && privateSensitiveText(name) ? '[REDACTED]' : safeText(name).slice(0, 150), status, conclusion }))
   };
   const field = { type: 'string' };
@@ -139,7 +142,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     if (modelValid) findings = await confirmBlockingFindings(context, findings, c, request);
     else findings = findings.map(({ blockingEvidence: _unconfirmed, ...finding }) => finding);
   }
-  const report = formatReport(context, findings, modelValid);
+  const report = formatReport(context, findings, modelValid, selected.omissionDetails);
   const assessment = reviewAssessment(context, findings, modelValid);
   const decision = reviewDecision(context, findings, modelValid && (checks?.total_count ?? context.checks.length) <= context.checks.length);
   const comments = findings.map(finding => ({ body: inlineComment(context, finding), path: finding.path, line: finding.line, side: finding.side ?? 'RIGHT' as const }));

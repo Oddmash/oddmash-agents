@@ -78,6 +78,49 @@ test('review output is concise without CI summaries or typographic dashes', () =
   assert.match(formatReviewBody('REQUEST_CHANGES', '<!-- marker -->', report), /Please address/);
 });
 
+test('manual review identifies omitted public files, reasons, and verification actions without exposing protected details', () => {
+  const selected = selectFiles([
+    file,
+    { filename: 'docs/assets/demo.png', status: 'modified' },
+    { filename: 'docs/assets/demo-dark.jpg', status: 'modified' },
+    { filename: 'src/renamed.ts', status: 'renamed' },
+    { ...file, filename: 'src/incomplete.ts', additions: 100 },
+    { filename: 'secrets/fixture-secret.pem', status: 'added', patch: '+fixture' },
+    { ...file, filename: 'src/fixture-sensitive.ts', patch: '@@ -1 +1 @@\n-old\n+password: synthetic-fixture-value' }
+  ]);
+  const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: selected.files, omitted: selected.omitted, guidance: {}, checks: [] };
+  const report = formatReport(context, [], true, selected.omissionDetails);
+  assert.match(report, /`docs\/assets\/demo.png`, `docs\/assets\/demo-dark.jpg`: Image has no text diff/);
+  assert.match(report, /compare before\/after captures/);
+  assert.match(report, /`src\/renamed.ts`: GitHub did not provide a text diff/);
+  assert.match(report, /`src\/incomplete.ts`: GitHub diff is incomplete/);
+  assert.match(report, /Protected path excluded/);
+  assert.match(report, /Potentially sensitive content excluded/);
+  assert.match(report, /수동 검토 범위/);
+  assert.match(report, /이전·이후 캡처의 레이아웃/);
+  assert.doesNotMatch(report, /fixture-secret|fixture-sensitive|synthetic-fixture-value/);
+  assert.equal(reviewDecision(context, [], true), 'COMMENT');
+  const privateSelection = selectFiles([{ filename: 'docs/assets/private-fixture.png', status: 'modified' }, { ...file, filename: 'config/private-fixture.ts' }], 45_000, true);
+  assert.ok(privateSelection.omissionDetails.every(item => !item.path));
+  const privateReport = formatReport({ ...context, files: [], omitted: privateSelection.omitted }, [], true, privateSelection.omissionDetails);
+  assert.doesNotMatch(privateReport, /private-fixture/);
+  assert.match(privateReport, /inspect the complete diff/i);
+});
+
+test('manual review summarizes bounded file counts and explains coverage limits', () => {
+  const budget = selectFiles([file], 0);
+  assert.equal(budget.omissionDetails[0].reason, 'budget');
+  const many = selectFiles(Array.from({ length: 55 }, (_, index) => ({ ...file, filename: `src/file-${index}.ts` })));
+  assert.equal(many.files.length, 40);
+  assert.equal(many.omissionDetails.length, 15);
+  assert.ok(many.omissionDetails.every(item => item.reason === 'file-limit'));
+  const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: many.files, omitted: many.omitted, guidance: {}, checks: [] };
+  const report = formatReport(context, [], true, [...many.omissionDetails, { reason: 'pagination', count: 5 }]);
+  assert.match(report, /`src\/file-51.ts` \(3 unlisted\): Review file limit reached/);
+  assert.doesNotMatch(report, /src\/file-52.ts/);
+  assert.match(report, /\(5 unlisted\): Files beyond the fetched page/);
+});
+
 test('renders English first and Korean translation in a collapsed section', () => {
   const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: [file], omitted: [], guidance: {}, checks: [] };
   const bilingual = { ...finding, korean: { rule: '접근성', evidence: '레이블이 없습니다.', recommendation: '레이블을 추가하세요.', verification: '접근 가능한 이름을 확인하세요.' } };
