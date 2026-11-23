@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { githubApi, ignoredReviewRequest, reactToComment, route, validSignature } from '../src/webhook.ts';
+import { completeCommentReaction, githubApi, ignoredReviewRequest, reactToComment, route, validSignature } from '../src/webhook.ts';
 
 const repo = { id: 7, full_name: 'Oddmash/new-project', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
 const event = { action: 'opened', installation: { id: 3 }, repository: repo, pull_request: { number: 2, draft: false } };
@@ -53,6 +53,39 @@ test('adds reactions to the exact comment type and uses only supported statuses'
   await reactToComment(api, repo.full_name, { kind: 'issue', id: 123 }, 'eyes');
   await reactToComment(api, repo.full_name, { kind: 'inline', id: 456 }, '+1');
   assert.deepEqual(calls, [[`/repos/${repo.full_name}/issues/comments/123/reactions`, 'eyes'], [`/repos/${repo.full_name}/pulls/comments/456/reactions`, '+1']]);
+});
+
+test('completion removes only the bot receipt reaction and keeps the positive acknowledgement', async () => {
+  for (const kind of ['inline', 'issue'] as const) {
+    const calls: [string, string, string | undefined][] = [];
+    const api = githubApi('fixture', async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      const content = init?.body ? JSON.parse(String(init.body)).content : undefined;
+      calls.push([init?.method ?? 'GET', path, content]);
+      return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ id: content === 'eyes' ? 9 : 10 });
+    });
+    const comment = { kind, id: 123 };
+    const base = `/repos/${repo.full_name}/${kind === 'inline' ? 'pulls' : 'issues'}/comments/123/reactions`;
+    const eyes = await reactToComment(api, repo.full_name, comment, 'eyes');
+    await completeCommentReaction(api, repo.full_name, comment, eyes, true);
+    assert.deepEqual(calls, [['POST', base, 'eyes'], ['POST', base, '+1'], ['DELETE', `${base}/9`, undefined]]);
+    calls.length = 0;
+    await completeCommentReaction(api, repo.full_name, comment, eyes, false);
+    assert.deepEqual(calls, [['DELETE', `${base}/9`, undefined]]);
+  }
+});
+
+test('routes explicit scoped conversation references only to the same PR', () => {
+  const actor = { id: 135234546, login: 'qtaghdi', type: 'User' };
+  const slug = 'oddmash-reviewer';
+  const body = `@${slug} Fixed in ${'a'.repeat(40)}: fixed the finding.\nOriginal: https://github.com/${repo.full_name}/pull/2#pullrequestreview-4\nFile: src/demo.ts`;
+  const payload = { ...event, action: 'created', sender: actor, comment: { id: 5, user: actor, body }, issue: { number: 2, pull_request: {} } };
+  const result = route('issue_comment', payload, slug);
+  assert.deepEqual(result?.reply, { comment: 5, root: 4, kind: 'conversation', rootKind: 'review', path: 'src/demo.ts' });
+  assert.equal(result?.recheck, undefined);
+  assert.equal(ignoredReviewRequest('issue_comment', payload, slug), undefined);
+  assert.equal(route('issue_comment', { ...payload, comment: { ...payload.comment, body: body.replace('/pull/2', '/pull/7') } }, slug), null);
+  assert.equal(route('issue_comment', { ...payload, sender: { ...actor, id: 9 } }, slug), null);
 });
 
 test('explicit review command accepts following context without interpreting mentions as commands', () => {
