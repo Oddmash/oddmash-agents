@@ -29,3 +29,10 @@ test('reads both current head and generated merge commit evidence for fork PRs',
   assert.equal(evidence.total_count, 1);
   assert.equal(evidence.check_runs[0].name, 'CI');
 });
+
+test('does not approve when any aggregate verify check is skipped or cancelled', () => {
+  const verify = { name: 'verify', status: 'completed', conclusion: 'success', app: { id: 15368 } };
+  for (const conclusion of ['skipped', 'cancelled']) {
+    assert.equal(finalReviewEvent('APPROVE', { total_count: 2, check_runs: [verify, { ...verify, conclusion }] }), null);
+  }
+});
