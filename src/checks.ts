@@ -9,7 +9,8 @@ export function reviewChecksReady(evidence: CheckEvidence): boolean {
 export function finalReviewEvent(assessment: ReviewDecision, evidence: CheckEvidence): ReviewDecision | null {
   if (!reviewChecksReady(evidence)) return null;
   if (assessment === 'REQUEST_CHANGES') return assessment;
-  return checksPassed(evidence.check_runs) ? assessment : null;
+  const required = evidence.check_runs.filter(check => /^(?:CI \/ )?verify$/.test(check.name) && (check.app === undefined || check.app.id === 15368));
+  return required.every(check => check.conclusion === 'success') && checksPassed(evidence.check_runs) ? assessment : null;
 }
 
 export async function loadCheckEvidence(head: string, merge: string | null | undefined, read: (sha: string) => Promise<CheckEvidence | null>): Promise<CheckEvidence> {
