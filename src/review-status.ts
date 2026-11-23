@@ -20,6 +20,7 @@ const messages: Record<string, [string, string]> = {
   'branch is not up to date': ['Update the branch against the current base and request a new review.', '현재 기준 브랜치에 맞게 업데이트하고 재리뷰를 요청하세요.'],
   'candidate is not clean': ['GitHub reports that the PR is not ready to merge.', 'GitHub에서 아직 머지 가능한 상태가 아니라고 보고했습니다.'],
   'current required check evidence is incomplete': ['Required CI checks are incomplete or unsuccessful.', '필수 CI 검사가 완료되지 않았거나 실패했습니다.'],
+  'required checks failed': ['Required CI checks did not pass. Resolve the failed checks before requesting another review.', '필수 CI 검사가 통과하지 못했습니다. 실패한 검사를 해결한 후 재리뷰를 요청하세요.'],
   'commit statuses are incomplete': ['Commit status checks are incomplete.', '커밋 상태 검사가 완료되지 않았습니다.'],
   'exact-head approval or independent review evidence is incomplete': ['Current approval or required review evidence is incomplete.', '현재 커밋의 승인 또는 필수 리뷰 근거가 부족합니다.'],
   'Mergeability evidence pending': ['GitHub is still calculating mergeability. Retry when ready.', 'GitHub에서 머지 가능 여부를 계산 중입니다. 완료 후 재시도합니다.'],

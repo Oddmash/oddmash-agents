@@ -183,6 +183,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     if (own.some(review => review.body?.includes(marker))) return;
     if (!reviewChecksReady(checks) || (target.requestComment && !checks.check_runs.every(check => ['success', 'skipped'].includes(check.conclusion ?? '')))) {
       if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha);
+      if (reviewChecksReady(checks) && checks.check_runs.some(check => !['success', 'skipped'].includes(check.conclusion ?? ''))) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
       return;
     }
     const pending = reviews.find(review => review.user.login === bot && review.state === 'PENDING');
@@ -211,7 +212,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state) && (!approved || review.id > approved.id))))) return;
       const finalChecks = await readChecks(current);
       const event = finalReviewEvent(result.assessment, finalChecks);
-      if (!event) return;
+      if (!event) {
+        if (reviewChecksReady(finalChecks) && finalChecks.check_runs.some(check => !['success', 'skipped'].includes(check.conclusion ?? ''))) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
+        return;
+      }
       const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks, target.recheck);
       const proof = event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === current.head.sha && candidate.pull.base.sha === current.base.sha && candidate.pull.merge_commit_sha === current.merge_commit_sha ? `\n\n${mergeProof(candidate)}` : '';
       const body = formatReviewBody(event, finalMarker, result.report, current.user) + (requestTag ? `\n\n${requestTag}` : '') + proof;
