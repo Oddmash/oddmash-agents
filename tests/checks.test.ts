@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { finalReviewEvent, loadCheckEvidence, reviewChecksReady } from '../src/checks.ts';
+import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks } from '../src/checks.ts';
 
 test('only final aggregate CI evidence can produce an official review', () => {
   const label = { name: 'labels', status: 'completed', conclusion: 'success' };
@@ -35,4 +35,23 @@ test('does not approve when any aggregate verify check is skipped or cancelled',
   for (const conclusion of ['skipped', 'cancelled']) {
     assert.equal(finalReviewEvent('APPROVE', { total_count: 2, check_runs: [verify, { ...verify, conclusion }] }), null);
   }
+});
+
+test('pending CI reconciliation is opt-in and bound to the expected head', () => {
+  const head = 'a'.repeat(40);
+  const pending = { total_count: 1, check_runs: [{ name: 'verify', status: 'queued', conclusion: null }] };
+  const missing = { total_count: 0, check_runs: [] };
+  const failed = { total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'failure' }] };
+  const passed = { total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] };
+  for (const evidence of [pending, missing]) {
+    assert.equal(shouldReconcilePendingChecks(evidence, head, head, true), true);
+    assert.equal(shouldReconcilePendingChecks(evidence, undefined, head, true), false);
+    assert.equal(shouldReconcilePendingChecks(evidence, 'b'.repeat(40), head, true), false);
+    assert.equal(shouldReconcilePendingChecks(evidence, head, head, false), false);
+    assert.equal(reviewChecksSuccessful(evidence), false);
+  }
+  assert.equal(shouldReconcilePendingChecks(failed, head, head, true), false);
+  assert.equal(shouldReconcilePendingChecks(passed, head, head, true), false);
+  assert.equal(reviewChecksSuccessful(failed), false);
+  assert.equal(reviewChecksSuccessful(passed), true);
 });
