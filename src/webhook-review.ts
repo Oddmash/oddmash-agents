@@ -6,6 +6,7 @@ import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, reactToComment, type Target } from './webhook.ts';
 import { replyToReview } from './review-discussion.ts';
 import { retryableJobError } from './review-job.ts';
+import { publishAutomationStatus } from './review-status.ts';
 
 type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 export type Review = { id: number; node_id?: string; body: string | null; user: { login: string }; state: string; commit_id: string };
@@ -142,13 +143,22 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
     }
     const existingApproval = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)).at(-1);
+    const mergeStatus = (reason: string, completed = false) => publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'merge', reason, completed);
     const retryExistingApproval = async () => {
-      if (config.autoMerge && !target.private && existingApproval?.state === 'APPROVED') {
-        const withheld = (reason: string) => console.log('Maintainer auto-merge withheld: ' + reason);
-        const candidate = await mergeCandidate(api, target, pr.number, withheld);
-        if (candidate && existingApproval.body?.includes(mergeProof(candidate))) {
-          await mergeAuthorized(api, target, candidate, bot, existingApproval.id, true, () => authorizeMerge(target, appId, key), withheld);
-        } else if (candidate) withheld('approval has no current acceptance proof; request a fresh review');
+      if (existingApproval?.state !== 'APPROVED') return;
+      let reason = target.private ? 'private repository requires manual merge' : !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
+      const withheld = (value: string) => { reason = value; console.log('Maintainer auto-merge withheld: ' + value); };
+      try {
+        if (config.autoMerge && !target.private) {
+          const candidate = await mergeCandidate(api, target, pr.number, withheld);
+          if (candidate && existingApproval.body?.includes(mergeProof(candidate))) {
+            if (await mergeAuthorized(api, target, candidate, bot, existingApproval.id, true, () => authorizeMerge(target, appId, key), withheld)) { await mergeStatus('merge completed', true); return; }
+          } else if (candidate) withheld('approval has no current acceptance proof; request a fresh review');
+        }
+        await mergeStatus(reason);
+      } catch (error) {
+        await mergeStatus(error instanceof Error ? error.message : reason);
+        throw error;
       }
     };
     if (!target.recheck && hasOfficialReview(reviews, bot)) {
@@ -184,13 +194,17 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     if (pendingId === null) return;
     let submitted = false;
     try {
-      const withheld = (reason: string) => console.log('Maintainer auto-merge withheld: ' + reason);
+      let mergeReason = target.private ? 'private repository requires manual merge' : !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
+      const withheld = (reason: string) => { mergeReason = reason; console.log('Maintainer auto-merge withheld: ' + reason); };
       const candidate = config.autoMerge && !target.private ? await mergeCandidate(api, target, pr.number, withheld).catch(error => {
         withheld(error instanceof Error && /^GitHub request failed \(\d{3}\)$/.test(error.message) ? error.message : 'candidate lookup failed');
         return null;
       }) : null;
       if (approved && !candidate) return;
-      const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: candidate?.acceptance, privateRepositoryId: target.private ? target.repositoryId : undefined });
+      const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: candidate?.acceptance, privateRepositoryId: target.private ? target.repositoryId : undefined }).catch(async error => {
+        await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', error instanceof Error ? error.message : 'review processing failed');
+        throw error;
+      });
       const current = await api<Pull>(path);
       if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft || !eligibleBase(current)) return;
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
@@ -202,13 +216,16 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const proof = event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === current.head.sha && candidate.pull.base.sha === current.base.sha && candidate.pull.merge_commit_sha === current.merge_commit_sha ? `\n\n${mergeProof(candidate)}` : '';
       const body = formatReviewBody(event, finalMarker, result.report, current.user) + (requestTag ? `\n\n${requestTag}` : '') + proof;
       const attemptMerge = async (reviewId: number) => {
-        if (!candidate || candidate.pull.head.sha !== result.head || candidate.pull.base.sha !== current.base.sha) return;
-        if (!result.issueVerified) { withheld('issue acceptance evidence not verified'); return; }
+        if (!candidate) { await mergeStatus(mergeReason); return; }
+        if (candidate.pull.head.sha !== result.head || candidate.pull.base.sha !== current.base.sha) { await mergeStatus('candidate changed'); return; }
+        if (!result.issueVerified) { withheld('issue acceptance evidence not verified'); await mergeStatus(mergeReason); return; }
         try {
           const merged = await mergeAuthorized(api, target, candidate, bot, reviewId, result.issueVerified, () => authorizeMerge(target, appId, key), withheld);
-          if (merged) console.log('Maintainer auto-merge completed');
+          if (merged) { console.log('Maintainer auto-merge completed'); await mergeStatus('merge completed', true); }
+          else await mergeStatus(mergeReason);
         } catch (error) {
           withheld(error instanceof Error && /^GitHub request failed \(\d{3}\)$/.test(error.message) ? error.message : 'merge request failed');
+          await mergeStatus(error instanceof Error ? error.message : mergeReason);
           if (retryableJobError(error)) throw error;
         }
       };
@@ -229,7 +246,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) }).catch(error => { throw new Error('Submit review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
         submitted = true;
       }
-      if (event === 'APPROVE' && !target.private) await attemptMerge(pendingId);
+      if (event === 'APPROVE') await attemptMerge(pendingId);
+      await publishAutomationStatus(api, repository, pr.number, bot, current.head.sha, 'review', 'review completed', true);
       const label = event === 'APPROVE' ? 'review: approved' : event === 'REQUEST_CHANGES' ? 'review: changes requested' : 'review: needs human';
       const labels = await api<{ name: string }[]>(`${root}/labels?per_page=100`);
       if (!labels.some(item => item.name === label)) {
