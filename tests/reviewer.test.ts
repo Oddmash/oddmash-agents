@@ -4,7 +4,7 @@ import { runReview } from '../src/reviewer.ts';
 
 const config = { repository: 'Oddmash/example', number: 1, githubToken: 'fixture', openaiKey: 'fixture', model: 'fixture', post: false, allowedRepositories: ['Oddmash/example'] };
 const pr = { title: 'UI change', state: 'open', draft: false, base: { sha: 'a'.repeat(40), repo: { private: false, full_name: config.repository } }, head: { sha: 'b'.repeat(40) }, changed_files: 1 };
-const finding = { path: 'src/ui.ts', line: 1, severity: 'medium', confidence: 'high', rule: 'Accessibility', evidence: 'The label is empty.', recommendation: 'Use a visible label.', verification: 'Inspect accessible name.', suggestion: 'const label = "Open";' };
+const finding = { path: 'src/ui.ts', line: 1, severity: 'medium', confidence: 'high', rule: 'Accessibility', evidence: 'The label is empty.', recommendation: 'Use a visible label.', verification: 'Inspect accessible name.', suggestion: 'const label = "Open";', korean: { rule: '접근성', evidence: '레이블이 비어 있습니다.', recommendation: '레이블을 추가하세요.', verification: '접근 가능한 이름을 확인하세요.' } };
 const mock = (options: { private?: boolean; exhausted?: boolean; findings?: boolean; duplicate?: boolean; stale?: boolean } = {}) => {
   const calls: { url: string; method: string; body?: string }[] = [];
   let prReads = 0;
@@ -16,6 +16,7 @@ const mock = (options: { private?: boolean; exhausted?: boolean; findings?: bool
       if (options.exhausted) return new Response('', { status: 429 });
       const body = JSON.parse(String(init?.body));
       assert.equal(body.store, false);
+      assert.ok(body.text.format.schema.properties.findings.items.required.includes('korean'));
       return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: options.findings ? [finding] : [] }) }] }] });
     }
     if (url.includes('/files?')) return Response.json([{ filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
@@ -67,6 +68,7 @@ test('posts a suggested change on the exact right-side line and skips repeat fin
   assert.equal(payload.side, 'RIGHT');
   assert.equal(payload.commit_id, pr.head.sha);
   assert.match(payload.body, /```suggestion\nconst label = "Open";\n```/);
+  assert.match(payload.body, /<summary>한국어 \(Korean\)<\/summary>/);
   const second = await runReview({ ...config, post: true }, request);
   assert.equal(second.posted, false);
   assert.equal(calls.filter(x => x.method === 'POST' && x.url.includes('api.github.com')).length, 1);

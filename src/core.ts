@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 
 export type ChangedFile = { filename: string; patch?: string; status: string };
-export type Finding = { path: string; line: number; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium'; rule: string; evidence: string; recommendation: string; verification: string; suggestion?: string };
+export type KoreanFinding = { rule: string; evidence: string; recommendation: string; verification: string };
+export type Finding = { path: string; line: number; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium'; rule: string; evidence: string; recommendation: string; verification: string; suggestion?: string; korean?: KoreanFinding };
 export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[] };
 
 export type ReviewDecision = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
@@ -90,7 +91,9 @@ export function validateFindings(value: unknown, files: ChangedFile[]): Finding[
     unique.add(key);
     const original = addedLineText(files.find(file => file.filename === f.path)?.patch ?? '', f.line);
     const suggestion = typeof f.suggestion === 'string' && f.confidence === 'high' && /\.(?:tsx?|jsx?|css|scss)$/.test(f.path) && !/(?:^|\/)(?:\.github|scripts|server|auth|security)(?:\/|$)/i.test(f.path) && !/security|privacy|credential|authorization|authentication/i.test(f.rule) && f.suggestion.trim().length > 0 && f.suggestion.length <= 1000 && f.suggestion.split('\n').length <= 8 && !/```|[\u0000-\u0008\u000b-\u001f\u007f]/.test(f.suggestion) && !sensitiveValue.test(f.suggestion) && original !== undefined && f.suggestion !== original ? f.suggestion : undefined;
-    result.push({ path: f.path, line: f.line, severity: f.severity, confidence: f.confidence, rule: f.rule, evidence: f.evidence, recommendation: f.recommendation, verification: f.verification, ...(suggestion ? { suggestion } : {}) });
+    const korean = f.korean;
+    const translated = korean && typeof korean === 'object' && [korean.rule, korean.evidence, korean.recommendation, korean.verification].every(x => typeof x === 'string' && x.trim().length > 0 && x.length <= 1000 && !sensitiveValue.test(x) && /[가-힣]/.test(x)) ? { rule: korean.rule, evidence: korean.evidence, recommendation: korean.recommendation, verification: korean.verification } : undefined;
+    result.push({ path: f.path, line: f.line, severity: f.severity, confidence: f.confidence, rule: f.rule, evidence: f.evidence, recommendation: f.recommendation, verification: f.verification, ...(suggestion ? { suggestion } : {}), ...(translated ? { korean: translated } : {}) });
   }
   return result;
 }
@@ -106,10 +109,19 @@ export function findingMarker(context: ReviewContext, finding: Finding): string 
   return `<!-- oddmash-finding:${id} -->`;
 }
 
+const koreanText = (value: string) => clean(value).replace(/[\[\]`*_!]/g, match => '\\' + match);
+const koreanDetails = (lines: string[]) => ['<details>', '<summary>한국어 (Korean)</summary>', '', ...lines, '', '</details>'].join('\n');
+
 export function inlineComment(context: ReviewContext, finding: Finding): string {
   const lines = [findingMarker(context, finding), `**${finding.severity.toUpperCase()}: ${clean(finding.rule)}**`, '', clean(finding.evidence), '', `Fix: ${clean(finding.recommendation)}`];
   if (finding.severity === 'high') lines.push('', `Verify: ${clean(finding.verification)}`);
   if (finding.suggestion) lines.push('', '```suggestion', finding.suggestion, '```');
+  if (finding.korean) {
+    const ko = finding.korean;
+    const translated = [koreanText(ko.rule), '', koreanText(ko.evidence), '', `수정: ${koreanText(ko.recommendation)}`];
+    if (finding.severity === 'high') translated.push('', `확인: ${koreanText(ko.verification)}`);
+    lines.push('', koreanDetails(translated));
+  }
   return lines.join('\n');
 }
 
@@ -120,6 +132,10 @@ export function formatReport(context: ReviewContext, findings: Finding[]): strin
     lines.push(`- **${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.recommendation)}`);
   }
   if (context.omitted.length) lines.push('Some changes require manual review.');
+  const translated = findings.filter(f => f.korean).map(f => `- **${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.recommendation)}`);
+  if (!findings.length) translated.push('검토한 변경 사항에서 확인된 문제는 없습니다. 승인 또는 정확성을 보장하지 않습니다.');
+  if (context.omitted.length) translated.push('일부 변경 사항은 수동 검토가 필요합니다.');
+  if (translated.length) lines.push('', koreanDetails(translated));
   return lines.join('\n');
 }
 
