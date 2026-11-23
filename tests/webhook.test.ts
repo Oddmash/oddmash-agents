@@ -56,7 +56,7 @@ test('adds reactions to the exact comment type and uses only supported statuses'
 });
 
 test('only explicitly approved private repository identities are eligible', () => {
-  for (const [name, id] of Object.entries({ 'Oddmash/oddmash-agents': 1468182609, 'Oddmash/oddmash-skills': 1468154482, 'Oddmash/overtime-prototype': 1461455091, 'Oddmash/cash-out': 1462488077 })) {
+  for (const [name, id] of Object.entries({ 'Oddmash/oddmash-agents': 1468182609, 'Oddmash/oddmash-skills': 1468154482, 'Oddmash/overtime-prototype': 1461455091, 'Oddmash/cash-out': 1462488077, 'Oddmash/oddmash-website': 1468561714 })) {
     const repository = { ...repo, full_name: name, id, private: true, visibility: 'private' };
     assert.deepEqual(route('pull_request', { ...event, repository }), { installation: 3, repository: name, repositoryId: id, private: true, number: 2 });
     assert.equal(route('pull_request', { ...event, repository: { ...repository, id: 99 } }), null);
