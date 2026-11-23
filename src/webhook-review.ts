@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import { runReview } from './reviewer.ts';
 import { formatReviewBody } from './core.ts';
-import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvidence } from './checks.ts';
+import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, reactToComment, type Target } from './webhook.ts';
 import { replyToReview } from './review-discussion.ts';
 import { retryableJobError } from './review-job.ts';
 import { publishAutomationStatus } from './review-status.ts';
+import { actionsQuotaEvidence, actionsWorkflowUrl } from './actions-quota.ts';
 
 type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 export type Review = { id: number; node_id?: string; body: string | null; user: { login: string }; state: string; commit_id: string };
@@ -144,12 +145,18 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     }
     const existingApproval = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)).at(-1);
     const mergeStatus = (reason: string, completed = false) => publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'merge', reason, completed);
+    const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
     const retryExistingApproval = async () => {
       if (existingApproval?.state !== 'APPROVED') return;
       let reason = !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
       const withheld = (value: string) => { reason = value; console.log('Maintainer auto-merge withheld: ' + value); };
       try {
         if (config.autoMerge) {
+          const quota = actionsQuotaEvidence((await readChecks(pr)).check_runs);
+          if (quota) {
+            await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'Actions billing or quota block', false, actionsWorkflowUrl(quota, repository));
+            return;
+          }
           const candidate = await mergeCandidate(api, target, pr.number, withheld);
           if (candidate && existingApproval.body?.includes(mergeProof(candidate))) {
             if (await mergeAuthorized(api, target, candidate, bot, existingApproval.id, true, () => authorizeMerge(target, appId, key), withheld)) { await mergeStatus('merge completed', true); return; }
@@ -176,14 +183,20 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     if (!target.recheck && decisive?.state === 'CHANGES_REQUESTED') return;
     const approved = !target.recheck && decisive?.state === 'APPROVED' ? decisive : undefined;
     if (approved && !config.autoMerge) return;
-    const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
     const checks = await readChecks(pr);
+    const quota = actionsQuotaEvidence(checks.check_runs);
+    if (quota) {
+      if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha);
+      await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'Actions billing or quota block', false, actionsWorkflowUrl(quota, repository));
+      return;
+    }
     const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks, target.recheck);
     if (approved && !canRetryApprovedMerge(approved, marker)) return;
     if (own.some(review => review.body?.includes(marker))) return;
-    if (!reviewChecksReady(checks) || (target.requestComment && !checks.check_runs.every(check => ['success', 'skipped'].includes(check.conclusion ?? '')))) {
+    if (!reviewChecksSuccessful(checks)) {
       if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha);
-      if (reviewChecksReady(checks) && checks.check_runs.some(check => !['success', 'skipped'].includes(check.conclusion ?? ''))) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
+      if (reviewChecksReady(checks)) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
+      if (shouldReconcilePendingChecks(checks, target.expectedHead, pr.head.sha, process.env.REVIEWER_QUEUE_ENABLED === 'true')) throw new Error('CI evidence pending');
       return;
     }
     const pending = reviews.find(review => review.user.login === bot && review.state === 'PENDING');

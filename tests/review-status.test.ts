@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { githubApi } from '../src/webhook.ts';
-import { publishAutomationStatus, statusText } from '../src/review-status.ts';
+import { publishAutomationStatus, statusText, billingHelpLink } from '../src/review-status.ts';
 
 test('status comments update in place, suppress repeats and do not disclose arbitrary errors', async () => {
   const head = 'a'.repeat(40), bot = 'oddmash-reviewer[bot]';
@@ -41,4 +41,10 @@ test('status comments are suppressed for a stale head and never update another a
   });
   await publishAutomationStatus(api, 'Oddmash/example', 7, bot, 'a'.repeat(40), 'merge', 'candidate is not clean');
   assert.equal(writes, 0);
+});
+
+test('billing notices link only the known organization and use generic guidance otherwise', () => {
+  assert.match(billingHelpLink('Oddmash/example'), /github\.com\/organizations\/Oddmash\/settings\/billing/);
+  assert.match(billingHelpLink('personal/example'), /docs\.github\.com\/en\/billing/);
+  assert.match(billingHelpLink('Oddmash/other/invalid'), /docs\.github\.com\/en\/billing/);
 });

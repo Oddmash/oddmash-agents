@@ -6,15 +6,26 @@ export function reviewChecksReady(evidence: CheckEvidence): boolean {
   return !!evidence.total_count && evidence.total_count === evidence.check_runs.length && evidence.check_runs.every(check => check.status === 'completed') && evidence.check_runs.some(check => /^(?:CI \/ )?verify$/.test(check.name) && (check.app === undefined || check.app.id === 15368));
 }
 
+export function reviewChecksSuccessful(evidence: CheckEvidence): boolean {
+  if (!reviewChecksReady(evidence)) return false;
+  const required = evidence.check_runs.filter(check => /^(?:CI \/ )?verify$/.test(check.name) && (check.app === undefined || check.app.id === 15368));
+  return required.every(check => check.conclusion === 'success') && checksPassed(evidence.check_runs);
+}
+
+export function shouldReconcilePendingChecks(evidence: CheckEvidence, expectedHead: string | undefined, head: string, queueEnabled: boolean): boolean {
+  return queueEnabled && expectedHead === head && /^[a-f0-9]{40}$/i.test(head) && !reviewChecksReady(evidence);
+}
+
 export function finalReviewEvent(assessment: ReviewDecision, evidence: CheckEvidence): ReviewDecision | null {
   if (!reviewChecksReady(evidence)) return null;
   if (assessment === 'REQUEST_CHANGES') return assessment;
-  return checksPassed(evidence.check_runs) ? assessment : null;
+  return reviewChecksSuccessful(evidence) ? assessment : null;
 }
 
 export async function loadCheckEvidence(head: string, merge: string | null | undefined, read: (sha: string) => Promise<CheckEvidence | null>): Promise<CheckEvidence> {
   const refs = [head];
   if (merge && /^[a-f0-9]{40}$/i.test(merge) && merge !== head) refs.push(merge);
   const evidence = await Promise.all(refs.map(read));
+  if (evidence.some(item => item === null)) return { check_runs: evidence.flatMap(item => item?.check_runs ?? []) };
   return { total_count: evidence.reduce((sum, item) => sum + (item?.total_count ?? item?.check_runs.length ?? 0), 0), check_runs: evidence.flatMap(item => item?.check_runs ?? []) };
 }
