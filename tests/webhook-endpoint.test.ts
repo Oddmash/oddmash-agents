@@ -24,7 +24,7 @@ test('signed review requests distinguish rejected syntax from unavailable proces
   const context = 'synthetic verification context';
   const invalid = await POST(request(`@${slug} /review please ${context}`));
   assert.equal(invalid.status, 200);
-  assert.equal(await invalid.text(), 'Ignored: Review command not recognized; put an explicit review command on the first line');
+  assert.equal(await invalid.text(), 'Ignored: Review command not recognized; put an explicit review command on the first line or reference the original finding for scoped verification');
   const valid = await POST(request(`@${slug} /review\n\n${context}`));
   assert.equal(valid.status, 503);
   assert.equal(await valid.text(), 'Unavailable');
