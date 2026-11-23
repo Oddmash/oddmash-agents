@@ -60,3 +60,34 @@ test('unavailable check evidence is not successful even if another ref passed', 
   const result = await loadCheckEvidence('a'.repeat(40), 'b'.repeat(40), async sha => sha.startsWith('a') ? null : { total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] });
   assert.equal(reviewChecksSuccessful(result), false);
 });
+
+test('Boundra requires every trusted matrix job rather than an aggregate verify name', () => {
+  const repository = 'Oddmash/boundra';
+  const names = [
+    'verify-example', 'verify-runtime (20)', 'verify-runtime (22)', 'verify-runtime (24)',
+    'verify-cli-platforms (ubuntu-24.04)', 'verify-cli-platforms (macos-15)',
+    'verify-cli-platforms (macos-15-intel)', 'verify-cli-platforms (windows-2025)', 'benchmark-smoke'
+  ];
+  const jobs = names.map((name, index) => ({ name: index % 2 ? `Boundra / ${name}` : name, status: 'completed', conclusion: 'success', app: { id: 15368 } }));
+  const full = { total_count: jobs.length, check_runs: jobs };
+  assert.equal(reviewChecksSuccessful(full, repository), true);
+  assert.equal(finalReviewEvent('APPROVE', full, repository), 'APPROVE');
+  assert.equal(reviewChecksSuccessful(full), false);
+  assert.equal(reviewChecksSuccessful(full, 'Oddmash/oddmash-ui'), false);
+  const missing = { total_count: jobs.length - 1, check_runs: jobs.slice(1) };
+  assert.equal(reviewChecksReady(missing, repository), false);
+  assert.equal(finalReviewEvent('APPROVE', missing, repository), null);
+  const head = 'a'.repeat(40);
+  assert.equal(shouldReconcilePendingChecks(missing, head, head, true, repository), true);
+  assert.equal(shouldReconcilePendingChecks(full, head, head, true, repository), false);
+  for (const conclusion of ['failure', 'skipped', 'cancelled']) {
+    const failed = { total_count: jobs.length, check_runs: [{ ...jobs[0], conclusion }, ...jobs.slice(1)] };
+    assert.equal(reviewChecksReady(failed, repository), true);
+    assert.equal(finalReviewEvent('APPROVE', failed, repository), null);
+  }
+  for (const replacement of [{ ...jobs[0], app: { id: 42 } }, { ...jobs[0], app: undefined }, { ...jobs[0], name: 'Another workflow / verify-example' }]) {
+    assert.equal(reviewChecksReady({ total_count: jobs.length, check_runs: [replacement, ...jobs.slice(1)] }, repository), false);
+  }
+  assert.equal(reviewChecksReady({ ...full, total_count: jobs.length + 1 }, repository), false);
+  assert.equal(reviewChecksReady({ ...full, check_runs: [{ ...jobs[0], status: 'queued', conclusion: null }, ...jobs.slice(1)] }, repository), false);
+});
