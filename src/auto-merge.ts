@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
-import { addedLines, checksPassed, patchComplete, safeText, type ChangedFile } from './core.ts';
+import { addedLines, checksPassed, patchComplete, safeText, privateSensitiveText, selectFiles, type ChangedFile } from './core.ts';
 import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
-import { githubApi, type Target } from './webhook.ts';
+import { githubApi, mergeRepositoryAllowed, type Target } from './webhook.ts';
 
 const ownerId = 135234546;
-const repos = new Set(['Oddmash/kowrap', 'Oddmash/oddmash-ui', 'Oddmash/interaction-inspector', 'Oddmash/Vertactics']);
 const sha = /^[a-f0-9]{40}$/i;
 type Api = ReturnType<typeof githubApi>;
 type Identity = { id: number; login: string };
@@ -17,7 +16,7 @@ export type Candidate = { pull: MergePull; acceptance: Acceptance };
 const maintainer = (user: Identity | undefined) => user?.id === ownerId && user?.login === 'qtaghdi';
 
 export function eligiblePull(pr: MergePull, target: Target): boolean {
-  return repos.has(target.repository) && maintainer(pr.user) && pr.state === 'open' && !pr.draft && pr.base.repo.private === false && !pr.base.repo.archived && pr.base.repo.allow_merge_commit !== false && pr.base.repo.id === target.repositoryId && pr.base.repo.full_name === target.repository && pr.head.repo?.id === target.repositoryId && pr.head.repo.full_name === target.repository && pr.base.ref === pr.base.repo.default_branch && pr.base.ref === 'main' && sha.test(pr.head.sha) && sha.test(pr.base.sha) && sha.test(pr.merge_commit_sha ?? '') && pr.changed_files > 0 && pr.changed_files <= 20 && !pr.labels.some(l => /(?:^|: )(?:no auto.merge|do not merge|manual|blocked|hold|wip)$/i.test(l.name));
+  return mergeRepositoryAllowed(target) && maintainer(pr.user) && pr.state === 'open' && !pr.draft && pr.base.repo.private === Boolean(target.private) && !pr.base.repo.archived && pr.base.repo.allow_merge_commit !== false && pr.base.repo.id === target.repositoryId && pr.base.repo.full_name === target.repository && pr.head.repo?.id === target.repositoryId && pr.head.repo.full_name === target.repository && pr.base.ref === pr.base.repo.default_branch && pr.base.ref === 'main' && sha.test(pr.head.sha) && sha.test(pr.base.sha) && sha.test(pr.merge_commit_sha ?? '') && pr.changed_files > 0 && pr.changed_files <= 20 && !pr.labels.some(l => /(?:^|: )(?:no auto.merge|do not merge|manual|blocked|hold|wip)$/i.test(l.name));
 }
 
 const sourceRoots: Record<string, RegExp> = {
@@ -25,6 +24,7 @@ const sourceRoots: Record<string, RegExp> = {
   'Oddmash/oddmash-ui': /^(?:src|demo)\//,
   'Oddmash/interaction-inspector': /^(?:src|demo)\//,
   'Oddmash/Vertactics': /^apps\/(?:editor\/src|landing\/app)\//,
+  'Oddmash/oddmash-website': /^dist\/(?:[^/]+)$/,
 };
 const testRoots: Record<string, RegExp> = {
   'Oddmash/kowrap': /^(?:test|site\/test)\//,
@@ -39,6 +39,7 @@ export function lowRisk(files: ChangedFile[], count: number, repository = ''): b
   return files.every(f => {
     const path = f.filename;
     if (!f.patch || !patchComplete(f) || !['added', 'modified'].includes(f.status) || f.previous_filename || safeText(f.patch) !== f.patch || /(?:policy|release|deploy|security|auth|architecture|credential|instructions|review|config|permission|secret|token|generated|background|service.worker|storage|migration)/i.test(path) || /(?:^|\/)(?:AGENTS\.md|CONTRIBUTING\.md|SECURITY\.md|CODEOWNERS|PROMPT\.md|SPEC\.md|CHANGELOG\.md|\.github|scripts)(?:\/|$)/i.test(path)) return false;
+    if (['Oddmash/oddmash-agents', 'Oddmash/oddmash-skills'].includes(repository) && !/^README(?:\.[a-z-]+)?\.md$/i.test(path)) return false;
     if (/^(?:README(?:\.[a-z-]+)?\.md|docs\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.md)$/i.test(path)) return true;
     const isTest = testRoots[repository]?.test(path) || /(?:\.test\.|\.spec\.|(?:^|\/)(?:tests?|__tests__)\/)/.test(path);
     const ext = /\.(?:[cm]?[jt]sx?|css|scss)$/i;
@@ -60,8 +61,8 @@ export function linkedIssue(body: string | null): number | null {
   return Number.isSafeInteger(n) ? n : null;
 }
 
-export function acceptanceOf(issue: Issue): Acceptance | null {
-  if (!maintainer(issue.user) || issue.state !== 'open' || issue.pull_request || !issue.body || issue.body.length > 12000 || safeText(issue.body) !== issue.body) return null;
+export function acceptanceOf(issue: Issue, privateReview = false): Acceptance | null {
+  if (!maintainer(issue.user) || issue.state !== 'open' || issue.pull_request || !issue.body || issue.body.length > 12000 || safeText(issue.body) !== issue.body || (privateReview && privateSensitiveText(issue.body))) return null;
   const sections = issue.body.split(/\r?\n/);
   const start = sections.findIndex(line => /^## Acceptance criteria\s*$/i.test(line));
   if (start < 0) return null;
@@ -92,10 +93,10 @@ export async function mergeCandidate(api: Api, target: Target, number: number, w
   const issueNumber = linkedIssue(pr.body);
   if (!issueNumber || issueNumber === number) return deny('missing single closing issue link');
   const issue = await api<Issue>(root + '/issues/' + issueNumber);
-  const acceptance = acceptanceOf(issue);
+  const acceptance = acceptanceOf(issue, Boolean(target.private));
   if (!acceptance || acceptance.issue !== issueNumber) return deny('issue acceptance criteria are ineligible');
   const files = await api<ChangedFile[]>(root + '/pulls/' + number + '/files?per_page=100');
-  if (!lowRisk(files, pr.changed_files, target.repository)) return deny('changed paths or review budget are ineligible');
+  if (!lowRisk(files, pr.changed_files, target.repository) || (target.private && selectFiles(files, 45_000, true).omitted.length > 0)) return deny('changed paths or review budget are ineligible');
   return { pull: pr, acceptance };
 }
 
@@ -125,7 +126,7 @@ export async function mergeAuthorized(api: Api, target: Target, candidate: Candi
   }
   const final = await api<MergePull>(root + '/pulls/' + number);
   if (!eligiblePull(final, target) || final.head.sha !== current.pull.head.sha || final.base.sha !== current.pull.base.sha || final.merge_commit_sha !== current.pull.merge_commit_sha || final.mergeable_state !== 'clean' || final.mergeable !== true || linkedIssue(final.body) !== current.acceptance.issue) return deny('final PR state changed');
-  const finalIssue = acceptanceOf(await api<Issue>(root + '/issues/' + current.acceptance.issue));
+  const finalIssue = acceptanceOf(await api<Issue>(root + '/issues/' + current.acceptance.issue), Boolean(target.private));
   if (!finalIssue || finalIssue.digest !== current.acceptance.digest) return deny('issue changed during review');
   const writer = await mint();
   try {
