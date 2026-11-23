@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { addedLines, checksPassed, safeText, type ChangedFile } from './core.ts';
+import { addedLines, checksPassed, patchComplete, safeText, type ChangedFile } from './core.ts';
 import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
 import { githubApi, type Target } from './webhook.ts';
 
@@ -8,7 +8,7 @@ const repos = new Set(['Oddmash/kowrap', 'Oddmash/oddmash-ui', 'Oddmash/interact
 const sha = /^[a-f0-9]{40}$/i;
 type Api = ReturnType<typeof githubApi>;
 type Identity = { id: number; login: string };
-export type MergePull = { number: number; state: string; draft: boolean; user: Identity; body: string | null; changed_files: number; mergeable: boolean | null; mergeable_state: string; merge_commit_sha?: string | null; head: { sha: string; repo: { id: number; full_name: string } | null }; base: { sha: string; ref: string; repo: { id: number; private: boolean; full_name: string; default_branch: string; archived?: boolean; allow_squash_merge?: boolean } }; labels: { name: string }[] };
+export type MergePull = { number: number; state: string; draft: boolean; user: Identity; body: string | null; changed_files: number; mergeable: boolean | null; mergeable_state: string; merge_commit_sha?: string | null; head: { sha: string; repo: { id: number; full_name: string } | null }; base: { sha: string; ref: string; repo: { id: number; private: boolean; full_name: string; default_branch: string; archived?: boolean; allow_merge_commit?: boolean } }; labels: { name: string }[] };
 type Issue = { number: number; state: string; body: string | null; user: Identity; pull_request?: unknown; updated_at: string };
 type Branch = { protected: boolean; commit: { sha: string }; protection?: { enabled: boolean; required_status_checks?: { enforcement_level: string; checks?: { context: string; app_id: number }[] } } };
 type Review = { id: number; user: Identity; state: string; commit_id: string; body: string | null };
@@ -17,16 +17,36 @@ export type Candidate = { pull: MergePull; acceptance: Acceptance };
 const maintainer = (user: Identity | undefined) => user?.id === ownerId && user?.login === 'qtaghdi';
 
 export function eligiblePull(pr: MergePull, target: Target): boolean {
-  return repos.has(target.repository) && maintainer(pr.user) && pr.state === 'open' && !pr.draft && pr.base.repo.private === false && !pr.base.repo.archived && pr.base.repo.id === target.repositoryId && pr.base.repo.full_name === target.repository && pr.head.repo?.id === target.repositoryId && pr.head.repo.full_name === target.repository && pr.base.ref === pr.base.repo.default_branch && pr.base.ref === 'main' && sha.test(pr.head.sha) && sha.test(pr.base.sha) && sha.test(pr.merge_commit_sha ?? '') && pr.changed_files > 0 && pr.changed_files <= 20 && !pr.labels.some(l => /(?:^|: )(?:no auto.merge|do not merge|manual|blocked|hold|wip)$/i.test(l.name));
+  return repos.has(target.repository) && maintainer(pr.user) && pr.state === 'open' && !pr.draft && pr.base.repo.private === false && !pr.base.repo.archived && pr.base.repo.allow_merge_commit !== false && pr.base.repo.id === target.repositoryId && pr.base.repo.full_name === target.repository && pr.head.repo?.id === target.repositoryId && pr.head.repo.full_name === target.repository && pr.base.ref === pr.base.repo.default_branch && pr.base.ref === 'main' && sha.test(pr.head.sha) && sha.test(pr.base.sha) && sha.test(pr.merge_commit_sha ?? '') && pr.changed_files > 0 && pr.changed_files <= 20 && !pr.labels.some(l => /(?:^|: )(?:no auto.merge|do not merge|manual|blocked|hold|wip)$/i.test(l.name));
 }
 
-export function lowRisk(files: ChangedFile[], count: number): boolean {
+const sourceRoots: Record<string, RegExp> = {
+  'Oddmash/kowrap': /^(?:src|site\/(?:app|components|lib))\//,
+  'Oddmash/oddmash-ui': /^(?:src|demo)\//,
+  'Oddmash/interaction-inspector': /^(?:src|demo)\//,
+  'Oddmash/Vertactics': /^apps\/(?:editor\/src|landing\/app)\//,
+};
+const testRoots: Record<string, RegExp> = {
+  'Oddmash/kowrap': /^(?:test|site\/test)\//,
+  'Oddmash/oddmash-ui': /^tests\//,
+  'Oddmash/interaction-inspector': /^tests\//,
+  'Oddmash/Vertactics': /^apps\/editor\/tests\//,
+};
+
+export function lowRisk(files: ChangedFile[], count: number, repository = ''): boolean {
   if (!files.length || files.length !== count || count > 20) return false;
+  if (files.reduce((size, file) => size + (file.patch?.length ?? 0), 0) > 45_000) return false;
   return files.every(f => {
     const path = f.filename;
-    if (!f.patch || /(?:policy|release|deploy|security|auth|architecture|credential|instructions|review)/i.test(path) || /(?:^|\/)(?:AGENTS\.md|CONTRIBUTING\.md|SECURITY\.md|CODEOWNERS|PROMPT\.md|SPEC\.md|CHANGELOG\.md|\.github|scripts|auth|security)(?:\/|$)/i.test(path)) return false;
-    const docs = /^(?:README(?:\.[a-z-]+)?\.md|docs\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.md)$/i.test(path) && ['added', 'modified'].includes(f.status);
-    return docs;
+    if (!f.patch || !patchComplete(f) || !['added', 'modified'].includes(f.status) || f.previous_filename || safeText(f.patch) !== f.patch || /(?:policy|release|deploy|security|auth|architecture|credential|instructions|review|config|permission|secret|token|generated|background|service.worker|storage|migration)/i.test(path) || /(?:^|\/)(?:AGENTS\.md|CONTRIBUTING\.md|SECURITY\.md|CODEOWNERS|PROMPT\.md|SPEC\.md|CHANGELOG\.md|\.github|scripts)(?:\/|$)/i.test(path)) return false;
+    if (/^(?:README(?:\.[a-z-]+)?\.md|docs\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.md)$/i.test(path)) return true;
+    const isTest = testRoots[repository]?.test(path) || /(?:\.test\.|\.spec\.|(?:^|\/)(?:tests?|__tests__)\/)/.test(path);
+    const ext = /\.(?:[cm]?[jt]sx?|css|scss)$/i;
+    if (!ext.test(path)) return false;
+    if (isTest) {
+      return !!(testRoots[repository]?.test(path) || sourceRoots[repository]?.test(path)) && !/^-/m.test(f.patch) && !/^\+(?!\+).*(?:\b(?:test|it|describe)\.(?:skip|only|todo)|\b(?:skip|todo)\s*:\s*true)/m.test(f.patch);
+    }
+    return !!sourceRoots[repository]?.test(path);
   });
 }
 
@@ -74,7 +94,7 @@ export async function mergeCandidate(api: Api, target: Target, number: number): 
   const acceptance = acceptanceOf(issue);
   if (!acceptance || acceptance.issue !== issueNumber) return null;
   const files = await api<ChangedFile[]>(root + '/pulls/' + number + '/files?per_page=100');
-  if (!lowRisk(files, pr.changed_files)) return null;
+  if (!lowRisk(files, pr.changed_files, target.repository)) return null;
   return { pull: pr, acceptance };
 }
 
@@ -107,7 +127,7 @@ export async function mergeAuthorized(api: Api, target: Target, candidate: Candi
   if (!finalIssue || finalIssue.digest !== current.acceptance.digest) return false;
   const writer = await mint();
   try {
-    const merged = await writer<{ merged: boolean }>(root + '/pulls/' + number + '/merge', { method: 'PUT', body: JSON.stringify({ sha: final.head.sha, merge_method: 'squash' }) });
+    const merged = await writer<{ merged: boolean }>(root + '/pulls/' + number + '/merge', { method: 'PUT', body: JSON.stringify({ sha: final.head.sha, merge_method: 'merge' }) });
     return merged.merged === true;
   } finally {
     try { await writer('/installation/token', { method: 'DELETE' }); } catch { console.error('Merge token revocation failed'); }

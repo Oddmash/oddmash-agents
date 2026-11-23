@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto';
 import { runReview } from './reviewer.ts';
-import { checksPassed, formatReviewBody } from './core.ts';
+import { formatReviewBody } from './core.ts';
 import { publicRepositories as repositories, reviewTarget } from './routing.ts';
-import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
+import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvidence } from './checks.ts';
+import { acquirePendingReview, existingAdvisoryReview, reviewFingerprint, type Review } from './webhook-review.ts';
 
 const target = reviewTarget(process.env.REVIEW_REPOSITORY ?? '', process.env.REVIEW_PR_NUMBER ?? '');
 const githubToken = process.env.GITHUB_TOKEN ?? '';
@@ -17,7 +17,6 @@ const api = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
 };
 
 type Pull = { number: number; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string } }; labels: { name: string }[]; merge_commit_sha?: string | null };
-type Review = { body: string | null; user: { login: string }; state: string; commit_id: string };
 const installation = await api<{ repositories: { full_name: string; private: boolean }[] }>('/installation/repositories?per_page=100');
 const enabled = new Set(installation.repositories.filter(repo => !repo.private).map(repo => repo.full_name));
 const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human'];
@@ -36,22 +35,43 @@ for (const repository of repositories) {
     if (own.some(review => review.state === 'APPROVED' || review.state === 'CHANGES_REQUESTED')) continue;
     const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
     const checks = await readChecks(pr);
-    const fingerprint = createHash('sha256').update(JSON.stringify([repository, pr.number, pr.head.sha, pr.base.sha, checks.total_count, checks.check_runs.map(check => [check.id, check.status, check.conclusion]).sort()])).digest('hex').slice(0, 24);
-    const marker = `<!-- oddmash-app-review:${fingerprint} -->`;
+    if (!reviewChecksReady(checks)) continue;
+    const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks);
     if (own.some(review => review.body?.includes(marker))) continue;
+    if (reviews.some(review => review.user.login === bot && review.state === 'PENDING')) continue;
+    const pendingId = await acquirePendingReview(api, path, pr.head.sha, bot);
+    if (pendingId === null) continue;
+    let submitted = false;
+    try {
     processed++;
     const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model: process.env.OPENAI_MODEL ?? 'gpt-5.4', post: true, allowedRepositories: repositories });
     const current = await api<Pull>(path);
     if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft) continue;
     const finalChecks = await readChecks(current);
-    const passing = (finalChecks.total_count ?? 0) > 0 && finalChecks.total_count === finalChecks.check_runs.length && checksPassed(finalChecks.check_runs);
-    const event = result.decision === 'APPROVE' && !passing ? 'COMMENT' : result.decision;
-    await api(`${path}/reviews`, { method: 'POST', body: JSON.stringify({ commit_id: result.head, event, body: formatReviewBody(event, marker, result.report) }) });
+    const event = finalReviewEvent(result.assessment, finalChecks);
+    if (!event) continue;
+    const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
+    if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))) continue;
+    const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks);
+    const body = formatReviewBody(event, finalMarker, result.report);
+    const advisory = event === 'COMMENT' ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
+    if (advisory) {
+      if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
+    } else {
+      await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) });
+      submitted = true;
+    }
     const label = event === 'APPROVE' ? 'review: approved' : event === 'REQUEST_CHANGES' ? 'review: changes requested' : 'review: needs human';
     await api(`${root}/issues/${pr.number}/labels`, { method: 'POST', body: JSON.stringify({ labels: [label] }) });
     for (const attached of current.labels) {
       if (attached.name !== label && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' });
     }
     console.log(`${repository}#${pr.number}: ${event}`);
+    } finally {
+      if (!submitted) {
+        const pending = await api<Review>(`${path}/reviews/${pendingId}`);
+        if (pending.state === 'PENDING' && pending.user.login === bot && pending.body?.includes('<!-- oddmash-review-lock -->')) await api(`${path}/reviews/${pendingId}`, { method: 'DELETE' });
+      }
+    }
   }
 }

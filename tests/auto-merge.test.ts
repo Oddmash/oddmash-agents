@@ -35,9 +35,16 @@ test('requires one linked issue and all explicit criteria', () => {
   assert.equal(acceptanceSatisfied([proof[0], { ...proof[1], fulfilled: false }], candidate.acceptance, files), false);
 });
 
-test('rejects sensitive paths, source and weakening existing tests', () => {
+test('allows ordinary source and additive tests only under known product paths', () => {
   assert.equal(lowRisk(files, 1), true);
   assert.equal(lowRisk([{ ...files[0], filename: 'src/main.ts' }], 1), false);
+  assert.equal(lowRisk([{ ...files[0], filename: 'src/main.ts' }], 1, target.repository), true);
+  assert.equal(lowRisk([{ ...files[0], filename: 'site/components/button.tsx' }], 1, target.repository), true);
+  assert.equal(lowRisk([{ ...files[0], filename: 'src/auth/session.ts' }], 1, target.repository), false);
+  assert.equal(lowRisk([{ ...files[0], filename: 'site/app/next.config.ts' }], 1, target.repository), false);
+  assert.equal(lowRisk([{ ...files[0], filename: 'site/test/browser.mjs' }], 1, target.repository), false);
+  assert.equal(lowRisk([{ filename: 'site/test/browser.mjs', status: 'modified', patch: '@@ -1 +1,2 @@\n existing\n+assert.ok(true)' }], 1, target.repository), true);
+  assert.equal(lowRisk([{ filename: 'site/test/browser.mjs', status: 'added', patch: '@@ -0,0 +1 @@\n+test.skip("disabled")' }], 1, target.repository), false);
   assert.equal(lowRisk([{ ...files[0], filename: 'docs/AGENTS.md' }], 1), false);
   assert.equal(lowRisk([{ ...files[0], filename: '.github/workflows/ci.yml' }], 1), false);
   assert.equal(lowRisk([{ ...files[0], filename: 'tests/a.test.ts' }], 1), false);
@@ -60,7 +67,7 @@ test('mint write token only after exact-head approval and protected current CI',
     if (url.includes('/reviews?')) return Response.json([{ id: 5, user: { login: 'oddmash-reviewer[bot]', id: 100 }, state: 'APPROVED', commit_id: head }]);
     if (url.includes('/check-runs?')) return Response.json({ total_count: 1, check_runs: [{ id: 1, name: 'verify', app: { id: 15368 }, status: 'completed', conclusion: passing ? 'success' : 'failure' }] });
     if (url.endsWith('/status')) return Response.json({ total_count: 0, state: 'pending', statuses: [] });
-    if (url.endsWith('/merge')) { writes++; assert.equal(JSON.parse(String(init?.body)).sha, head); return Response.json({ merged: true }); }
+    if (url.endsWith('/merge')) { writes++; assert.deepEqual(JSON.parse(String(init?.body)), { sha: head, merge_method: 'merge' }); return Response.json({ merged: true }); }
     if (url.endsWith('/installation/token')) return new Response(null, { status: 204 });
     throw new Error('Unexpected fixture request');
   });
