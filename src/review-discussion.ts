@@ -53,7 +53,7 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
   if (thread.length >= 10 || thread.some(item => item.body.includes(marker))) return;
   const privateReview = Boolean(target.private);
   if (!safe(original.body, privateReview) || !safe(question.body, privateReview) || !safe(original.path, privateReview)) return;
-  const selected = selectFiles(await matchingFile(api, base, original.path), 12_000, privateReview);
+  const selected = original.commit_id === pr.head.sha ? selectFiles(await matchingFile(api, base, original.path), 12_000, privateReview) : { files: [] };
   const prior = thread.slice(-3).filter(item => safe(item.body, privateReview)).map(item => item.body);
   const response = await request('https://api.openai.com/v1/responses', {
     method: 'POST', redirect: 'error', signal: AbortSignal.timeout(60_000), headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },

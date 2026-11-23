@@ -1,4 +1,4 @@
-import { addedLines, guidancePaths, selectFiles, safeText, privateSensitiveText, validateFindings, formatReport, findingMarker, inlineComment, reviewAssessment, reviewDecision, type ChangedFile, type ReviewContext, type ReviewDecision } from './core.ts';
+import { addedLines, guidancePaths, selectFiles, safeText, privateSensitiveText, validateFindings, formatReport, reviewMarker, findingMarker, inlineComment, reviewAssessment, reviewDecision, type ChangedFile, type ReviewContext, type ReviewDecision } from './core.ts';
 import { privateRepositoryAllowed } from './webhook.ts';
 import { acceptanceSatisfied, type Acceptance } from './auto-merge.ts';
 import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
@@ -84,7 +84,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   const decision = reviewDecision(context, findings, modelValid && (checks?.total_count ?? context.checks.length) <= context.checks.length);
   const comments = findings.map(finding => ({ body: inlineComment(context, finding), path: finding.path, line: finding.line, side: 'RIGHT' as const }));
   const result = { report, assessment, decision, head: pr.head.sha, comments, issueVerified };
-  if (!c.post || !findings.length) return { ...result, posted: false };
+  if (!c.post) return { ...result, posted: false };
   const existing = new Set<string>();
   for (let page = 1; page <= 10; page++) {
     const comments = await api<{ body: string }[]>(`${prPath}/comments?per_page=100&page=${page}`);
@@ -93,9 +93,20 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     if (page === 10) return { ...result, posted: false };
   }
   const fresh = findings.filter(finding => !existing.has(findingMarker(context, finding))).map(finding => ({ body: inlineComment(context, finding), path: finding.path, line: finding.line, side: 'RIGHT' }));
-  if (!fresh.length) return { ...result, posted: false };
   const current = await api<Pull>(prPath);
   if (!current || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.state !== 'open' || current.draft || current.base.repo.private !== privateReview || current.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase() || (privateReview && current.base.repo.id !== c.privateRepositoryId)) return { ...result, posted: false };
+  if (!fresh.length) {
+    const reviews = await api<{ id: number; state: string; body: string | null; commit_id: string; user: { id: number } }[]>(`${prPath}/reviews?per_page=100`);
+    const advisory = reviews?.filter(review => review.state === 'COMMENTED' && review.commit_id === pr.head.sha && review.body?.includes(reviewMarker(context))).at(-1);
+    if (!advisory || advisory.body === report) return { ...result, posted: false };
+    const viewer = await api<{ id: number }>('/user', {}, true).catch(error => {
+      if (error instanceof Error && error.message === 'GitHub request failed (403)') return null;
+      throw error;
+    });
+    if (!viewer || viewer.id !== advisory.user.id) return { ...result, posted: false };
+    await api(`${prPath}/reviews/${advisory.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: report }) });
+    return { ...result, posted: true };
+  }
   await api(`${prPath}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: report, event: 'COMMENT', commit_id: pr.head.sha, comments: fresh }) });
   return { ...result, posted: true };
 }

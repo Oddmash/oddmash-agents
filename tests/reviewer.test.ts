@@ -9,6 +9,7 @@ const mock = (options: { private?: boolean; exhausted?: boolean; findings?: bool
   const calls: { url: string; method: string; body?: string }[] = [];
   let prReads = 0;
   let postedBody = '';
+  let postedReview = '';
   const request = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, method: init?.method ?? 'GET', body: typeof init?.body === 'string' ? init.body : undefined });
@@ -30,7 +31,10 @@ const mock = (options: { private?: boolean; exhausted?: boolean; findings?: bool
       return new Response('', { status: 404 });
     }
     if (url.includes('/comments?')) return Response.json(postedBody ? [{ body: postedBody }] : []);
-    if (url.endsWith('/reviews') && init?.method === 'POST') { assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer fixture'); postedBody = JSON.parse(String(init.body)).comments[0].body; return Response.json({ id: 1 }); }
+    if (url.includes('/reviews?')) return Response.json(postedReview ? [{ id: 1, body: postedReview, state: 'COMMENTED', commit_id: pr.head.sha, user: { id: 2 } }] : []);
+    if (url.endsWith('/reviews') && init?.method === 'POST') { assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer fixture'); const payload = JSON.parse(String(init.body)); postedBody = payload.comments[0].body; postedReview = payload.body; return Response.json({ id: 1 }); }
+    if (url.endsWith('/user')) return Response.json({ id: 2 });
+    if (url.endsWith('/reviews/1') && init?.method === 'PUT') { postedReview = JSON.parse(String(init.body)).body; return Response.json({ id: 1 }); }
     if (url.endsWith('/pulls/1')) { prReads++; return Response.json({ ...pr, head: options.stale && prReads > 1 ? { sha: 'c'.repeat(40) } : pr.head, base: { ...pr.base, repo: { ...pr.base.repo, private: options.private ?? false } } }); }
     throw new Error('Unexpected request');
   };
@@ -95,6 +99,15 @@ test('never posts after head changes', async () => {
   const result = await runReview({ ...config, post: true }, request);
   assert.equal(result.posted, false);
   assert.ok(calls.filter(x => x.url.includes('api.github.com')).every(x => x.method === 'GET'));
+});
+
+test('refreshes an existing CLI advisory without creating another review when findings disappear', async () => {
+  const { request, calls } = mock({ findings: true });
+  await runReview({ ...config, post: true }, request);
+  const result = await runReview({ ...config, post: true }, async (input, init) => String(input).includes('api.openai.com') ? Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: [] }) }] }] }) : request(input, init));
+  assert.equal(result.posted, true);
+  assert.equal(calls.filter(call => call.method === 'POST' && call.url.includes('api.github.com')).length, 1);
+  assert.equal(calls.filter(call => call.method === 'PUT' && call.url.endsWith('/reviews/1')).length, 1);
 });
 
 test('approved private review uses scoped auth and excludes private sensitive data from model input', async () => {
