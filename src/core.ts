@@ -4,6 +4,15 @@ export type ChangedFile = { filename: string; patch?: string; status: string };
 export type Finding = { path: string; line: number; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium'; rule: string; evidence: string; recommendation: string; verification: string; suggestion?: string };
 export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[] };
 
+export type ReviewDecision = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
+
+export function reviewDecision(context: ReviewContext, findings: Finding[], modelValid: boolean): ReviewDecision {
+  if (!modelValid || !context.files.length) return 'COMMENT';
+  if (findings.some(finding => finding.confidence === 'high' && ['high', 'medium'].includes(finding.severity))) return 'REQUEST_CHANGES';
+  if (findings.length || context.omitted.length || !context.checks.length || context.checks.some(check => check.status !== 'completed' || check.conclusion !== 'success')) return 'COMMENT';
+  return 'APPROVE';
+}
+
 const sensitivePath = /(^|\/)(\.env[^/]*|[^/]*(?:secret|credential|private[-_]?key)[^/]*|[^/]*\.(?:pem|key|p12|pfx))$/i;
 const sensitiveValue = /(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:ghp_|github_pat_|sk-|AKIA)[A-Za-z0-9_-]{12,}|\b(?:password|api[_-]?key|token|secret|authorization)\s*[:=]\s*["']?[^\s"']{8,})/i;
 

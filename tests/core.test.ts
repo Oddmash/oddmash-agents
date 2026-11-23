@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addedLines, selectFiles, safeText, guidancePaths, validateFindings, formatReport, reviewMarker } from '../src/core.ts';
+import { addedLines, selectFiles, safeText, guidancePaths, validateFindings, formatReport, reviewMarker, reviewDecision, type ReviewContext, type Finding } from '../src/core.ts';
 
 const file = { filename: 'src/ui/button.tsx', status: 'modified', patch: '@@ -1,2 +1,3 @@\n const label = "Open";\n-old\n+new\n+other' };
 const finding = { path: file.filename, line: 2, severity: 'medium', confidence: 'high', rule: 'Accessibility', evidence: 'The label is absent.', recommendation: 'Provide a visible label.', verification: 'Inspect the accessible name.' };
@@ -34,4 +34,14 @@ test('formats non-blocking reports with stable markers', () => {
   assert.match(report, /not an approval/);
   assert.ok(report.startsWith(reviewMarker(context)));
   assert.notEqual(reviewMarker(context), reviewMarker({ ...context, head: 'b'.repeat(40) }));
+});
+
+test('formal outcomes fail closed without complete passing checks and validated coverage', () => {
+  const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: [file], omitted: [], guidance: {}, checks: [{ name: 'CI', status: 'completed', conclusion: 'success' }] };
+  assert.equal(reviewDecision(context, [], true), 'APPROVE');
+  assert.equal(reviewDecision({ ...context, checks: [] }, [], true), 'COMMENT');
+  assert.equal(reviewDecision({ ...context, omitted: ['large'] }, [], true), 'COMMENT');
+  assert.equal(reviewDecision(context, [], false), 'COMMENT');
+  assert.equal(reviewDecision(context, [finding as Finding], true), 'REQUEST_CHANGES');
+  assert.equal(reviewDecision(context, [{ ...finding, severity: 'low' } as Finding], true), 'COMMENT');
 });

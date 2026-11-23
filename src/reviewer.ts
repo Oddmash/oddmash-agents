@@ -1,8 +1,8 @@
-import { guidancePaths, selectFiles, safeText, validateFindings, formatReport, findingMarker, inlineComment, type ChangedFile, type ReviewContext } from './core.ts';
+import { guidancePaths, selectFiles, safeText, validateFindings, formatReport, findingMarker, inlineComment, reviewDecision, type ChangedFile, type ReviewContext, type ReviewDecision } from './core.ts';
 
 type Fetcher = typeof fetch;
 type Config = { repository: string; number: number; githubToken: string; openaiKey: string; model: string; post: boolean; allowedRepositories: string[] };
-type Pull = { title: string; state: string; draft: boolean; base: { sha: string; repo: { private: boolean; full_name: string } }; head: { sha: string }; changed_files: number };
+type Pull = { title: string; state: string; draft: boolean; base: { sha: string; repo: { private: boolean; full_name: string } }; head: { sha: string }; changed_files: number; merge_commit_sha?: string | null };
 const shaPattern = /^[a-f0-9]{40}$/i;
 const repoPattern = /^Oddmash\/[a-z0-9_.-]+$/i;
 
@@ -11,7 +11,7 @@ export function validateConfig(c: Config) {
   if ((c.post && !c.githubToken) || !c.openaiKey || !c.model) throw new Error('Required configuration missing');
 }
 
-export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ report: string; posted: boolean }> {
+export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ report: string; posted: boolean; decision: ReviewDecision; head: string }> {
   validateConfig(c);
   const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   const api = async <T>(path: string, init: RequestInit = {}, optional = false, publicRead = false): Promise<T | null> => {
@@ -27,7 +27,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   const files = await api<ChangedFile[]>(`${prPath}/files?per_page=100&page=1`);
   const selected = selectFiles(files ?? []);
   if (pr.changed_files > (files?.length ?? 0)) selected.omitted.push('Additional files beyond the first page');
-  const checks = await api<{ check_runs: ReviewContext['checks'] }>(`${path}/commits/${pr.head.sha}/check-runs?per_page=100`, {}, true, true);
+  const checks = await api<{ total_count?: number; check_runs: ReviewContext['checks'] }>(`${path}/commits/${pr.head.sha}/check-runs?per_page=100`, {}, true, true);
   const guidance: Record<string, string> = {};
   let guidanceBudget = 24_000;
   async function readGuidance(repository: string, filename: string, ref: string) {
@@ -50,6 +50,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   const field = { type: 'string' };
   const schema = { type: 'object', additionalProperties: false, required: ['findings'], properties: { findings: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['path', 'line', 'severity', 'confidence', 'rule', 'evidence', 'recommendation', 'verification', 'suggestion'], properties: { path: field, line: { type: 'integer' }, severity: { type: 'string', enum: ['high', 'medium', 'low'] }, confidence: { type: 'string', enum: ['high', 'medium'] }, rule: field, evidence: field, recommendation: field, verification: field, suggestion: { type: ['string', 'null'] } } } } } };
   let findings: ReturnType<typeof validateFindings> = [];
+  let modelValid = false;
   if (context.files.length) {
     const response = await request('https://api.openai.com/v1/responses', {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(90_000), headers: { Authorization: `Bearer ${c.openaiKey}`, 'Content-Type': 'application/json' },
@@ -60,16 +61,20 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     const data = await response.json() as { status: string; output?: { content?: { type: string; text?: string }[] }[] };
     const output = data.output?.flatMap(o => o.content ?? []).find(o => o.type === 'output_text')?.text;
     if (data.status !== 'completed' || !output) throw new Error('Incomplete review response');
-    findings = validateFindings(JSON.parse(output).findings, context.files);
+    const raw = JSON.parse(output).findings;
+    findings = validateFindings(raw, context.files);
+    modelValid = Array.isArray(raw) && raw.length === findings.length;
   }
   const report = formatReport(context, findings);
-  if (!c.post || !findings.length) return { report, posted: false };
+  const decision = reviewDecision(context, findings, modelValid && (checks?.total_count ?? context.checks.length) <= context.checks.length);
+  const result = { report, decision, head: pr.head.sha };
+  if (!c.post || !findings.length) return { ...result, posted: false };
   const existing = new Set<string>();
   for (let page = 1; page <= 10; page++) {
     const comments = await api<{ body: string }[]>(`${prPath}/comments?per_page=100&page=${page}`);
     for (const comment of comments ?? []) for (const marker of comment.body.match(/<!-- oddmash-finding:[a-f0-9]{24} -->/g) ?? []) existing.add(marker);
     if ((comments?.length ?? 0) < 100) break;
-    if (page === 10) return { report, posted: false };
+    if (page === 10) return { ...result, posted: false };
   }
   let posted = false;
   for (const finding of findings) {
@@ -81,5 +86,5 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     existing.add(marker);
     posted = true;
   }
-  return { report, posted };
+  return { ...result, posted };
 }

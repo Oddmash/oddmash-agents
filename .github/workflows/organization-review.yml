@@ -1,0 +1,40 @@
+name: Organization reviewer
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: organization-reviewer
+  cancel-in-progress: false
+jobs:
+  review:
+    if: github.ref == 'refs/heads/main' && vars.REVIEWER_APP_ID != '' && vars.REVIEWER_APP_SLUG != '' && vars.REVIEWER_APP_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: npm test
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        id: app
+        with:
+          app-id: ${{ vars.REVIEWER_APP_ID }}
+          private-key: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
+          owner: Oddmash
+          repositories: .github,interaction-inspector,oddmash-ui,Vertactics,kowrap
+          permission-contents: read
+          permission-pull-requests: write
+          permission-checks: read
+      - name: Review opted-in public PRs
+        env:
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: gpt-5.4
+          REVIEWER_APP_SLUG: ${{ vars.REVIEWER_APP_SLUG }}
+        run: node src/organization.ts

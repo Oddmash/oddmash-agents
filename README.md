@@ -9,6 +9,6 @@ Advisory agents for Oddmash products. The first agent, Reviewer, helps maintaine
 - Produces English, evidence-linked, severity-ranked reports and optional inline GitHub Suggested changes; posting is explicitly enabled and deduplicated per finding and commit.
 - Never checks out or executes contributor code, approves, merges, deploys or modifies source.
 
-This is a report-only pilot by default. No GitHub App or production integration has been activated.
+This is a report-only pilot by default. The optional organization GitHub App can approve fully reviewed changes with passing checks or request changes for high-confidence findings. It requires maintainer configuration; no GitHub App is activated by default.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and [the rollout plan](docs/rollout.md) for the activation checklist.
