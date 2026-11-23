@@ -1,11 +1,67 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acquirePendingReview, attachReviewFindings, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock } from '../src/webhook-review.ts';
+import { generateKeyPairSync } from 'node:crypto';
+import { acquirePendingReview, attachReviewFindings, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock, reviewWebhook } from '../src/webhook-review.ts';
 import { githubApi } from '../src/webhook.ts';
 
 const path = '/repos/Oddmash/example/pulls/1';
 const bot = 'oddmash-reviewer[bot]';
 const head = 'a'.repeat(40);
+
+test('eligible PR waiting on CI creates one queued check without submitting a review', async t => {
+  const previousProgress = process.env.REVIEWER_CHECK_PROGRESS_ENABLED;
+  const previousQueue = process.env.REVIEWER_QUEUE_ENABLED;
+  const previousApp = process.env.REVIEWER_APP_ID;
+  process.env.REVIEWER_CHECK_PROGRESS_ENABLED = 'true';
+  process.env.REVIEWER_QUEUE_ENABLED = 'false';
+  process.env.REVIEWER_APP_ID = '42';
+  t.after(() => {
+    for (const [key, value] of Object.entries({ REVIEWER_CHECK_PROGRESS_ENABLED: previousProgress, REVIEWER_QUEUE_ENABLED: previousQueue, REVIEWER_APP_ID: previousApp })) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  });
+  const repository = { id: 7, full_name: 'Oddmash/example', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
+  const pr = { number: 1, state: 'open', draft: false, user: { login: 'fixture', id: 10 }, head: { sha: head }, base: { sha: 'b'.repeat(40), repo: repository }, labels: [] };
+  let pending: Record<string, unknown> | undefined;
+  let check: Record<string, unknown> | undefined;
+  let creations = 0;
+  t.mock.method(globalThis, 'fetch', async (input: URL | RequestInfo, init?: RequestInit) => {
+    const url = new URL(String(input));
+    const endpoint = url.pathname;
+    assert.equal(url.origin, 'https://api.github.com');
+    if (endpoint === '/app/installations/3') return Response.json({ account: { login: 'Oddmash' }, suspended_at: null });
+    if (endpoint === '/app/installations/3/access_tokens') return Response.json({ token: 'fixture' });
+    if (endpoint === '/repos/Oddmash/example') return Response.json(repository);
+    if (endpoint === path) return Response.json(pr);
+    if (endpoint === `${path}/reviews` && init?.method === 'POST') {
+      assert.equal(pending, undefined);
+      pending = { ...JSON.parse(String(init.body)), id: 42, state: 'PENDING', user: { login: bot } };
+      return Response.json(pending);
+    }
+    if (endpoint === `${path}/reviews`) return Response.json(pending ? [pending] : []);
+    if (endpoint === `${path}/reviews/42` && init?.method === 'DELETE') { pending = undefined; return new Response(null, { status: 204 }); }
+    if (endpoint === `${path}/reviews/42`) return Response.json(pending);
+    if (endpoint === `/repos/Oddmash/example/commits/${head}/check-runs`) {
+      if (url.searchParams.has('check_name')) return Response.json({ total_count: check ? 1 : 0, check_runs: check ? [check] : [] });
+      return Response.json({ total_count: check ? 2 : 1, check_runs: [{ name: 'verify', status: 'in_progress', conclusion: null, app: { id: 15368 } }, ...(check ? [check] : [])] });
+    }
+    if (endpoint === '/repos/Oddmash/example/check-runs' && init?.method === 'POST') {
+      ++creations;
+      check = { ...JSON.parse(String(init.body)), id: 99, app: { id: 42 } };
+      return Response.json(check);
+    }
+    assert.fail(`Unexpected request: ${endpoint}`);
+  });
+  const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const target = { installation: 3, repository: repository.full_name, repositoryId: repository.id, number: 1, expectedHead: head };
+  const config = { appId: '42', key, slug: 'oddmash-reviewer', openaiKey: 'fixture', model: 'fixture' };
+  await reviewWebhook(target, config);
+  await reviewWebhook(target, config);
+  assert.equal(creations, 1);
+  assert.equal(pending, undefined);
+  assert.equal(check?.status, 'queued');
+  assert.equal((check?.output as { title: string }).title, 'Waiting for CI');
+});
 
 test('only expired webhook locks owned by the bot are eligible for recovery', () => {
   const now = 1_800_000_000_000;
