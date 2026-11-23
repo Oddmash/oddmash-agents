@@ -15,7 +15,7 @@ const repository = { id: 2, full_name: target.repository, private: false, visibi
 const config = { slug: 'oddmash-reviewer', openaiKey: 'fixture', model: 'fixture' };
 
 test('answers a verified maintainer thread once and does not change review state', async () => {
-  const comments = [root, question];
+  const comments: (typeof root & { in_reply_to_id?: number })[] = [root, question];
   let modelCalls = 0;
   const reactions: string[] = [];
   const api = githubApi('fixture', async (url, init) => {
