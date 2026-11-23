@@ -1,6 +1,6 @@
 # Central webhook deployment
 
-The maintainer may opt all public Oddmash repositories into review by enabling the organization webhook. Internal, archived, external and draft targets are rejected. Four private repositories are explicitly approved by name and immutable ID: oddmash-agents, oddmash-skills, overtime-prototype and cash-out. New private repositories require separate approval. No contributor code is executed. Existing relay and scheduled review workflows remain unchanged until live webhook verification.
+The maintainer may opt all public Oddmash repositories into review by enabling the organization webhook. Internal, archived, external and draft targets are rejected. Five private repositories are explicitly approved by name and immutable ID: oddmash-agents, oddmash-skills, overtime-prototype, cash-out and oddmash-website. New private repositories require separate approval. No contributor code is executed. Existing relay and scheduled review workflows remain unchanged until live webhook verification.
 
 ## Deployment
 
@@ -30,4 +30,4 @@ The production deployment enables the separately gated merge policy for Kowrap, 
 
 ## Private review data boundary
 
-Only the four explicitly approved private repository identities are eligible. Review uses a repository-scoped Contents read, Pull requests write and Checks read token. Eligible changed patches and bounded selected guidance are sent to the configured OpenAI API with `store: false`; no private repository is eligible for auto-merge. Credential-like values, sensitive configuration and workflow paths, deployment and auth-related files, data dumps and renamed sensitive paths are excluded; omitted filenames are not sent. The filter is conservative and is not a guarantee against all sensitive content. Incomplete coverage requires maintainer review. Do not add secrets to source or guidance.
+Only the five explicitly approved private repository identities are eligible. Review uses a repository-scoped Contents read, Pull requests write and Checks read token. Eligible changed patches and bounded selected guidance are sent to the configured OpenAI API with `store: false`; no private repository is eligible for auto-merge. Credential-like values, sensitive configuration and workflow paths, deployment and auth-related files, data dumps and renamed sensitive paths are excluded; omitted filenames are not sent. The filter is conservative and is not a guarantee against all sensitive content. Incomplete coverage requires maintainer review. Do not add secrets to source or guidance.
