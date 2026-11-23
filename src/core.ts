@@ -176,8 +176,8 @@ export function formatReport(context: ReviewContext, findings: Finding[], modelV
   return lines.join('\n');
 }
 
-export function formatReviewBody(event: ReviewDecision, marker: string, report: string): string {
-  if (event === 'APPROVE') return `${marker}\nThanks for contributing! @qtaghdi, this PR is ready for your review.`;
+export function formatReviewBody(event: ReviewDecision, marker: string, report: string, author?: { id: number; login: string }): string {
+  if (event === 'APPROVE') return author?.id === 135234546 && author.login === 'qtaghdi' ? `${marker}\nApproved.` : `${marker}\nThanks for contributing! @qtaghdi, this PR is ready for your review.`;
   if (event === 'REQUEST_CHANGES') return `${marker}\nPlease address the findings before approval.\n\n${report}`;
   return `${marker}\nMaintainer review required.\n\n${report}`;
 }

@@ -5,7 +5,7 @@ import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvide
 import { mergeCandidate, mergeAuthorized } from './auto-merge.ts';
 import { authorize, authorizeMerge, type Target } from './webhook.ts';
 
-type Pull = { number: number; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
+type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 export type Review = { id: number; body: string | null; user: { login: string }; state: string; commit_id: string };
 
 type Api = ReturnType<typeof import('./webhook.ts').githubApi>;
@@ -85,7 +85,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const event = finalReviewEvent(result.assessment, finalChecks);
       if (!event) return;
       const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks);
-      const body = formatReviewBody(event, finalMarker, result.report);
+      const body = formatReviewBody(event, finalMarker, result.report, current.user);
       const attemptMerge = async (reviewId: number) => {
         if (!candidate || candidate.pull.head.sha !== result.head || candidate.pull.base.sha !== current.base.sha) return;
         if (!result.issueVerified) { withheld('issue acceptance evidence not verified'); return; }

@@ -16,7 +16,7 @@ const api = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
   return response.status === 204 ? undefined as T : await response.json() as T;
 };
 
-type Pull = { number: number; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string } }; labels: { name: string }[]; merge_commit_sha?: string | null };
+type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 const installation = await api<{ repositories: { full_name: string; private: boolean }[] }>('/installation/repositories?per_page=100');
 const enabled = new Set(installation.repositories.filter(repo => !repo.private).map(repo => repo.full_name));
 const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human'];
@@ -53,7 +53,7 @@ for (const repository of repositories) {
     const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
     if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))) continue;
     const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks);
-    const body = formatReviewBody(event, finalMarker, result.report);
+    const body = formatReviewBody(event, finalMarker, result.report, current.user);
     const advisory = event === 'COMMENT' ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
     if (advisory) {
       if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
