@@ -52,9 +52,10 @@ export function canRetryApprovedMerge(review: Review, marker: string): boolean {
   return review.state === 'APPROVED' && !review.body?.includes(marker);
 }
 
-export async function acquirePendingReview(api: Api, path: string, head: string, bot: string): Promise<number | null> {
+export async function acquirePendingReview(api: Api, path: string, head: string, bot: string, webhook = false): Promise<number | null> {
   try {
-    const pending = await api<Review>(`${path}/reviews`, { method: 'POST', body: JSON.stringify({ commit_id: head, body: '<!-- oddmash-review-lock -->' }) });
+    const body = '<!-- oddmash-review-lock -->' + (webhook ? `\n<!-- oddmash-webhook-lock:${Date.now()} -->` : '');
+    const pending = await api<Review>(`${path}/reviews`, { method: 'POST', body: JSON.stringify({ commit_id: head, body }) });
     if (pending.state !== 'PENDING' || pending.user.login !== bot || !Number.isSafeInteger(pending.id)) throw new Error('Unexpected pending review response');
     return pending.id;
   } catch (error) {
@@ -63,6 +64,19 @@ export async function acquirePendingReview(api: Api, path: string, head: string,
     if (reviews.some(review => review.user.login === bot && (review.state === 'PENDING' || review.commit_id === head && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED'].includes(review.state)))) return null;
     throw error;
   }
+}
+
+export function expiredWebhookLock(review: Review, bot: string, now = Date.now()): boolean {
+  const timestamp = Number(review.body?.match(/<!-- oddmash-webhook-lock:(\d{13}) -->/)?.[1]);
+  return review.state === 'PENDING' && review.user.login === bot && !!review.body?.includes('<!-- oddmash-review-lock -->') && Number.isSafeInteger(timestamp) && now - timestamp > 360_000;
+}
+
+export async function clearExpiredWebhookLock(api: Api, path: string, review: Review, bot: string): Promise<boolean> {
+  if (!expiredWebhookLock(review, bot)) return false;
+  const current = await api<Review>(`${path}/reviews/${review.id}`);
+  if (current.id !== review.id || current.commit_id !== review.commit_id || current.body !== review.body || !expiredWebhookLock(current, bot)) return false;
+  await api(`${path}/reviews/${review.id}`, { method: 'DELETE' });
+  return true;
 }
 
 type InlineFinding = { body: string; path: string; line: number; side: 'LEFT' | 'RIGHT' };
@@ -161,8 +175,12 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha);
       return;
     }
-    if (reviews.some(review => review.user.login === bot && review.state === 'PENDING')) return;
-    const pendingId = await acquirePendingReview(api, path, pr.head.sha, bot).catch(error => { throw new Error('Pending review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
+    const pending = reviews.find(review => review.user.login === bot && review.state === 'PENDING');
+    if (pending && !await clearExpiredWebhookLock(api, path, pending, bot)) {
+      if (pending.body?.includes('<!-- oddmash-webhook-lock:') && process.env.REVIEWER_QUEUE_ENABLED === 'true') throw new Error('Pending review active');
+      return;
+    }
+    const pendingId = await acquirePendingReview(api, path, pr.head.sha, bot, true).catch(error => { throw new Error('Pending review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
     if (pendingId === null) return;
     let submitted = false;
     try {

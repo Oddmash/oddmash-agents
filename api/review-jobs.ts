@@ -15,4 +15,4 @@ export const POST = handleCallback(async (message: ReviewJob, metadata) => {
     await send(deadLetterTopic, { version: 1, delivery: job.delivery, target: job.target, attempts: metadata.deliveryCount, reason: retryableJobError(error) ? 'retry-limit' : 'permanent' }, { idempotencyKey: job.delivery, retentionSeconds: 86400 });
     console.error('Reviewer job requires maintainer attention');
   }
-}, { retry: (error, metadata) => metadata.deliveryCount >= 5 || !retryableJobError(error) ? { acknowledge: true } : { afterSeconds: retryDelay(metadata.deliveryCount) } });
+}, { retry: (error, metadata) => metadata.deliveryCount >= 5 || !retryableJobError(error) ? { acknowledge: true } : { afterSeconds: error instanceof Error && error.message === 'Pending review active' ? 120 : retryDelay(metadata.deliveryCount) } });
