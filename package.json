@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24" },
-  "scripts": { "test": "node --test tests/*.test.ts", "review": "node src/cli.ts" }
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.ts",
+    "review": "node src/cli.ts"
+  },
+  "dependencies": {
+    "@vercel/functions": "3.11.3"
+  }
 }

@@ -1,0 +1,62 @@
+name: Deploy Reviewer to Vercel
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'src/**'
+      - 'package.json'
+      - 'vercel.json'
+      - '.github/workflows/deploy-vercel.yml'
+permissions:
+  contents: read
+concurrency:
+  group: reviewer-vercel-production
+  cancel-in-progress: false
+env:
+  VERCEL_ORG_ID: team_hAp7kLycu6rwgAWypgcghemA
+  VERCEL_PROJECT_ID: prj_RKccMkGPH0rn8GteNrNN2hQiaik5
+  VERCEL_CLI_VERSION: '58.4.4'
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.VERCEL_DEPLOY_ENABLED == 'true')
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+      - run: npm test
+      - run: npm install -g "vercel@$VERCEL_CLI_VERSION"
+      - name: Pull production settings
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          test -n "$VERCEL_TOKEN"
+          vercel pull --yes --environment=production
+      - run: vercel build --prod
+      - name: Stage production
+        id: stage
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          url="$(vercel deploy --prebuilt --prod --skip-domain --yes)"
+          DEPLOYMENT_URL="$url" node --input-type=module -e 'const u = new URL(process.env.DEPLOYMENT_URL); if (u.protocol !== "https:" || u.origin !== process.env.DEPLOYMENT_URL || !u.hostname.endsWith(".vercel.app")) process.exit(1)'
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Smoke test staged endpoint
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+        run: |
+          vercel curl "$DEPLOYMENT_URL/api/github" | node --input-type=module -e 'let b=""; for await (const c of process.stdin) b+=c; if(JSON.parse(b).status!=="ok") process.exit(1)'
+      - name: Promote tested deployment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+        run: vercel promote "$DEPLOYMENT_URL" --yes
