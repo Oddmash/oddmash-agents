@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addedLines, selectFiles, safeText, guidancePaths, validateFindings, formatReport, reviewMarker, reviewDecision, type ReviewContext, type Finding } from '../src/core.ts';
+import { addedLines, selectFiles, safeText, guidancePaths, validateFindings, formatReport, reviewMarker, reviewDecision, checksPassed, type ReviewContext, type Finding } from '../src/core.ts';
 
 const file = { filename: 'src/ui/button.tsx', status: 'modified', patch: '@@ -1,2 +1,3 @@\n const label = "Open";\n-old\n+new\n+other' };
 const finding = { path: file.filename, line: 2, severity: 'medium', confidence: 'high', rule: 'Accessibility', evidence: 'The label is absent.', recommendation: 'Provide a visible label.', verification: 'Inspect the accessible name.' };
@@ -44,4 +44,12 @@ test('formal outcomes fail closed without complete passing checks and validated 
   assert.equal(reviewDecision(context, [], false), 'COMMENT');
   assert.equal(reviewDecision(context, [finding as Finding], true), 'REQUEST_CHANGES');
   assert.equal(reviewDecision(context, [{ ...finding, severity: 'low' } as Finding], true), 'COMMENT');
+});
+
+test('skipped conditional jobs require a passing aggregate verify check', () => {
+  const skipped = { name: 'quality', status: 'completed', conclusion: 'skipped' };
+  const verify = { name: 'verify', status: 'completed', conclusion: 'success' };
+  assert.equal(checksPassed([skipped, verify]), true);
+  assert.equal(checksPassed([skipped]), false);
+  assert.equal(checksPassed([skipped, { ...verify, conclusion: 'failure' }]), false);
 });

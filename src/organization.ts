@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { runReview } from './reviewer.ts';
+import { checksPassed } from './core.ts';
 import { publicRepositories as repositories, reviewTarget } from './routing.ts';
 import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
 
@@ -43,7 +44,7 @@ for (const repository of repositories) {
     const current = await api<Pull>(path);
     if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft) continue;
     const finalChecks = await readChecks(current);
-    const passing = (finalChecks.total_count ?? 0) > 0 && finalChecks.total_count === finalChecks.check_runs.length && finalChecks.check_runs.every(check => check.status === 'completed' && check.conclusion === 'success');
+    const passing = (finalChecks.total_count ?? 0) > 0 && finalChecks.total_count === finalChecks.check_runs.length && checksPassed(finalChecks.check_runs);
     const event = result.decision === 'APPROVE' && !passing ? 'COMMENT' : result.decision;
     const body = event === 'APPROVE' ? 'No actionable findings in the reviewed changes. Available checks passed. Maintainer review remains required for merge.' : event === 'REQUEST_CHANGES' ? 'Actionable findings were identified. Please review the inline comments and update the PR.' : 'Maintainer verification is required. See the review report for findings or incomplete coverage/check evidence.';
     await api(`${path}/reviews`, { method: 'POST', body: JSON.stringify({ commit_id: result.head, event, body: `${marker}\n${body}\n\n${result.report}` }) });

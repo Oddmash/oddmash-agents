@@ -6,10 +6,16 @@ export type ReviewContext = { repository: string; number: number; head: string; 
 
 export type ReviewDecision = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
 
+export function checksPassed(checks: ReviewContext['checks']): boolean {
+  if (!checks.length || checks.some(check => check.status !== 'completed' || !['success', 'skipped'].includes(check.conclusion ?? ''))) return false;
+  if (checks.some(check => check.conclusion === 'skipped')) return checks.some(check => /^(?:CI \/ )?verify$/.test(check.name) && check.conclusion === 'success');
+  return checks.every(check => check.conclusion === 'success');
+}
+
 export function reviewDecision(context: ReviewContext, findings: Finding[], modelValid: boolean): ReviewDecision {
   if (!modelValid || !context.files.length) return 'COMMENT';
   if (findings.some(finding => finding.confidence === 'high' && ['high', 'medium'].includes(finding.severity))) return 'REQUEST_CHANGES';
-  if (findings.length || context.omitted.length || !context.checks.length || context.checks.some(check => check.status !== 'completed' || check.conclusion !== 'success')) return 'COMMENT';
+  if (findings.length || context.omitted.length || !checksPassed(context.checks)) return 'COMMENT';
   return 'APPROVE';
 }
 
