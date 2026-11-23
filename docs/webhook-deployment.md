@@ -27,6 +27,8 @@ In the Oddmash Reviewer GitHub App, enable the webhook at the project's producti
 
 ## Verification and migration
 
+Optional review progress: after maintainer approval of the GitHub App Checks read/write permission, set `REVIEWER_CHECK_PROGRESS_ENABLED=true` on the webhook runtime. The check is informational, tied to the reviewed head, and must not be configured as a required branch check. The configured reviewer App identity and exact check name distinguish it from CI evidence. Failed progress requests do not replace the review or its approval requirements. Keep the setting disabled until the permission change has been reviewed. The scheduled fallback remains read-only for Checks.
+
 Check a signature-authenticated ping delivery, an ordinary public PR, a fork PR and completed checks. Verify review decisions, labels, and no review for unapproved private repositories. Verify approved private PRs use authenticated check reads, omit sensitive files and enter the merge policy only for eligible low-risk changes. Wait for the completed aggregate verify check and update an existing same-head advisory review in place. The pending-review lock serializes competing webhook and fallback deliveries; clean CI-pending events do not post a review. Background processing is bounded, not a durable general-purpose queue; comment requests waiting for CI can resume, but other failures require redelivery or a maintainer manual review. Do not disable old workflows until live verification and a deduplication strategy are in place.
 
 ## Maintainer-only auto-merge pilot

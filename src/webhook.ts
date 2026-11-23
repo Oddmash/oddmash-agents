@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual, createSign } from 'node:crypto';
 
 type Repository = { id: number; full_name: string; private: boolean; visibility: string; owner: { login: string }; archived?: boolean };
 type Actor = { id: number; login: string; type?: string };
-type Payload = { action?: string; installation?: { id: number }; repository?: Repository; pull_request?: { number: number; draft: boolean; head?: { sha: string } }; check_suite?: { head_sha: string; pull_requests?: { number: number }[] }; sender?: Actor; requested_reviewer?: Actor; issue?: { number: number; pull_request?: object }; comment?: { id: number; user: Actor; body: string; in_reply_to_id?: number } };
+type Payload = { action?: string; installation?: { id: number }; repository?: Repository; pull_request?: { number: number; draft: boolean; head?: { sha: string } }; check_suite?: { head_sha: string; app?: { id: number }; pull_requests?: { number: number }[] }; sender?: Actor; requested_reviewer?: Actor; issue?: { number: number; pull_request?: object }; comment?: { id: number; user: Actor; body: string; in_reply_to_id?: number } };
 export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string; expectedHead?: string; private?: boolean; recheck?: string; requestComment?: { kind: 'inline' | 'issue'; id: number; root?: number }; reply?: { comment: number; root: number; kind?: 'conversation'; rootKind?: 'issue' | 'review'; path?: string } };
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 const shaPattern = /^[a-f0-9]{40}$/i;
@@ -66,7 +66,7 @@ export function ignoredReviewRequest(event: string | null, payload: Payload, slu
   if (!reviewCommand(body, slug) && !conversationFixReference(body, slug, payload.repository!.full_name, payload.issue.number)) return 'Review command not recognized; put an explicit review command on the first line or reference the original finding for scoped verification';
 }
 
-export function route(event: string | null, p: Payload, slug = '', delivery = ''): Target | null {
+export function route(event: string | null, p: Payload, slug = '', delivery = '', reviewerAppId = Number(process.env.REVIEWER_APP_ID)): Target | null {
   if (!reviewableOddmash(p.repository) || !positive(p.installation?.id)) return null;
   const repo = p.repository!;
   const target = { installation: p.installation!.id, repository: repo.full_name, repositoryId: repo.id, ...(repo.private ? { private: true } : {}) };
@@ -80,7 +80,10 @@ export function route(event: string | null, p: Payload, slug = '', delivery = ''
     }
     if (event === 'pull_request_review_comment' && p.pull_request?.draft === false && positive(p.pull_request.number) && positive(p.comment.in_reply_to_id) && mentioned(p.comment.body, slug)) return { ...target, number: p.pull_request.number, ...(reviewCommand(p.comment.body, slug) ? { recheck: `comment-${p.comment.id}`, requestComment: { kind: 'inline' as const, id: p.comment.id, root: p.comment.in_reply_to_id } } : { reply: { comment: p.comment.id, root: p.comment.in_reply_to_id } }) };
   }
-  if (event === 'check_suite' && p.action === 'completed' && shaPattern.test(p.check_suite?.head_sha ?? '')) return { ...target, sha: p.check_suite!.head_sha };
+  if (event === 'check_suite' && p.action === 'completed' && shaPattern.test(p.check_suite?.head_sha ?? '')) {
+    if (positive(reviewerAppId) && p.check_suite?.app?.id === reviewerAppId) return null;
+    return { ...target, sha: p.check_suite!.head_sha };
+  }
   return null;
 }
 
@@ -116,11 +119,12 @@ export async function completeCommentReaction(api: ReturnType<typeof githubApi>,
   } catch { console.warn('Reviewer pending reaction cleanup unavailable.'); }
 }
 
-export async function authorize(target: Target, appId: string, key: string, request: typeof fetch = fetch) {
+export async function authorize(target: Target, appId: string, key: string, request: typeof fetch = fetch, progress = false) {
   const jwtApi = githubApi(appJwt(appId, key), request);
   const installation = await jwtApi<{ account: { login: string }; suspended_at: string | null }>('/app/installations/' + target.installation);
   if (installation.account.login.toLowerCase() !== 'oddmash' || installation.suspended_at) throw new Error('Installation not eligible');
-  const result = await jwtApi<{ token: string }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [target.repositoryId], permissions: { contents: 'read', pull_requests: 'write', checks: 'read', issues: target.requestComment?.kind === 'issue' || target.reply?.kind === 'conversation' ? 'write' : 'read' } }) });
+  const permissions = progress ? { checks: 'write' } : { contents: 'read', pull_requests: 'write', checks: 'read', issues: target.requestComment?.kind === 'issue' || target.reply?.kind === 'conversation' ? 'write' : 'read' };
+  const result = await jwtApi<{ token: string }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [target.repositoryId], permissions }) });
   const api = githubApi(result.token, request);
   const repository = await api<Repository>('/repos/' + target.repository);
   if (!reviewableOddmash(repository) || repository.private !== Boolean(target.private) || repository.id !== target.repositoryId || repository.full_name !== target.repository) throw new Error('Repository not eligible');

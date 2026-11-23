@@ -18,6 +18,8 @@ test('only completed valid check suites trigger', () => {
   const sha = 'a'.repeat(40);
   assert.equal(route('check_suite', { ...event, action: 'completed', check_suite: { head_sha: sha } })?.sha, sha);
   assert.equal(route('check_suite', { ...event, action: 'requested', check_suite: { head_sha: sha } }), null);
+  assert.equal(route('check_suite', { ...event, action: 'completed', check_suite: { head_sha: sha, app: { id: 42 } } }, 'reviewer', '', 42), null);
+  assert.equal(route('check_suite', { ...event, action: 'completed', check_suite: { head_sha: sha, app: { id: 43 } } }, 'reviewer', '', 42)?.sha, sha);
 });
 test('signature authenticates exact bytes', () => {
   const data = Buffer.from('{"hello":1}');
