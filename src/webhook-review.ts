@@ -3,7 +3,7 @@ import { runReview } from './reviewer.ts';
 import { formatReviewBody } from './core.ts';
 import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
-import { authorize, authorizeMerge, reactToComment, type Target } from './webhook.ts';
+import { authorize, authorizeMerge, completeCommentReaction, reactToComment, type Target } from './webhook.ts';
 import { replyToReview } from './review-discussion.ts';
 import { retryableJobError } from './review-job.ts';
 import { publishAutomationStatus } from './review-status.ts';
@@ -172,12 +172,12 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       await retryExistingApproval();
       return;
     }
-    if (target.requestComment) await reactToComment(api, repository, target.requestComment, 'eyes');
     const requestTag = target.recheck ? `<!-- oddmash-recheck:${createHash('sha256').update(target.recheck).digest('hex').slice(0, 24)} -->` : undefined;
     if (requestTag && reviews.some(review => review.user.login === bot && review.body?.includes(requestTag))) {
       if (existingApproval?.body?.includes(requestTag)) await retryExistingApproval();
       return;
     }
+    const eyesId = target.requestComment ? await reactToComment(api, repository, target.requestComment, 'eyes') : undefined;
     const own = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha);
     const decisive = own.filter(review => ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)).at(-1);
     if (!target.recheck && decisive?.state === 'CHANGES_REQUESTED') return;
@@ -275,7 +275,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       for (const attached of current.labels) {
         if (attached.name !== label && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' });
       }
-      if (event === 'APPROVE' && target.requestComment) await reactToComment(api, repository, target.requestComment, '+1');
+      if (target.requestComment) await completeCommentReaction(api, repository, target.requestComment, eyesId, event === 'APPROVE');
     } finally {
       if (!submitted) {
         try {
