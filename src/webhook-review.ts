@@ -108,7 +108,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const decisive = own.filter(review => ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)).at(-1);
     if (!target.recheck && decisive?.state === 'CHANGES_REQUESTED') return;
     const approved = !target.recheck && decisive?.state === 'APPROVED' ? decisive : undefined;
-    if (approved && (!config.autoMerge || target.private)) return;
+    if (approved && !config.autoMerge) return;
     const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
     const checks = await readChecks(pr);
     const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks, target.recheck);
@@ -124,7 +124,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     let submitted = false;
     try {
       const withheld = (reason: string) => console.log('Maintainer auto-merge withheld: ' + reason);
-      const candidate = config.autoMerge && !target.private ? await mergeCandidate(api, target, pr.number, withheld).catch(error => {
+      const candidate = config.autoMerge ? await mergeCandidate(api, target, pr.number, withheld).catch(error => {
         withheld(error instanceof Error && /^GitHub request failed \(\d{3}\)$/.test(error.message) ? error.message : 'candidate lookup failed');
         return null;
       }) : null;
@@ -176,7 +176,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       for (const attached of current.labels) {
         if (attached.name !== label && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' });
       }
-      if (event === 'APPROVE' && !target.private) await attemptMerge(pendingId);
+      if (event === 'APPROVE') await attemptMerge(pendingId);
       if (event === 'APPROVE' && target.requestComment) await reactToComment(api, repository, target.requestComment, '+1');
     } finally {
       if (!submitted) {
