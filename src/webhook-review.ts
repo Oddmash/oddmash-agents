@@ -19,6 +19,10 @@ export function reviewFingerprint(repository: string, number: number, head: stri
   return `<!-- oddmash-app-review:${fingerprint} -->`;
 }
 
+export function canRetryApprovedMerge(review: Review, marker: string): boolean {
+  return review.state === 'APPROVED' && !review.body?.includes(marker);
+}
+
 export async function acquirePendingReview(api: Api, path: string, head: string, bot: string): Promise<number | null> {
   try {
     const pending = await api<Review>(`${path}/reviews`, { method: 'POST', body: JSON.stringify({ commit_id: head, body: '<!-- oddmash-review-lock -->' }) });
@@ -52,10 +56,13 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const reviews = await api<Review[]>(`${path}/reviews?per_page=100`);
     if (reviews.length === 100) return;
     const own = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha);
-    if (own.some(review => review.state === 'APPROVED' || review.state === 'CHANGES_REQUESTED')) return;
+    if (own.some(review => review.state === 'CHANGES_REQUESTED')) return;
+    const approved = own.filter(review => review.state === 'APPROVED').at(-1);
+    if (approved && (!config.autoMerge || target.private)) return;
     const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
     const checks = await readChecks(pr);
     const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks);
+    if (approved && !canRetryApprovedMerge(approved, marker)) return;
     if (own.some(review => review.body?.includes(marker))) return;
     if (!reviewChecksReady(checks)) return;
     if (reviews.some(review => review.user.login === bot && review.state === 'PENDING')) return;
@@ -63,17 +70,39 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     if (pendingId === null) return;
     let submitted = false;
     try {
-      const candidate = config.autoMerge && !target.private ? await mergeCandidate(api, target, pr.number).catch(() => null) : null;
+      const withheld = (reason: string) => console.log('Maintainer auto-merge withheld: ' + reason);
+      const candidate = config.autoMerge && !target.private ? await mergeCandidate(api, target, pr.number, withheld).catch(error => {
+        withheld(error instanceof Error && /^GitHub request failed \(\d{3}\)$/.test(error.message) ? error.message : 'candidate lookup failed');
+        return null;
+      }) : null;
+      if (approved && !candidate) return;
       const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: candidate?.acceptance, privateRepositoryId: target.private ? target.repositoryId : undefined });
       const current = await api<Pull>(path);
       if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft || !eligibleBase(current)) return;
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
-      if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && (review.body?.includes(marker) || ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)))) return;
+      if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)))) return;
       const finalChecks = await readChecks(current);
       const event = finalReviewEvent(result.assessment, finalChecks);
       if (!event) return;
       const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks);
       const body = formatReviewBody(event, finalMarker, result.report);
+      const attemptMerge = async (reviewId: number) => {
+        if (!candidate || candidate.pull.head.sha !== result.head || candidate.pull.base.sha !== current.base.sha) return;
+        if (!result.issueVerified) { withheld('issue acceptance evidence not verified'); return; }
+        try {
+          const merged = await mergeAuthorized(api, target, candidate, bot, reviewId, result.issueVerified, () => authorizeMerge(target, appId, key), withheld);
+          if (merged) console.log('Maintainer auto-merge completed');
+        } catch (error) {
+          withheld(error instanceof Error && /^GitHub request failed \(\d{3}\)$/.test(error.message) ? error.message : 'merge request failed');
+        }
+      };
+      if (approved) {
+        if (event === 'APPROVE') {
+          await api(`${path}/reviews/${approved.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
+          await attemptMerge(approved.id);
+        }
+        return;
+      }
       const advisory = event === 'COMMENT' ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
       if (advisory) {
         if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
@@ -101,12 +130,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       for (const attached of current.labels) {
         if (attached.name !== label && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' });
       }
-      if (event === 'APPROVE' && !target.private && candidate && result.issueVerified && candidate.pull.head.sha === result.head && candidate.pull.base.sha === current.base.sha) {
-        try {
-          const merged = await mergeAuthorized(api, target, candidate, bot, pendingId, result.issueVerified, () => authorizeMerge(target, appId, key));
-          if (merged) console.log('Maintainer auto-merge completed');
-        } catch { console.error('Maintainer auto-merge withheld'); }
-      }
+      if (event === 'APPROVE' && !target.private) await attemptMerge(pendingId);
     } finally {
       if (!submitted) {
         try {

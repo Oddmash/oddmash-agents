@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acquirePendingReview, existingAdvisoryReview, reviewFingerprint } from '../src/webhook-review.ts';
+import { acquirePendingReview, canRetryApprovedMerge, existingAdvisoryReview, reviewFingerprint } from '../src/webhook-review.ts';
 import { githubApi } from '../src/webhook.ts';
 
 const path = '/repos/Oddmash/example/pulls/1';
@@ -13,6 +13,10 @@ test('finds the existing bot advisory to update instead of submitting a duplicat
   assert.notEqual(old.body, reviewFingerprint('Oddmash/example', 1, head, 'b'.repeat(40), checks));
   assert.equal(existingAdvisoryReview([old, { ...old, id: 2, user: { login: 'someone' } }, { ...old, id: 3, commit_id: 'c'.repeat(40) }], bot, head)?.id, 1);
   assert.equal(existingAdvisoryReview([{ ...old, state: 'APPROVED' }], bot, head), undefined);
+  const marker = reviewFingerprint('Oddmash/example', 1, head, 'b'.repeat(40), checks);
+  assert.equal(canRetryApprovedMerge({ ...old, state: 'APPROVED' }, marker), true);
+  assert.equal(canRetryApprovedMerge({ ...old, state: 'APPROVED', body: marker }, marker), false);
+  assert.equal(canRetryApprovedMerge(old, marker), false);
 });
 
 test('acquires only its own pending review lock', async () => {
