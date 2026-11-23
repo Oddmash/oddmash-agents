@@ -23,7 +23,10 @@ test('answers a verified maintainer thread once and does not change review state
       const page = new URL(String(url)).searchParams.get('page');
       return Response.json(page === '1' ? Array.from({ length: 100 }, (_, index) => ({ ...root, id: 100 + index, user: actor })) : comments);
     }
-    if (path === `${base}/files`) return Response.json([{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }]);
+    if (path === `${base}/files`) {
+      const page = new URL(String(url)).searchParams.get('page');
+      return Response.json(page === '1' ? Array.from({ length: 100 }, (_, index) => ({ filename: `src/other-${index}.ts`, status: 'modified' })) : [{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }]);
+    }
     assert.equal(path, `${base}/comments/4/replies`);
     assert.equal(init?.method, 'POST');
     const { body } = JSON.parse(String(init?.body));
@@ -35,6 +38,7 @@ test('answers a verified maintainer thread once and does not change review state
   const model: typeof fetch = async (_url, init) => {
     modelCalls++;
     assert.match(String(init?.body), /pause button/);
+    assert.match(String(init?.body), /const paused = true/);
     return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ english: 'The control is present. My earlier concern is not supported.', korean: '제어 버튼이 있으므로 이전 지적은 근거가 부족합니다.' }) }] }] });
   };
   await replyToReview(api, target, config, model);
