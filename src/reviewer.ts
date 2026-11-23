@@ -13,9 +13,9 @@ export function validateConfig(c: Config) {
 
 export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ report: string; posted: boolean }> {
   validateConfig(c);
-  const headers = { ...(c.githubToken ? { Authorization: `Bearer ${c.githubToken}` } : {}), Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
-  const api = async <T>(path: string, init: RequestInit = {}, optional = false): Promise<T | null> => {
-    const response = await request(`https://api.github.com${path}`, { ...init, headers: { ...headers, ...init.headers }, redirect: 'error', signal: AbortSignal.timeout(30_000) });
+  const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  const api = async <T>(path: string, init: RequestInit = {}, optional = false, publicRead = false): Promise<T | null> => {
+    const response = await request(`https://api.github.com${path}`, { ...init, headers: { ...headers, ...(!publicRead && c.githubToken ? { Authorization: `Bearer ${c.githubToken}` } : {}), ...init.headers }, redirect: 'error', signal: AbortSignal.timeout(30_000) });
     if (optional && response.status === 404) return null;
     if (!response.ok) throw new Error(`GitHub request failed (${response.status})`);
     return await response.json() as T;
@@ -27,12 +27,12 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   const files = await api<ChangedFile[]>(`${prPath}/files?per_page=100&page=1`);
   const selected = selectFiles(files ?? []);
   if (pr.changed_files > (files?.length ?? 0)) selected.omitted.push('Additional files beyond the first page');
-  const checks = await api<{ check_runs: ReviewContext['checks'] }>(`${path}/commits/${pr.head.sha}/check-runs?per_page=100`, {}, true);
+  const checks = await api<{ check_runs: ReviewContext['checks'] }>(`${path}/commits/${pr.head.sha}/check-runs?per_page=100`, {}, true, true);
   const guidance: Record<string, string> = {};
   let guidanceBudget = 24_000;
   async function readGuidance(repository: string, filename: string, ref: string) {
     if (guidanceBudget <= 0) return;
-    const content = await api<{ content: string; encoding: string }>(`/repos/${repository}/contents/${filename.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`, {}, true);
+    const content = await api<{ content: string; encoding: string }>(`/repos/${repository}/contents/${filename.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`, {}, true, repository === 'Oddmash/.github');
     if (!content || content.encoding !== 'base64') return;
     const decoded = safeText(Buffer.from(content.content, 'base64').toString('utf8'));
     if (decoded.length > guidanceBudget || decoded.length > 12_000) return;

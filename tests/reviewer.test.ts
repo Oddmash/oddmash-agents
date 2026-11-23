@@ -19,10 +19,16 @@ const mock = (options: { private?: boolean; exhausted?: boolean; findings?: bool
       return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: options.findings ? [finding] : [] }) }] }] });
     }
     if (url.includes('/files?')) return Response.json([{ filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
-    if (url.includes('/check-runs?')) return Response.json({ check_runs: [] });
-    if (url.includes('/contents/')) return new Response('', { status: 404 });
+    if (url.includes('/check-runs?')) {
+      assert.equal(new Headers(init?.headers).has('Authorization'), false);
+      return Response.json({ check_runs: [] });
+    }
+    if (url.includes('/contents/')) {
+      if (url.includes('/repos/Oddmash/.github/')) assert.equal(new Headers(init?.headers).has('Authorization'), false);
+      return new Response('', { status: 404 });
+    }
     if (url.includes('/comments?')) return Response.json(postedBody ? [{ body: postedBody }] : []);
-    if (url.endsWith('/comments') && init?.method === 'POST') { postedBody = JSON.parse(String(init.body)).body; return Response.json({ id: 1 }); }
+    if (url.endsWith('/comments') && init?.method === 'POST') { assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer fixture'); postedBody = JSON.parse(String(init.body)).body; return Response.json({ id: 1 }); }
     if (url.endsWith('/pulls/1')) { prReads++; return Response.json({ ...pr, head: options.stale && prReads > 1 ? { sha: 'c'.repeat(40) } : pr.head, base: { ...pr.base, repo: { ...pr.base.repo, private: options.private ?? false } } }); }
     throw new Error('Unexpected request');
   };
