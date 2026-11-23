@@ -8,6 +8,7 @@ on:
       - 'src/**'
       - 'scripts/sync-vercel-env.mjs'
       - 'package.json'
+      - 'pnpm-lock.yaml'
       - 'tsconfig.json'
       - 'vercel.json'
       - '.github/workflows/deploy-vercel.yml'
@@ -30,13 +31,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: '24'
-      - run: npm install --ignore-scripts
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm install -g "vercel@$VERCEL_CLI_VERSION"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run typecheck
+      - run: pnpm test
       - name: Sync authorized reviewer configuration
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -54,15 +56,15 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           test -n "$VERCEL_TOKEN"
-          vercel pull --yes --environment=production
-      - run: vercel build --prod
+          pnpm --reporter=silent dlx "vercel@$VERCEL_CLI_VERSION" pull --yes --environment=production
+      - run: pnpm --reporter=silent dlx "vercel@$VERCEL_CLI_VERSION" build --prod
       - name: Stage production
         id: stage
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          url="$(vercel deploy --prebuilt --prod --skip-domain --yes)"
+          url="$(pnpm --reporter=silent dlx "vercel@$VERCEL_CLI_VERSION" deploy --prebuilt --prod --skip-domain --yes)"
           DEPLOYMENT_URL="$url" node --input-type=module -e 'const u = new URL(process.env.DEPLOYMENT_URL); if (u.protocol !== "https:" || u.origin !== process.env.DEPLOYMENT_URL || !u.hostname.endsWith(".vercel.app")) process.exit(1)'
           echo "url=$url" >> "$GITHUB_OUTPUT"
       - name: Smoke test staged endpoint
@@ -93,4 +95,4 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
-        run: vercel promote "$DEPLOYMENT_URL" --yes
+        run: pnpm --reporter=silent dlx "vercel@$VERCEL_CLI_VERSION" promote "$DEPLOYMENT_URL" --yes

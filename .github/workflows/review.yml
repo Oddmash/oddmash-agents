@@ -24,10 +24,13 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
-      - run: npm test
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm test
       - name: Generate advisory report
         if: ${{ !inputs.post_inline }}
         env:
@@ -35,7 +38,7 @@ jobs:
           OPENAI_MODEL: gpt-5.4
           ODDMASH_ALLOWED_REPOSITORIES: Oddmash/oddmash-ui
           PR_NUMBER: ${{ inputs.pr_number }}
-        run: npm run review -- Oddmash/oddmash-ui "$PR_NUMBER"
+        run: pnpm run review Oddmash/oddmash-ui "$PR_NUMBER"
       - name: Post advisory inline review
         if: ${{ inputs.post_inline }}
         env:
@@ -45,4 +48,4 @@ jobs:
           ODDMASH_ALLOWED_REPOSITORIES: Oddmash/oddmash-ui
           ODDMASH_ALLOW_POST: 'true'
           PR_NUMBER: ${{ inputs.pr_number }}
-        run: npm run review -- Oddmash/oddmash-ui "$PR_NUMBER" --post
+        run: pnpm run review Oddmash/oddmash-ui "$PR_NUMBER" --post

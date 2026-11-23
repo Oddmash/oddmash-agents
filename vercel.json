@@ -1,5 +1,6 @@
 {
   "framework": null,
+  "installCommand": "pnpm install --frozen-lockfile --ignore-scripts",
   "functions": {
     "api/github.ts": { "maxDuration": 300 },
     "api/review-jobs.ts": {

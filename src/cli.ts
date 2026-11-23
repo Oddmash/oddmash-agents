@@ -2,7 +2,7 @@ import { runReview } from './reviewer.ts';
 
 const [repository, number, ...flags] = process.argv.slice(2);
 if (!repository || !number || flags.some(x => x !== '--post')) {
-  console.error('Usage: npm run review -- Oddmash/<repository> <pr-number> [--post]');
+  console.error('Usage: pnpm run review Oddmash/<repository> <pr-number> [--post]');
   process.exitCode = 1;
 } else {
   try {
