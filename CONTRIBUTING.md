@@ -2,6 +2,8 @@
 
 Requires Node.js 24 and the pnpm version pinned in `package.json`. Run `pnpm install --frozen-lockfile --ignore-scripts` before testing the webhook endpoint or running type checks. CI runs the offline tests on push and pull requests.
 
+Vercel build and function installation use Corepack to honor the exact package manager pin. Verify the pnpm version and frozen-install behavior in the authorized prebuilt deployment workflow before promoting a new production revision.
+
 Run `pnpm test` for offline verification. To review a public PR, configure `OPENAI_API_KEY`, `OPENAI_MODEL` (a model supporting structured outputs), and `ODDMASH_ALLOWED_REPOSITORIES` (comma-separated exact repository names) in your environment using your normal secret manager. An optional read-only `GITHUB_TOKEN` raises public API rate limits. Do not commit credentials.
 
 For the hosted pilot, add `OPENAI_API_KEY` to repository Actions secrets, then use Actions → Reviewer pilot → Run workflow on main with an open Oddmash UI PR number. The workflow uses GPT-5.4, anonymous public repository API requests, and report-only output in the job log. It never posts or executes PR code.

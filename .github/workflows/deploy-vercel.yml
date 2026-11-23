@@ -21,6 +21,7 @@ env:
   VERCEL_ORG_ID: team_hAp7kLycu6rwgAWypgcghemA
   VERCEL_PROJECT_ID: prj_RKccMkGPH0rn8GteNrNN2hQiaik5
   VERCEL_CLI_VERSION: '58.4.4'
+  ENABLE_EXPERIMENTAL_COREPACK: '1'
 jobs:
   deploy:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.VERCEL_DEPLOY_ENABLED == 'true')
