@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { eligiblePull, linkedIssue, acceptanceOf, lowRisk, acceptanceSatisfied, protectedBranch, mergeAuthorized, type MergePull, type Candidate } from '../src/auto-merge.ts';
-import { githubApi } from '../src/webhook.ts';
+import { githubApi, mergeRepositoryAllowed } from '../src/webhook.ts';
 
 const target = { installation: 1, repository: 'Oddmash/kowrap', repositoryId: 42 };
 const user = { id: 135234546, login: 'qtaghdi' };
@@ -12,13 +12,29 @@ const files = [{ filename: 'docs/example.md', status: 'modified', patch: '@@ -1 
 const branch = { protected: true, commit: { sha: base }, protection: { enabled: true, required_status_checks: { enforcement_level: 'everyone', checks: [{ context: 'verify', app_id: 15368 }] } } };
 const candidate: Candidate = { pull: pr, acceptance: acceptanceOf(issue)! };
 
-test('only maintainer-owned same-repository public main PRs are candidates', () => {
+test('only maintainer-owned same-repository eligible main PRs are candidates', () => {
   assert.equal(eligiblePull(pr, target), true);
   assert.equal(eligiblePull({ ...pr, user: { id: 99, login: user.login } }, target), false);
   assert.equal(eligiblePull({ ...pr, head: { ...pr.head, repo: { id: 99, full_name: 'other/fork' } } }, target), false);
   assert.equal(eligiblePull({ ...pr, base: { ...pr.base, repo: { ...pr.base.repo, private: true } } }, target), false);
   assert.equal(eligiblePull({ ...pr, labels: [{ name: 'do not merge' }] }, target), false);
   assert.equal(eligiblePull(pr, { ...target, repository: 'Oddmash/.github' }), false);
+});
+
+test('explicitly approved private identities are candidates but visibility and IDs cannot mismatch', () => {
+  const privateRepos = { 'Oddmash/oddmash-agents': 1468182609, 'Oddmash/oddmash-skills': 1468154482, 'Oddmash/overtime-prototype': 1461455091, 'Oddmash/cash-out': 1462488077, 'Oddmash/oddmash-website': 1468561714 };
+  for (const [repository, repositoryId] of Object.entries(privateRepos)) {
+    const target = { installation: 1, repository, repositoryId, private: true };
+    const identity = { id: repositoryId, full_name: repository };
+    const pull = { ...pr, head: { sha: head, repo: identity }, base: { ...pr.base, repo: { ...identity, default_branch: 'main', private: true } } };
+    assert.equal(mergeRepositoryAllowed(target), true);
+    assert.equal(eligiblePull(pull, target), true);
+    assert.equal(eligiblePull(pull, { ...target, repositoryId: 99 }), false);
+    assert.equal(eligiblePull(pull, { ...target, private: false }), false);
+    assert.equal(eligiblePull({ ...pull, base: { ...pull.base, repo: { ...pull.base.repo, private: false } } }, target), false);
+  }
+  assert.equal(mergeRepositoryAllowed({ installation: 1, repository: 'Oddmash/unknown', repositoryId: 123, private: true }), false);
+  assert.equal(acceptanceOf({ ...issue, body: issue.body + '\npassword: fixture-private-value' }, true), null);
 });
 
 test('requires one linked issue and all explicit criteria', () => {
@@ -50,6 +66,10 @@ test('allows ordinary source and additive tests only under known product paths',
   assert.equal(lowRisk([{ ...files[0], filename: 'tests/a.test.ts' }], 1), false);
   assert.equal(lowRisk([{ ...files[0], filename: 'tests/a.test.ts', status: 'added' }], 1), false);
   assert.equal(lowRisk(files, 2), false);
+  assert.equal(lowRisk([{ ...files[0], filename: 'dist/app.js' }], 1, 'Oddmash/oddmash-website'), true);
+  assert.equal(lowRisk([{ ...files[0], filename: 'dist/auth.js' }], 1, 'Oddmash/oddmash-website'), false);
+  assert.equal(lowRisk([{ ...files[0], filename: 'docs/deployment.md' }], 1, 'Oddmash/oddmash-agents'), false);
+  assert.equal(lowRisk([{ ...files[0], filename: 'skills/example/SKILL.md' }], 1, 'Oddmash/oddmash-skills'), false);
   assert.equal(protectedBranch(branch, base), true);
   assert.equal(protectedBranch({ ...branch, protected: false }, base), false);
 });
@@ -57,9 +77,9 @@ test('allows ordinary source and additive tests only under known product paths',
 test('mint write token only after exact-head approval and protected current CI', async () => {
   let writes = 0;
   let mints = 0;
-  const makeApi = (passing = true) => githubApi('fixture-token', async (input, init) => {
+  const makeApi = (passing = true, pull = pr) => githubApi('fixture-token', async (input, init) => {
     const url = String(input);
-    if (url.endsWith('/pulls/10')) return Response.json(pr);
+    if (url.endsWith('/pulls/10')) return Response.json(pull);
     if (url.endsWith('/issues/9')) return Response.json(issue);
     if (url.includes('/files?')) return Response.json(files);
     if (url.endsWith('/branches/main')) return Response.json(branch);
@@ -78,4 +98,13 @@ test('mint write token only after exact-head approval and protected current CI',
   assert.equal(await mergeAuthorized(makeApi(), target, candidate, 'oddmash-reviewer[bot]', 5, true, mint), true);
   assert.equal(mints, 1);
   assert.equal(writes, 1);
+  const privateTarget = { installation: 1, repository: 'Oddmash/oddmash-website', repositoryId: 1468561714, private: true };
+  const identity = { id: privateTarget.repositoryId, full_name: privateTarget.repository };
+  const privatePull = { ...pr, head: { sha: head, repo: identity }, base: { ...pr.base, repo: { ...identity, default_branch: 'main', private: true } } };
+  const privateCandidate = { ...candidate, pull: privatePull };
+  assert.equal(await mergeAuthorized(makeApi(false, privatePull), privateTarget, privateCandidate, 'oddmash-reviewer[bot]', 5, true, mint), false);
+  assert.equal(mints, 1);
+  assert.equal(await mergeAuthorized(makeApi(true, privatePull), privateTarget, privateCandidate, 'oddmash-reviewer[bot]', 5, true, mint), true);
+  assert.equal(mints, 2);
+  assert.equal(writes, 2);
 });
