@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export type ChangedFile = { filename: string; patch?: string; status: string };
+export type ChangedFile = { filename: string; previous_filename?: string; patch?: string; status: string };
 export type KoreanFinding = { rule: string; evidence: string; recommendation: string; verification: string };
 export type Finding = { path: string; line: number; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium'; rule: string; evidence: string; recommendation: string; verification: string; suggestion?: string; korean?: KoreanFinding };
 export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[] };
@@ -27,13 +27,17 @@ export function safeText(value: string): string {
   return value.split('\n').map(line => sensitiveValue.test(line) ? '[REDACTED]' : line).join('\n');
 }
 
-export function selectFiles(files: ChangedFile[], budget = 45_000): { files: ChangedFile[]; omitted: string[] } {
+const privateSensitivePath = /(?:^|\/)(?:\.github|\.vercel|\.aws|\.ssh|\.npmrc|\.pypirc|\.netrc|infra|infrastructure|config|configs|\.config|\.kube|\.docker|certs?|certificates|data|dumps|uploads|logs|fixtures|deploy(?:ment)?|auth(?:entication|orization)?|security|credentials?|secrets?|keys?)(?:\/|$)|(?:webhook|private[-_]?key|credential|(?:^|[-_./])(?:token|secret|auth|security|deploy|vercel|firebase|service[-_]?account)(?:[-_./]|$)|\.(?:crt|cer|keystore|jks|kdbx|env|tfvars|tfstate|sqlite|sqlite3|csv)$)/i;
+const privateSensitiveValue = /(?:\b(?:gh[opsu]_|github_pat_|xox[baprs]-|sk[-_]|AIza|AKIA|ASIA|ya29\.|glpat-)[A-Za-z0-9_-]{12,}|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|\b(?:https?|postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis):\/\/[^/\s:@]+:[^/\s@]+@|["'][A-Za-z0-9+/_=-]{40,}["'])/i;
+export const privateSensitiveText = (value: string) => sensitiveValue.test(value) || privateSensitiveValue.test(value);
+
+export function selectFiles(files: ChangedFile[], budget = 45_000, privateReview = false): { files: ChangedFile[]; omitted: string[] } {
   const selected: ChangedFile[] = [];
   const omitted: string[] = [];
   let remaining = budget;
   for (const file of files) {
-    if (sensitivePath.test(file.filename) || !file.patch || file.patch.length > remaining || selected.length >= 40 || sensitiveValue.test(file.patch)) {
-      omitted.push(file.filename);
+    if (sensitivePath.test(file.filename) || (file.previous_filename && sensitivePath.test(file.previous_filename)) || (privateReview && (privateSensitivePath.test(file.filename) || (file.previous_filename && privateSensitivePath.test(file.previous_filename)) || privateSensitiveText(file.filename) || (file.patch && privateSensitiveText(file.patch)))) || !file.patch || file.patch.length > remaining || selected.length >= 40 || sensitiveValue.test(file.patch)) {
+      omitted.push(privateReview ? 'Omitted private file' : file.filename);
       continue;
     }
     selected.push({ filename: file.filename, status: file.status, patch: file.patch });
@@ -75,7 +79,7 @@ export function guidancePaths(files: ChangedFile[]): string[] {
   return [...paths].slice(0, 40);
 }
 
-export function validateFindings(value: unknown, files: ChangedFile[]): Finding[] {
+export function validateFindings(value: unknown, files: ChangedFile[], privateReview = false): Finding[] {
   if (!Array.isArray(value)) throw new Error('Invalid findings response');
   const known = new Map(files.map(file => [file.filename, addedLines(file.patch ?? '')]));
   const unique = new Set<string>();
@@ -85,14 +89,14 @@ export function validateFindings(value: unknown, files: ChangedFile[]): Finding[
     const f = item as Finding;
     if (typeof f.path !== 'string' || !Number.isInteger(f.line) || !known.get(f.path)?.has(f.line)) continue;
     if (!['high', 'medium', 'low'].includes(f.severity) || !['high', 'medium'].includes(f.confidence)) continue;
-    if (![f.rule, f.evidence, f.recommendation, f.verification].every(x => typeof x === 'string' && x.trim().length > 0 && x.length <= 1000 && !sensitiveValue.test(x))) continue;
+    if (![f.rule, f.evidence, f.recommendation, f.verification].every(x => typeof x === 'string' && x.trim().length > 0 && x.length <= 1000 && !sensitiveValue.test(x) && (!privateReview || !privateSensitiveText(x)))) continue;
     const key = `${f.path}:${f.line}:${f.rule.toLowerCase().trim()}`;
     if (unique.has(key)) continue;
     unique.add(key);
     const original = addedLineText(files.find(file => file.filename === f.path)?.patch ?? '', f.line);
-    const suggestion = typeof f.suggestion === 'string' && f.confidence === 'high' && /\.(?:tsx?|jsx?|css|scss)$/.test(f.path) && !/(?:^|\/)(?:\.github|scripts|server|auth|security)(?:\/|$)/i.test(f.path) && !/security|privacy|credential|authorization|authentication/i.test(f.rule) && f.suggestion.trim().length > 0 && f.suggestion.length <= 1000 && f.suggestion.split('\n').length <= 8 && !/```|[\u0000-\u0008\u000b-\u001f\u007f]/.test(f.suggestion) && !sensitiveValue.test(f.suggestion) && original !== undefined && f.suggestion !== original ? f.suggestion : undefined;
+    const suggestion = typeof f.suggestion === 'string' && f.confidence === 'high' && /\.(?:tsx?|jsx?|css|scss)$/.test(f.path) && !/(?:^|\/)(?:\.github|scripts|server|auth|security)(?:\/|$)/i.test(f.path) && !/security|privacy|credential|authorization|authentication/i.test(f.rule) && f.suggestion.trim().length > 0 && f.suggestion.length <= 1000 && f.suggestion.split('\n').length <= 8 && !/```|[\u0000-\u0008\u000b-\u001f\u007f]/.test(f.suggestion) && !sensitiveValue.test(f.suggestion) && (!privateReview || !privateSensitiveText(f.suggestion)) && original !== undefined && f.suggestion !== original ? f.suggestion : undefined;
     const korean = f.korean;
-    const translated = korean && typeof korean === 'object' && [korean.rule, korean.evidence, korean.recommendation, korean.verification].every(x => typeof x === 'string' && x.trim().length > 0 && x.length <= 1000 && !sensitiveValue.test(x) && /[가-힣]/.test(x)) ? { rule: korean.rule, evidence: korean.evidence, recommendation: korean.recommendation, verification: korean.verification } : undefined;
+    const translated = korean && typeof korean === 'object' && [korean.rule, korean.evidence, korean.recommendation, korean.verification].every(x => typeof x === 'string' && x.trim().length > 0 && x.length <= 1000 && !sensitiveValue.test(x) && (!privateReview || !privateSensitiveText(x)) && /[가-힣]/.test(x)) ? { rule: korean.rule, evidence: korean.evidence, recommendation: korean.recommendation, verification: korean.verification } : undefined;
     result.push({ path: f.path, line: f.line, severity: f.severity, confidence: f.confidence, rule: f.rule, evidence: f.evidence, recommendation: f.recommendation, verification: f.verification, ...(suggestion ? { suggestion } : {}), ...(translated ? { korean: translated } : {}) });
   }
   return result;

@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual, createSign } from 'node:crypto';
 
 type Repository = { id: number; full_name: string; private: boolean; visibility: string; owner: { login: string }; archived?: boolean };
 type Payload = { action?: string; installation?: { id: number }; repository?: Repository; pull_request?: { number: number; draft: boolean }; check_suite?: { head_sha: string; pull_requests?: { number: number }[] } };
-export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string };
+export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string; private?: boolean };
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 const shaPattern = /^[a-f0-9]{40}$/i;
 
@@ -16,10 +16,25 @@ export function publicOddmash(repo: Repository | undefined): boolean {
   return !!repo && positive(repo.id) && repo.private === false && repo.visibility === 'public' && repo.archived !== true && repo.owner?.login?.toLowerCase() === 'oddmash' && /^Oddmash\/[a-z0-9_.-]+$/i.test(repo.full_name);
 }
 
+const privateRepositories: Record<string, number> = {
+  "Oddmash/oddmash-agents": 1468182609,
+  "Oddmash/oddmash-skills": 1468154482,
+  "Oddmash/overtime-prototype": 1461455091,
+  "Oddmash/cash-out": 1462488077
+};
+
+export function privateRepositoryAllowed(name: string, id: number | undefined): boolean {
+  return positive(id) && Object.hasOwn(privateRepositories, name) && privateRepositories[name] === id;
+}
+
+export function reviewableOddmash(repo: Repository | undefined): boolean {
+  return publicOddmash(repo) || (!!repo && repo.private === true && repo.visibility === 'private' && repo.archived !== true && repo.owner?.login?.toLowerCase() === 'oddmash' && privateRepositoryAllowed(repo.full_name, repo.id));
+}
+
 export function route(event: string | null, p: Payload): Target | null {
-  if (!publicOddmash(p.repository) || !positive(p.installation?.id)) return null;
+  if (!reviewableOddmash(p.repository) || !positive(p.installation?.id)) return null;
   const repo = p.repository!;
-  const target = { installation: p.installation!.id, repository: repo.full_name, repositoryId: repo.id };
+  const target = { installation: p.installation!.id, repository: repo.full_name, repositoryId: repo.id, ...(repo.private ? { private: true } : {}) };
   if (event === 'pull_request' && ['opened', 'reopened', 'synchronize', 'ready_for_review'].includes(p.action ?? '') && p.pull_request?.draft === false && positive(p.pull_request.number)) return { ...target, number: p.pull_request.number };
   if (event === 'check_suite' && p.action === 'completed' && shaPattern.test(p.check_suite?.head_sha ?? '')) return { ...target, sha: p.check_suite!.head_sha };
   return null;
@@ -47,12 +62,12 @@ export async function authorize(target: Target, appId: string, key: string, requ
   const result = await jwtApi<{ token: string }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [target.repositoryId], permissions: { contents: 'read', pull_requests: 'write', checks: 'read' } }) });
   const api = githubApi(result.token, request);
   const repository = await api<Repository>('/repos/' + target.repository);
-  if (!publicOddmash(repository) || repository.id !== target.repositoryId || repository.full_name !== target.repository) throw new Error('Repository not eligible');
+  if (!reviewableOddmash(repository) || repository.private !== Boolean(target.private) || repository.id !== target.repositoryId || repository.full_name !== target.repository) throw new Error('Repository not eligible');
   return { api, token: result.token };
 }
 
 export async function authorizeMerge(target: Target, appId: string, key: string, request: typeof fetch = fetch) {
-  if (!['Oddmash/kowrap', 'Oddmash/oddmash-ui', 'Oddmash/interaction-inspector', 'Oddmash/Vertactics'].includes(target.repository) || !positive(target.repositoryId)) throw new Error('Merge target not eligible');
+  if (target.private || !['Oddmash/kowrap', 'Oddmash/oddmash-ui', 'Oddmash/interaction-inspector', 'Oddmash/Vertactics'].includes(target.repository) || !positive(target.repositoryId)) throw new Error('Merge target not eligible');
   const jwtApi = githubApi(appJwt(appId, key), request);
   const installation = await jwtApi<{ account: { login: string }; suspended_at: string | null }>('/app/installations/' + target.installation);
   if (installation.account.login.toLowerCase() !== 'oddmash' || installation.suspended_at) throw new Error('Installation not eligible');
