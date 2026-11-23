@@ -66,6 +66,8 @@ test('review output is concise without CI summaries or typographic dashes', () =
   assert.doesNotMatch(inlineComment(context, example), /[\u2013\u2014\u2015]|Verify:/);
   const approved = formatReviewBody('APPROVE', '<!-- marker -->', report);
   assert.match(approved, /@qtaghdi/);
+  assert.equal(formatReviewBody('APPROVE', '<!-- marker -->', report, { id: 135234546, login: 'qtaghdi' }), '<!-- marker -->\nApproved.');
+  assert.match(formatReviewBody('APPROVE', '<!-- marker -->', report, { id: 99, login: 'contributor' }), /@qtaghdi/);
   assert.doesNotMatch(approved, /Label|CI|Findings/);
   assert.match(formatReviewBody('REQUEST_CHANGES', '<!-- marker -->', report), /Please address/);
 });
