@@ -27,7 +27,7 @@ export function eligiblePull(pr: MergePull, target: Target): boolean {
 
 export function ineligiblePullReason(pr: MergePull, target: Target): string {
   if (!mergeRepositoryAllowed(target)) return 'repository is outside the auto-merge allowlist';
-  if (target.repository === 'Oddmash/.github' && pr.base.ref !== 'main') return 'organization profile PR must target main';
+  if (target.repository === 'Oddmash/.github' && pr.base.ref !== 'main') return 'organization documentation PR must target main';
   if (!maintainer(pr.user)) return 'PR author is not the authorized maintainer';
   if (pr.base.repo.private !== Boolean(target.private) || pr.base.repo.archived) return 'repository visibility or archive state is ineligible';
   if (pr.head.repo?.id !== target.repositoryId || pr.head.repo.full_name !== target.repository) return 'fork or source repository mismatch';
@@ -58,8 +58,9 @@ export function lowRisk(files: ChangedFile[], count: number, repository = ''): b
   if (files.reduce((size, file) => size + (file.patch?.length ?? 0), 0) > 45_000) return false;
   return files.every(f => {
     const path = f.filename;
-    if (!f.patch || !patchComplete(f) || !['added', 'modified'].includes(f.status) || f.previous_filename || safeText(f.patch) !== f.patch || /(?:policy|release|deploy|security|auth|architecture|credential|instructions|review|config|permission|secret|token|generated|background|service.worker|storage|migration)/i.test(path) || /(?:^|\/)(?:AGENTS\.md|CONTRIBUTING\.md|SECURITY\.md|CODEOWNERS|PROMPT\.md|SPEC\.md|CHANGELOG\.md|\.github|scripts)(?:\/|$)/i.test(path)) return false;
-    if (repository === 'Oddmash/.github') return /^(?:profile\/README\.md|docs\/(?:ko|ja|zh-CN)\/README\.md)$/.test(path);
+    if (!f.patch || !patchComplete(f) || !['added', 'modified'].includes(f.status) || f.previous_filename || safeText(f.patch) !== f.patch) return false;
+    if (repository === 'Oddmash/.github') return /^(?:AGENTS\.md|CONTRIBUTING\.md|PULL_REQUEST_TEMPLATE\.md|profile\/README\.md|docs\/(?:ko|ja|zh-CN)\/(?:README|CONTRIBUTING)\.md|\.github\/ISSUE_TEMPLATE\/(?:bug_report_en|chore|documentation|feature|fix|improvement|refactor|test)\.md)$/.test(path);
+    if (/(?:policy|release|deploy|security|auth|architecture|credential|instructions|review|config|permission|secret|token|generated|background|service.worker|storage|migration)/i.test(path) || /(?:^|\/)(?:AGENTS\.md|CONTRIBUTING\.md|SECURITY\.md|CODEOWNERS|PROMPT\.md|SPEC\.md|CHANGELOG\.md|\.github|scripts)(?:\/|$)/i.test(path)) return false;
     if (['Oddmash/oddmash-agents', 'Oddmash/oddmash-skills'].includes(repository) && !/^README(?:\.[a-z-]+)?\.md$/i.test(path)) return false;
     if (/^(?:README(?:\.[a-z-]+)?\.md|docs\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.md)$/i.test(path)) return true;
     const isTest = testRoots[repository]?.test(path) || /(?:\.test\.|\.spec\.|(?:^|\/)(?:tests?|__tests__)\/)/.test(path);
