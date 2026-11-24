@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { reviewFeedback } from '../src/review-feedback.ts';
 import { relatedPaths, reviewFocus } from '../src/review-context.ts';
 import { deletedLines, validateFindings, reviewAssessment } from '../src/core.ts';
 import { deferredRequest } from '../src/webhook-review.ts';
@@ -31,4 +32,14 @@ test('deferred requests resume only on the same head and never repeat a recorded
   assert.equal(deferredRequest([{ ...comment, user: { login: 'human' } }], [], bot, head), undefined);
   const tag = createHash('sha256').update('comment-17').digest('hex').slice(0, 24);
   assert.equal(deferredRequest([comment], [{ id: 1, user: { login: bot }, state: 'COMMENTED', commit_id: head, body: `<!-- oddmash-recheck:${tag} -->` }], bot, head), undefined);
+});
+
+
+test('product-specific guidance and reviewed feedback cover distinct product contracts', () => {
+  assert.match(reviewFocus('Oddmash/oddmash-website').join(' '), /Localization/);
+  assert.match(reviewFocus('Oddmash/boundra').join(' '), /cross-platform CLI/);
+  assert.match(reviewFocus('Oddmash/Vertactics').join(' '), /map coordinate/);
+  assert.match(reviewFocus('Oddmash/oddmash-agents').join(' '), /idempotent publication/);
+  assert.ok(reviewFeedback.some(rule => rule.includes('some returns false for an empty array')));
+  assert.equal([].some(() => true), false);
 });

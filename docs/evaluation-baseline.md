@@ -12,3 +12,8 @@ Six public PRs were sampled from recent Oddmash activity. Review submissions and
 | [oddmash-ui#25](https://github.com/Oddmash/oddmash-ui/pull/25) | Human approval | Not an agent evaluation. |
 
 The two verified dismissals show the same failure mode: identifying a potential problem at a call site without tracing existing mitigation. The reviewer now receives bounded same-file head context and explicit reviewed feedback about tracing helpers; the separate blocker confirmation receives identical context. These rules do not suppress real defects. Synthetic regression fixtures verify context delivery; live model quality has not yet been re-measured. Record further findings with exact commit, anchor, human disposition, and rationale, including defects missed by the bot; do not infer correctness from approval or thread resolution alone.
+
+
+## 2026-11-24 follow-up
+
+A maintainer-adjudicated synthetic regression captures the incorrect claim that JavaScript `Array.prototype.some` returns true on an empty array. The runtime test demonstrates the expected behavior and the reviewed feedback asks the model to verify standard-library semantics before recommending redundant guards. This is not a measured live-model precision improvement; rerun the evaluation corpus before claiming one.

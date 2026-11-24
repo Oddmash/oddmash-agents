@@ -169,3 +169,16 @@ test('renders English first and Korean translation in a collapsed section', () =
   assert.doesNotMatch(formatReviewBody('APPROVE', '<!-- marker -->', formatReport(context, [valid])), /<details>/);
   assert.equal(validateFindings([{ ...bilingual, korean: { ...bilingual.korean, evidence: 'password: synthetic-fixture-value' } }], [file])[0].korean, undefined);
 });
+
+
+test('distinguishes unavailable generated lockfile diffs without changing review coverage requirements', () => {
+  const selected = selectFiles([{ filename: 'pnpm-lock.yaml', status: 'modified' }, { filename: 'package-lock.json', status: 'removed' }, { filename: 'src/unknown.ts', status: 'modified' }], 45000, true);
+  assert.deepEqual(selected.omissionDetails.map(item => item.reason), ['lockfile', 'lockfile', 'missing-patch']);
+  assert.ok(selected.omissionDetails.every(item => !item.path));
+  const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: selected.files, omitted: selected.omitted, guidance: {}, checks: [] };
+  const report = formatReport(context, [], true, selected.omissionDetails);
+  assert.match(report, /Generated dependency lockfile/);
+  assert.match(report, /passing CI alone does not establish full diff coverage/);
+  assert.doesNotMatch(report, /pnpm-lock|package-lock|src\/unknown/);
+  assert.equal(reviewDecision(context, [], true), 'COMMENT');
+});
