@@ -24,23 +24,58 @@ jobs:
     if: needs.scope.outputs.runtime == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+      - name: Find completed tests for this PR revision
+        if: github.event_name == 'pull_request' && github.event.action == 'edited' && github.run_attempt == 1
+        continue-on-error: true
+        id: prior
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const { join } = require('node:path');
+            const { findGitHubTests } = await import(pathToFileURL(join(process.env.GITHUB_WORKSPACE, 'scripts/ci-evidence.mjs')).href);
+            const { repository, pull_request: pr } = context.payload;
+            const run = await findGitHubTests({
+              repository: repository.full_name,
+              head: pr.head.sha,
+              revision: context.sha,
+              event: 'pull_request',
+              branch: pr.head.ref,
+              headRepository: pr.head.repo?.id,
+              currentRun: context.runId,
+            }, process.env.GITHUB_TOKEN);
+            if (run) core.notice(`Reusing full tests from CI run ${run} for ${context.sha}.`);
+            core.setOutput('run', run ?? '');
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+        if: steps.prior.outputs.run == ''
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        if: steps.prior.outputs.run == ''
         with:
           node-version: '24'
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
+        if: steps.prior.outputs.run == ''
       - run: pnpm run typecheck
+        if: steps.prior.outputs.run == ''
       - run: pnpm test
+        if: steps.prior.outputs.run == ''
+      - name: Record full test result for ${{ github.sha }}
+        if: steps.prior.outputs.run == ''
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
   verify:
     needs: [scope, test]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
       - name: Confirm appropriate checks passed
