@@ -65,6 +65,9 @@ test('single Refs supports partial same-repository scope without claiming issue 
   assert.equal(linkedIssue('Refs #9\nCloses #10'), null);
   assert.equal(linkedIssue('Refs #9\nRefs #10'), null);
   assert.equal(linkedIssue('Refs Other/repo#9'), null);
+  assert.equal(linkedIssue('Refs #9\nRelated discussion: Other/repo#10'), 9);
+  assert.equal(linkedIssue('Refs #9\nRefs Other/repo#10'), null);
+  assert.equal(linkedIssue('Refs #9\nFixes Other/repo#10'), null);
   const acceptance = acceptanceForPull(issue, partial)!;
   assert.equal(acceptance.mode, 'partial');
   assert.deepEqual(acceptance.criteria, ['Explain the example clearly.']);
