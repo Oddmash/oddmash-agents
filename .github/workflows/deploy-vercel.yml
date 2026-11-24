@@ -23,9 +23,13 @@ jobs:
     if: github.repository == 'Oddmash/oddmash-agents' && github.actor_id == '135234546' && (github.event_name == 'release' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       commit: ${{ steps.resolve.outputs.commit }}
       tag: ${{ steps.resolve.outputs.tag }}
+      test-run: ${{ steps.prior.outputs.run }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -40,6 +44,27 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: node scripts/validate-release.mjs
+      - name: Find completed main tests for the release commit
+        id: prior
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ steps.resolve.outputs.commit }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          import { findGitHubTests } from './scripts/ci-evidence.mjs';
+
+          const run = await findGitHubTests({
+            repository: process.env.GITHUB_REPOSITORY,
+            head: process.env.RELEASE_COMMIT,
+            revision: process.env.RELEASE_COMMIT,
+            event: 'push',
+            branch: 'main',
+            headRepository: Number(process.env.GITHUB_REPOSITORY_ID),
+          }, process.env.GITHUB_TOKEN);
+          if (run) appendFileSync(process.env.GITHUB_OUTPUT, `run=${run}\n`);
+          NODE
   deploy:
     needs: release
     if: needs.release.result == 'success' && vars.VERCEL_DEPLOY_ENABLED == 'true'
@@ -58,7 +83,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm run typecheck
+        if: needs.release.outputs.test-run == ''
       - run: pnpm test
+        if: needs.release.outputs.test-run == ''
+      - name: Record reused test evidence
+        if: needs.release.outputs.test-run != ''
+        env:
+          CI_RUN: ${{ needs.release.outputs.test-run }}
+        run: printf 'Reused full tests from [CI run %s](%s/%s/actions/runs/%s) for the exact release commit.\n' "$CI_RUN" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$CI_RUN" >> "$GITHUB_STEP_SUMMARY"
       - name: Sync authorized reviewer configuration
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
