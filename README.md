@@ -14,13 +14,13 @@ Advisory agents for Oddmash products. Lead coordinates specialized agents, ident
 | <img src="assets/agents/docs.svg" width="40" alt="Docs badge"> | Oddmash Docs | Code and documentation consistency | On request | `/docs` |
 | <img src="assets/agents/architect.svg" width="40" alt="Architect badge"> | Oddmash Architect | Design and maintainability assessment | On request | `/architect` |
 
-Lead is the only automatic entry point (currently authenticated as `oddmash-reviewer[bot]`). Other roles respond to explicit maintainer mentions and produce advisory output. With optional coordinated review enabled, Lead selects only relevant PR advisors from changed-file metadata within explicit request and time budgets. These reports do not grant approval or merge authority. They share the same server and queue, while role-specific identity, permissions and model usage remain separately configurable. Dedicated apps must be configured before their own mentions become available; the existing `@oddmash-reviewer[bot]` mention remains the compatibility entry point.
+Lead is the only automatic entry point (currently authenticated as `oddmash-lead[bot]`). Other roles respond to explicit maintainer mentions and produce advisory output. With optional coordinated review enabled, Lead selects only relevant PR advisors from changed-file metadata within explicit request and time budgets. These reports do not grant approval or merge authority. They share the same server and queue, while role-specific identity, permissions and model usage remain separately configurable. Dedicated apps must be configured before their own mentions become available; use `@oddmash-lead[bot] /review` for the formal review.
 
 See [agent family and setup](docs/agent-family.md) for invocation details and role configuration.
 
 ## Lead
 
-Lead coordinates specialized advisors and owns formal review decisions. It independently checks concrete defects and mandatory requirements; optional specialist improvements do not become duplicate Lead findings. See [the identity migration plan](docs/lead-identity.md).
+Lead coordinates specialized advisors and owns formal review decisions. It independently checks concrete defects and mandatory requirements; optional specialist improvements do not become duplicate Lead findings. See [the identity and attribution guide](docs/lead-identity.md).
 
 Current-head automatic reviews wait for required CI. A new push makes an older review stale until current-head work begins; pending indicates active review. A small verified descendant of an approved head with unchanged base can receive bounded incremental analysis. Incremental reports never authorize a merge; explicit review requests always use full evidence. Missing, divergent, large or unverified comparisons fall back to a full review.
 

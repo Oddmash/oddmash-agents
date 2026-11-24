@@ -6,13 +6,13 @@ Lead is the primary review coordinator, formerly Reviewer. Its responsibilities 
 
 Credit the actual contributing GitHub account, not the agent that coordinated or approved the PR. Include one canonical Co-authored-by trailer per account only when its validated recommendation materially changed the commit. For multiple contributions, include all distinct contributing accounts. Simple approval, coordination, unused recommendations, and automated status updates do not qualify.
 
-Follow the [organization attribution table](https://github.com/Oddmash/.github/blob/main/AGENTS.md#agent-contribution-attribution). Lead currently uses the existing verified Reviewer account: `Co-authored-by: oddmash-reviewer[bot] <360059368+oddmash-reviewer[bot]@users.noreply.github.com>`. Do not fabricate a new bot login or no-reply address. Historical commits retain their original authorship.
+Follow the [organization attribution table](https://github.com/Oddmash/.github/blob/main/AGENTS.md#agent-contribution-attribution). Lead uses the verified renamed account: `Co-authored-by: oddmash-lead[bot] <360059368+oddmash-lead[bot]@users.noreply.github.com>`. Do not fabricate a new bot login or no-reply address. Historical commits retain their original authorship.
 
-## Staged App migration
+## App migration record
 
-The display name and [compass avatar](../assets/agents/lead.svg) are independent of the GitHub App registration. The original reviewer badge remains available for historical links. Keep the existing App ID, installation, permissions, webhook, secrets, `REVIEWER_*` configuration keys, queue identifiers, and required check contexts unchanged during the display transition. Continue using `@oddmash-reviewer[bot] /review` until the authenticated identity change is verified.
+The display name and [compass avatar](../assets/agents/lead.svg) are independent of the GitHub App registration. The original reviewer badge remains available for historical links. Keep the existing App ID, installation, permissions, webhook, secrets, `REVIEWER_*` configuration keys, queue identifiers, and required check contexts unchanged during the display transition. On 2026-11-24, the existing App was renamed to Oddmash Lead and the compass avatar applied. The bot retained account ID 360059368. The [v0.2.0 production redeployment](https://github.com/Oddmash/oddmash-agents/actions/runs/45368959811) succeeded, and [PR #121](https://github.com/Oddmash/oddmash-agents/pull/121) received a new formal review from Lead after the command `@oddmash-lead[bot] /review`. Use that command for subsequent reviews. Keep historical `oddmash-reviewer[bot]` trailers intact.
 
-For the separate authorized App rename:
+For any future authorized identity migration:
 
 1. Inspect the actual App registration and current bot account, webhook, installations, repository permissions, required check contexts, and all automation referencing the old slug. Do not rotate or copy secrets.
 2. Plan the change with the maintainer using the existing configuration mechanism. If the App slug changes, update the exact configured `REVIEWER_APP_SLUG` and affected references in the same maintenance window. Keep the App ID and existing authorization boundaries intact. Do not assume that the display name and bot slug are independent.

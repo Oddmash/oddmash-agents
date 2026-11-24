@@ -16,7 +16,7 @@ Follow the [skill integration contract](docs/skill-integration.md). Skills suppl
 
 ## Agent contribution attribution
 
-Follow the [Oddmash agent attribution convention](https://github.com/Oddmash/.github/blob/main/AGENTS.md#agent-contribution-attribution). When a commit materially incorporates a verified finding or recommendation from Lead, Impact, Triage, QA, Release, Docs, or Architect, append the canonical `Co-authored-by` trailer for each actual contributing GitHub account. Deduplicate trailers, preserve human authorship and record the source role or discussion for shared identities. Do not credit unused advice, coordination, or approval alone, and do not rewrite published history. Follow the [Lead identity transition](docs/lead-identity.md); use the verified current bot login rather than inventing a new Co-authored-by address.
+Follow the [Oddmash agent attribution convention](https://github.com/Oddmash/.github/blob/main/AGENTS.md#agent-contribution-attribution). When a commit materially incorporates a verified finding or recommendation from Lead, Impact, Triage, QA, Release, Docs, or Architect, append the canonical `Co-authored-by` trailer for each actual contributing GitHub account. Deduplicate trailers, preserve human authorship and record the source role or discussion for shared identities. Do not credit unused advice, coordination, or approval alone, and do not rewrite published history. Follow the [Lead identity](docs/lead-identity.md); use the verified current bot login rather than inventing a new Co-authored-by address.
 
 ## Delivery workflow
 
