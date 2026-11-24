@@ -85,3 +85,17 @@ test('concurrent status publishers retain only one identical bot-owned status co
   assert.equal(posts, 2);
   assert.deepEqual(comments.map(comment => comment.id), [1, 11]);
 });
+
+
+test('full pagination without a marker does not create a duplicate status', async () => {
+  let reads = 0;
+  let writes = 0;
+  const api = githubApi('fixture', async (_input, init) => {
+    if (init?.method === 'POST' || init?.method === 'PATCH' || init?.method === 'DELETE') writes++;
+    reads++;
+    return Response.json(Array.from({ length: 100 }, (_, i) => ({ id: reads * 100 + i, user: { login: 'other' }, body: 'fixture' })));
+  });
+  await publishAutomationStatus(api, 'Oddmash/example', 7, 'oddmash-reviewer[bot]', 'a'.repeat(40), 'merge', 'missing single closing issue link');
+  assert.equal(reads, 10);
+  assert.equal(writes, 0);
+});
