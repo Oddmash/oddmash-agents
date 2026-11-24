@@ -12,13 +12,13 @@ One repository, Vercel project and queue serve the agents. Each role has individ
 | Docs | PR | `/docs` | Documentation changes and examples |
 | Architect | PR | `/architect` | Design, trade-offs and maintainability |
 
-For explicit manual requests until independent apps are configured, invoke each advisory role with `@oddmash-reviewer[bot] /<role>`. Once configured, use `@oddmash-<role>[bot] /<role>`. Do not invoke both for the same assessment. Each role uses one updatable bilingual advisory for its own authenticated identity and evidence snapshot. It does not alter labels, issue state, checks, release or merge decisions.
+For explicit manual requests until independent apps are configured, invoke each advisory role with `@oddmash-lead[bot] /<role>`. Once configured, use `@oddmash-<role>[bot] /<role>`. Do not invoke both for the same assessment. Each role uses one updatable bilingual advisory for its own authenticated identity and evidence snapshot. It does not alter labels, issue state, checks, release or merge decisions.
 
 For coordinated automatic requests, Lead resolves the selected role's own enabled App installation for the repository and uses that role's existing scoped token. Unavailable, unconfigured or unauthorized roles are skipped, with no fallback publication under Lead. No new app permissions or repository enrollment are granted by orchestration. Impact is dispatched to its existing impact-specific implementation, while the other five roles use the shared advisory engine. Neither path can approve or authorize a merge.
 
-## Lead identity transition
+## Lead identity
 
-Lead is the new display role for the existing Reviewer application. The current authenticated bot login remains `oddmash-reviewer[bot]` until the [identity migration](lead-identity.md) is verified. Existing commands, check contexts, environment variables and historical attribution remain compatible.
+Lead is the renamed primary review App. Its verified authenticated account is `oddmash-lead[bot]`. Use the [identity guide](lead-identity.md) for attribution. The App ID, webhook endpoint, existing environment key names and historical attribution remain unchanged.
 
 ## Separate GitHub identities
 
