@@ -291,5 +291,17 @@ export function formatReviewBody(event: ReviewDecision, marker: string, report: 
   if (followUp?.incompleteCoverage) reasons.push('Manual coverage check required: inspect the unreviewed changes listed below.');
   if (followUp?.invalidEvidence) reasons.push('Review evidence incomplete: validate the findings against the diff or request a fresh review.');
   if (!reasons.length) reasons.push(followUp ? 'Approval pending complete passing checks.' : 'Review follow-up required; inspect the report below.');
-  return `${marker}\nReview follow-up required. No approval was issued.\n\n${reasons.map(reason => `- ${reason}`).join('\n')}\n\n${report}`;
+  const manual = reviewOutcome(event, followUp).label === 'review: needs human';
+  const actions: string[] = [];
+  const korean: string[] = [];
+  if (manual && (!followUp || followUp.incompleteCoverage)) {
+    actions.push('Open the **Files changed** tab and the **Manual review coverage** section below. Verify each omitted change, including any unlisted confidential changes locally. Check the relevant tests and behavior before approving.');
+    korean.push('Files changed 탭과 아래 수동 검토 범위를 확인하세요. 누락된 변경을 각각 검증하고, 비공개 경로는 로컬에서 확인하세요. 승인 전 관련 테스트와 동작을 확인하세요.');
+  }
+  if (manual && (!followUp || followUp.invalidEvidence)) {
+    actions.push('Check the **Conversation** review findings against the current **Files changed** diff. Confirm evidence and expected behavior; inspect the relevant test results in **Checks**.');
+    korean.push('Conversation 탭의 리뷰 의견을 현재 Files changed diff와 비교하세요. 근거와 기대 동작을 검증하고 Checks에서 관련 테스트 결과를 확인하세요.');
+  }
+  const instructions = manual ? `\n\n**Where to check**\n\n${actions.map(action => `- ${action}`).join('\n')}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n**수동 검토 필요 사유 및 확인 위치**\n\n${korean.map(action => `- ${action}`).join('\n')}\n\n</details>` : '';
+  return `${marker}\n${manual ? 'Maintainer review required (`review: needs human`).' : 'Review follow-up required.'} No approval was issued.\n\n${reasons.map(reason => `- ${reason}`).join('\n')}${instructions}\n\n${report}`;
 }
