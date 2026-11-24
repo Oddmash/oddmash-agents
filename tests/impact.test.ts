@@ -50,3 +50,26 @@ test('impact posts one advisory, deduplicates, and does not approve or merge', a
   assert.match(comments[0].body, /Oddmash Impact/);
   assert.ok(writes.every(url => !url.includes('/merge') && !url.includes('/reviews')));
 });
+
+test('protected private paths are withheld and a changed head suppresses publication', async () => {
+  const privateRepo = { id: 1468182609, full_name: 'Oddmash/oddmash-agents', private: true, visibility: 'private', owner: { login: 'Oddmash' } };
+  const privateTarget = route('issue_comment', { ...payload, repository: privateRepo }, 'oddmash-reviewer')!;
+  let reads = 0, posts = 0;
+  const api = githubApi('fixture', async (input, init) => {
+    const url = String(input);
+    if (url.includes('/reactions')) return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ id: 1 });
+    if (url.includes('/files?')) return Response.json([{ filename: 'config/private.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+fixture-confidential' }]);
+    if (url.includes('/comments')) { if (init?.method === 'POST') posts++; return Response.json([]); }
+    reads++;
+    return Response.json({ title: 'Improve UX', body: 'Improve the example', state: 'open', draft: false, changed_files: 1, head: { sha: reads === 1 ? head : 'c'.repeat(40) }, base: { sha: base, repo: privateRepo } });
+  });
+  const request: typeof fetch = async (_input, init) => {
+    const context = JSON.parse(JSON.parse(String(init?.body)).input);
+    assert.equal(context.files.length, 0);
+    assert.equal(context.omittedCount, 1);
+    assert.doesNotMatch(JSON.stringify(context), /fixture-confidential|config\/private/);
+    return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(result) }] }] });
+  };
+  await runImpact(api, privateTarget, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+  assert.equal(posts, 0);
+});
