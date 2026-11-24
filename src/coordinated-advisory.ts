@@ -7,8 +7,8 @@ export async function authorizeCoordinatedAdvisor(target: Target, role: Advisory
   const config = advisoryConfig(role);
   if (!config || Number(config.appId) === Number(reviewerAppId)) return;
   const app = githubApi(appJwt(config.appId, config.key), request);
-  const installation = await app<{ id: number; app_id: number; suspended_at: string | null }>(`/repos/${target.repository}/installation`);
-  if (!Number.isSafeInteger(installation.id) || installation.id <= 0 || installation.app_id !== Number(config.appId) || installation.suspended_at) throw new Error('Installation not eligible');
+  const installation = await app<{ id: number; app_id: number; app_slug: string; suspended_at: string | null }>(`/repos/${target.repository}/installation`);
+  if (!Number.isSafeInteger(installation.id) || installation.id <= 0 || installation.app_id !== Number(config.appId) || installation.app_slug !== config.slug || installation.suspended_at) throw new Error('Installation not eligible');
   const advisor: Target = { installation: installation.id, repository: target.repository, repositoryId: target.repositoryId, private: target.private, number: target.number, expectedHead: target.expectedHead, advisory: role, advisoryIdentity: role, ...(role === 'impact' ? { impact: true as const } : {}) };
   const { api } = await authorize(advisor, config.appId, config.key, request);
   return { api, target: advisor, config: { bot: config.slug + '[bot]', model: config.model, openaiKey: config.openaiKey } };
