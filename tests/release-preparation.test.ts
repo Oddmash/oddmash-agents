@@ -58,3 +58,19 @@ test('model report is bounded, structured and stored only as advisory', async ()
   };
   assert.deepEqual(await generatePreparation('qa', { subjects: ['feat: change'] }, { model: 'test', key: 'synthetic' }, request), report);
 });
+
+test('truncated commit or file coverage requires QA and is reported as partial', async () => {
+  const api = async <T>(path: string): Promise<T> => {
+    if (path.endsWith('/releases/latest')) return { tag_name: previous, draft: false, prerelease: false, published_at: '2026-11-24' } as T;
+    if (path.endsWith('/commits/main')) return { sha: head } as T;
+    if (path.includes('/actions/workflows/')) return { workflow_runs: [{ head_sha: head, event: 'push', status: 'completed', conclusion: 'success' }] } as T;
+    if (path.endsWith('/commits/' + previous)) return { sha: base } as T;
+    if (path.includes('/compare/')) return { status: 'ahead', behind_by: 0, total_commits: 101, merge_base_commit: { sha: base }, files, commits: Array.from({ length: 100 }, () => ({ commit: { message: 'docs: update notes' } })) } as T;
+    throw new Error('Unexpected request');
+  };
+  const { evidence } = await collectPreparation(api, previous, head);
+  assert.equal(evidence.complete, false);
+  assert.equal(evidence.qaRequired, true);
+  assert.equal(evidence.commitCount, 101);
+  assert.equal(evidence.subjects.length, 60);
+});
