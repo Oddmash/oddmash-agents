@@ -3,12 +3,10 @@
   "installCommand": "corepack pnpm install --frozen-lockfile --ignore-scripts",
   "functions": {
     "api/github.ts": {
-      "maxDuration": 300,
-      "installCommand": "corepack pnpm install --frozen-lockfile --ignore-scripts"
+      "maxDuration": 300
     },
     "api/review-jobs.ts": {
       "maxDuration": 300,
-      "installCommand": "corepack pnpm install --frozen-lockfile --ignore-scripts",
       "experimentalTriggers": [
         {
           "type": "queue/v2beta",
@@ -17,8 +15,7 @@
       ]
     },
     "api/advisory.ts": {
-      "maxDuration": 300,
-      "installCommand": "corepack pnpm install --frozen-lockfile --ignore-scripts"
+      "maxDuration": 300
     }
   },
   "git": {
