@@ -200,6 +200,10 @@ test('infrastructure auto-merge is explicitly enabled by trusted repository meta
   assert.equal(lowRiskReason([doc], 1, repository, 'documentation'), undefined);
   assert.equal(lowRiskReason([{ ...doc, filename: 'src/core.ts' }], 1, repository, 'documentation'), 'infrastructure documentation opt-in excludes runtime changes');
   assert.equal(lowRiskReason([{ ...doc, filename: 'docs/review-policy.md' }], 1, repository, 'documentation'), 'protected changed path requires manual merge');
+  const orgDoc = { ...doc, filename: 'profile/README.md' };
+  assert.equal(lowRiskReason([orgDoc], 1, 'Oddmash/.github'), 'repository automatic merge opt-in is not enabled');
+  assert.equal(lowRiskReason([orgDoc], 1, 'Oddmash/.github', 'documentation'), undefined);
+  assert.equal(lowRiskReason([{ ...orgDoc, filename: 'docs/AI-CODE-REVIEW.md' }], 1, 'Oddmash/.github', 'documentation'), 'protected changed path requires manual merge');
   assert.notEqual(mergeProof(candidate), mergeProof({ ...candidate, repositoryOptIn: 'documentation' }));
 });
 
