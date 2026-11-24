@@ -93,3 +93,17 @@ test('ordinary filenames containing sensitive token prefixes remain eligible', (
   const filenames = ['src/authors.ts', 'src/deploymentBanner.ts', 'src/auth/index.ts', 'infra/deploy.ts'];
   assert.deepEqual(automaticAdvisoryPaths(filenames.map(filename => ({ filename }))), filenames.slice(0, 2));
 });
+
+test('infrastructure changes select dedicated Docs and QA without exposing operational paths', () => {
+  const files = [
+    { filename: '.github/workflows/ci-scope.yml', changes: 12 },
+    { filename: 'AGENTS.md', status: 'modified', changes: 3 },
+    { filename: 'CONTRIBUTING.md', status: 'modified', changes: 3 },
+    { filename: 'docs/AI-CODE-REVIEW.md', status: 'modified', changes: 8 },
+    { filename: 'scripts/pr-format.test.mjs', changes: 40 }
+  ];
+  assert.deepEqual(automaticAdvisoryPaths(files), files.slice(1).map(file => file.filename));
+  assert.deepEqual(selectAdvisoryRoles(files), ['qa', 'docs']);
+  for (const filename of ['scripts/check.mjs', 'scripts/check.cjs', 'src/check.mts', 'src/check.cts']) assert.deepEqual(selectAdvisoryRoles([{ filename }]), ['qa']);
+  assert.deepEqual(selectAdvisoryRoles([{ filename: 'AGENTS.md', status: 'modified', changes: 2 }]), []);
+});
