@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { runImpact } from './impact.ts';
 import { runReview } from './reviewer.ts';
 import { startReviewProgress } from './review-progress.ts';
 import { formatReviewBody } from './core.ts';
@@ -116,6 +117,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
   if (!/^[a-z0-9-]+\[bot\]$/i.test(bot) || !openaiKey) throw new Error('Missing app configuration');
   const authorized = await authorize(target, appId, key);
   const { api, token: githubToken } = authorized;
+  if (target.impact) { await runImpact(authorized.api, target, { bot, model, openaiKey }); return; }
   const repository = target.repository;
   const root = '/repos/' + repository;
   const eligibleBase = (item: Pull) => item.base.repo.full_name === repository && item.base.repo.id === target.repositoryId && item.base.repo.private === Boolean(target.private);
@@ -341,3 +343,4 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     }
   }
 }
+
