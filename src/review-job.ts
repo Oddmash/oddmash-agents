@@ -5,6 +5,11 @@ export const reviewTopic = 'oddmash-review-jobs';
 export const deadLetterTopic = 'oddmash-review-failed';
 export type ReviewJob = { version: 1; delivery: string; target: Target; signature: string };
 
+export function leadDeliveryKey(target: Target, delivery: string) {
+  const comment = target.requestComment;
+  return comment?.slash ? `slash:${target.repositoryId}:${comment.kind}:${comment.id}` : delivery;
+}
+
 export function createReviewJob(delivery: string, target: Target, secret: string): ReviewJob {
   if (!secret || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(delivery)) throw new Error('Invalid delivery ID');
   const signature = createHmac('sha256', secret).update(JSON.stringify([1, delivery, target])).digest('hex');

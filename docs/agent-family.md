@@ -16,6 +16,19 @@ For explicit manual requests until independent apps are configured, invoke each 
 
 For coordinated automatic requests, Lead resolves the selected role's own enabled App installation for the repository and uses that role's existing scoped token. Unavailable, unconfigured or unauthorized roles are skipped, with no fallback publication under Lead. No new app permissions or repository enrollment are granted by orchestration. Impact is dispatched to its existing impact-specific implementation, while the other five roles use the shared advisory engine. Neither path can approve or authorize a merge.
 
+
+## Slash commands
+
+Maintainers can enter one command on the first non-empty line of an issue or PR comment. Put optional context on subsequent lines. Quoted or embedded commands and comments containing multiple commands are ignored. The total comment limit is 2,000 characters.
+
+| Context | Commands |
+| --- | --- |
+| Open PR conversation | `/review`, `/qa`, `/docs`, `/impact`, `/architect`, `/release` |
+| Reply in an open PR inline thread | `/review` |
+| Open issue | `/triage` |
+
+Lead receives the slash command. Advisory responses use the corresponding dedicated, enabled GitHub App installed on that repository. Explicit App mention commands still work. GitHub does not provide native autocomplete for these commands. For a review request awaiting required CI, the same comment is reused when review resumes.
+
 ## Lead identity
 
 Lead is the renamed primary review App. Its verified authenticated account is `oddmash-lead[bot]`. Use the [identity guide](lead-identity.md) for attribution. The App ID, webhook endpoint, existing environment key names and historical attribution remain unchanged.
