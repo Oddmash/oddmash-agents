@@ -1,17 +1,13 @@
 name: Deploy Reviewer to Vercel
 on:
+  release:
+    types: [published]
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'api/**'
-      - 'src/**'
-      - 'scripts/sync-vercel-env.mjs'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'tsconfig.json'
-      - 'vercel.json'
-      - '.github/workflows/deploy-vercel.yml'
+    inputs:
+      release_tag:
+        description: Latest published stable release tag
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -23,14 +19,37 @@ env:
   VERCEL_CLI_VERSION: '58.4.4'
   ENABLE_EXPERIMENTAL_COREPACK: '1'
 jobs:
+  release:
+    if: github.repository == 'Oddmash/oddmash-agents' && github.actor_id == '135234546' && (github.event_name == 'release' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      commit: ${{ steps.resolve.outputs.commit }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+      - name: Verify latest published stable release
+        id: resolve
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+        run: node scripts/validate-release.mjs
   deploy:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.VERCEL_DEPLOY_ENABLED == 'true')
+    needs: release
+    if: needs.release.result == 'success' && vars.VERCEL_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-24.04
     environment: production
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ needs.release.outputs.commit }}
           persist-credentials: false
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
@@ -92,8 +111,21 @@ jobs:
               if (signed.status !== 200) throw new Error("Signed webhook ping failed");
             }
           '
+      - name: Recheck latest release before promotion
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+          EXPECTED_RELEASE_COMMIT: ${{ needs.release.outputs.commit }}
+        run: node scripts/validate-release.mjs
       - name: Promote tested deployment
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
         run: pnpm --reporter=silent dlx "vercel@$VERCEL_CLI_VERSION" promote "$DEPLOYMENT_URL" --yes
+      - name: Record production release
+        env:
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.release.outputs.commit }}
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+        run: |
+          printf '## Production release\n\n- Tag: %s\n- Commit: %s\n- Deployment: %s\n' "$RELEASE_TAG" "$RELEASE_COMMIT" "$DEPLOYMENT_URL" >> "$GITHUB_STEP_SUMMARY"
