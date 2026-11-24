@@ -14,6 +14,7 @@ const messages: Record<string, [string, string]> = {
   'current head or base commit evidence is incomplete': ['Current head or base commit evidence is incomplete. Wait for GitHub to finish updating the PR.', '현재 PR의 head 또는 base 커밋 정보가 불완전합니다. GitHub 갱신을 기다리세요.'],
   'pull request has manual hold label': ['A manual hold label prevents automatic merge. Check the PR labels and resolve the outstanding concern with a maintainer.', '수동 보류 라벨 때문에 자동 머지가 제한됩니다. PR 라벨과 보류 사유를 유지보수 담당자와 확인하세요.'],
   'fork or source repository mismatch': ['Fork or cross-repository PRs require manual review.', '포크 또는 다른 저장소의 PR은 수동 확인이 필요합니다.'],
+  'infrastructure PR must target main': ['Infrastructure repositories use main-only delivery; retarget the PR to main if appropriate.', '인프라 저장소는 main 기준으로 작업합니다. 필요한 경우 PR 대상을 main으로 변경하세요.'],
   'target is not the default main branch': ['The target is not the permitted default branch.', '대상 브랜치가 허용된 기본 브랜치가 아닙니다.'],
   'changed-file count exceeds the auto-merge budget': ['The PR must include 1 to 20 changed files. Split the PR if practical or review manually.', '자동 머지는 변경 파일 1~20개만 허용합니다. 가능하면 PR을 분리하거나 수동 검토하세요.'],
   'repository automatic merge opt-in is not enabled': ['Automatic merge is not enabled for this infrastructure repository. An organization administrator may set the repository custom property oddmash-auto-merge to documentation; all other merge checks still apply.', '이 인프라 저장소의 자동 머지 옵트인이 활성화되지 않았습니다. 조직 관리자가 저장소의 Custom property oddmash-auto-merge를 documentation으로 설정할 수 있으며, 기존 머지 조건은 그대로 적용됩니다.'],

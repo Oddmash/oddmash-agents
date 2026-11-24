@@ -42,6 +42,8 @@ test('explicitly approved private identities are candidates but visibility and I
     const pull = { ...pr, head: { sha: head, repo: identity }, base: { ...pr.base, repo: { ...identity, default_branch: 'main', private: true } } };
     assert.equal(mergeRepositoryAllowed(target), true);
     assert.equal(eligiblePull(pull, target), true);
+    const develop = { ...pull, base: { ...pull.base, ref: 'develop' } };
+    assert.equal(eligiblePull(develop, target), !['Oddmash/oddmash-agents', 'Oddmash/oddmash-skills'].includes(repository));
     assert.equal(eligiblePull(pull, { ...target, repositoryId: 99 }), false);
     assert.equal(eligiblePull(pull, { ...target, private: false }), false);
     assert.equal(eligiblePull({ ...pull, base: { ...pull.base, repo: { ...pull.base.repo, private: false } } }, target), false);
