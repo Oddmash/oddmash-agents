@@ -287,7 +287,7 @@ export function formatReviewBody(event: ReviewDecision, marker: string, report: 
   if (event === 'APPROVE') return author?.id === 135234546 && author.login === 'qtaghdi' ? `${marker}\nApproved.` : `${marker}\nThanks for contributing! @qtaghdi, this PR is ready for your review.`;
   if (event === 'REQUEST_CHANGES') return `${marker}\nPlease address the findings before approval.\n\n${report}`;
   const reasons: string[] = [];
-  if (followUp?.advisory) reasons.push('Advisory findings: investigate and address or explain them before requesting another review. They are not confirmed blockers.');
+  if (followUp?.advisory) reasons.push('Advisory findings are optional recommendations, not confirmed blockers. After verifying the evidence, the maintainer may accept, defer to a separate issue, or decline with rationale. A repeated review is not required solely to dispose of optional advice on the unchanged head.');
   if (followUp?.incompleteCoverage) reasons.push('Manual coverage check required: inspect the unreviewed changes listed below.');
   if (followUp?.invalidEvidence) reasons.push('Review evidence incomplete: validate the findings against the diff or request a fresh review.');
   if (!reasons.length) reasons.push(followUp ? 'Approval pending complete passing checks.' : 'Review follow-up required; inspect the report below.');
@@ -302,6 +302,7 @@ export function formatReviewBody(event: ReviewDecision, marker: string, report: 
     actions.push('Check the **Conversation** review findings against the current **Files changed** diff. Confirm evidence and expected behavior; inspect the relevant test results in **Checks**.');
     korean.push('Conversation 탭의 리뷰 의견을 현재 Files changed diff와 비교하세요. 근거와 기대 동작을 검증하고 Checks에서 관련 테스트 결과를 확인하세요.');
   }
+  const advisoryGuidance = followUp?.advisory ? '\n\n<details>\n<summary>참고 의견 처리 (Korean)</summary>\n\n참고 의견은 확인된 머지 차단 결함이 아닙니다. 근거를 확인한 후 반영, 별도 이슈로 연기 또는 사유를 남겨 보류할 수 있습니다. 커밋이 변경되지 않았다면 참고 의견의 처리만을 위해 재리뷰를 반복할 필요는 없습니다. 수동 검토, 필수 CI 및 승인 조건은 그대로 적용됩니다.\n\n</details>' : '';
   const instructions = manual ? `\n\n**Where to check**\n\n${actions.map(action => `- ${action}`).join('\n')}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n**수동 검토 필요 사유 및 확인 위치**\n\n${korean.map(action => `- ${action}`).join('\n')}\n\n</details>` : '';
-  return `${marker}\n${manual ? 'Maintainer review required (`review: needs human`).' : 'Review follow-up required.'} No approval was issued.\n\n${reasons.map(reason => `- ${reason}`).join('\n')}${instructions}\n\n${report}`;
+  return `${marker}\n${manual ? 'Maintainer review required (`review: needs human`).' : followUp?.advisory ? 'Advisory review complete (optional follow-up).' : 'Review follow-up required.'} No approval was issued.\n\n${reasons.map(reason => `- ${reason}`).join('\n')}${instructions}${advisoryGuidance}\n\n${report}`;
 }
