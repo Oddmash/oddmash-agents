@@ -92,7 +92,7 @@ test('refuses an unapproved private repository or mismatched visibility', async 
 
 test('resolves only the exact bot-owned inline finding after verified current-head correction', async () => {
   const nextHead = 'c'.repeat(40);
-  for (const scenario of ['fixed', 'uncertain', 'stale', 'other-author', 'missing-patch', 'invalid-evidence']) {
+  for (const scenario of ['fixed', 'uncertain', 'stale', 'other-author', 'human-with-bot-slug', 'missing-patch', 'invalid-evidence']) {
     const currentPull = { ...pull, head: { sha: nextHead } };
     const followup = { ...question, body: `@oddmash-reviewer Fixed in ${scenario === 'stale' ? head : nextHead}: added the pause control.` };
     const comments = [root, followup];
@@ -120,12 +120,12 @@ test('resolves only the exact bot-owned inline finding after verified current-he
       }
       assert.equal(path, '/graphql');
       const { query, variables } = JSON.parse(String(init?.body));
-      if (query.startsWith('query')) return Response.json({ data: { repository: { pullRequest: { headRefOid: nextHead, baseRefOid: pull.base.sha, reviewThreads: { nodes: [{ id: 'thread-4', isResolved: false, comments: { nodes: [{ id: 'comment-4', author: { login: scenario === 'other-author' ? 'other' : bot.login } }] } }], pageInfo: { hasNextPage: false, endCursor: null } } } } } });
+      if (query.startsWith('query')) return Response.json({ data: { repository: { pullRequest: { headRefOid: nextHead, baseRefOid: pull.base.sha, reviewThreads: { nodes: [{ id: 'thread-4', isResolved: false, comments: { nodes: [{ id: 'comment-4', author: { __typename: scenario === 'human-with-bot-slug' ? 'User' : 'Bot', login: scenario === 'other-author' ? 'other' : config.slug } }] } }], pageInfo: { hasNextPage: false, endCursor: null } } } } } });
       mutations.push(variables.id);
       return Response.json({ data: { resolveReviewThread: { thread: { id: variables.id, isResolved: true } } } });
     });
     const model: typeof fetch = async () => Response.json({ status: 'completed', output_parsed: { verdict: scenario === 'uncertain' ? 'uncertain' : 'fixed', english: 'The patch adds the missing pause control.', korean: '수정 내용에 일시정지 기능이 추가되었습니다.', evidence: scenario === 'invalid-evidence' ? '+unrelated' : '+const paused = true;' } });
-    if (scenario === 'other-author') await assert.rejects(replyToReview(api, target, config, model), /resolution unavailable/);
+    if (scenario === 'other-author' || scenario === 'human-with-bot-slug') await assert.rejects(replyToReview(api, target, config, model), /resolution unavailable/);
     else await replyToReview(api, target, config, model);
     assert.deepEqual(mutations, scenario === 'fixed' ? ['thread-4'] : []);
     assert.equal(replies, 1);
@@ -198,7 +198,7 @@ test('scoped completion retries a failed reaction or resolution without posting 
       }
       assert.equal(path, '/graphql');
       const { query } = JSON.parse(String(init?.body));
-      if (query.startsWith('query')) return Response.json({ data: { repository: { pullRequest: { headRefOid: nextHead, baseRefOid: pull.base.sha, reviewThreads: { nodes: [{ id: 'thread-4', isResolved: resolved, comments: { nodes: [{ id: 'comment-4', author: { login: bot.login } }] } }], pageInfo: { hasNextPage: false } } } } } });
+      if (query.startsWith('query')) return Response.json({ data: { repository: { pullRequest: { headRefOid: nextHead, baseRefOid: pull.base.sha, reviewThreads: { nodes: [{ id: 'thread-4', isResolved: resolved, comments: { nodes: [{ id: 'comment-4', author: { __typename: 'Bot', login: config.slug } }] } }], pageInfo: { hasNextPage: false } } } } } });
       if (failure === 'resolution' && !failed) { failed = true; return Response.json({ errors: [{ type: 'FORBIDDEN' }] }); }
       resolved = true;
       return Response.json({ data: { resolveReviewThread: { thread: { id: 'thread-4', isResolved: true } } } });
@@ -244,7 +244,7 @@ test('full re-review reconciles each earlier finding from its own correction evi
     assert.equal(path, '/graphql');
     const { query, variables } = JSON.parse(String(init?.body));
     if (query.startsWith('query')) {
-      const nodes = comments.map(item => ({ id: `thread-${item.id}`, isResolved: resolved.has(`thread-${item.id}`), comments: { nodes: [{ id: item.node_id, author: { login: item.user.login } }] } }));
+      const nodes = comments.map(item => ({ id: `thread-${item.id}`, isResolved: resolved.has(`thread-${item.id}`), comments: { nodes: [{ id: item.node_id, author: { __typename: item.user.type, login: item.user.login.replace(/\[bot\]$/, '') } }] } }));
       return Response.json({ data: { repository: { pullRequest: { headRefOid: nextHead, baseRefOid: pull.base.sha, reviewThreads: { nodes, pageInfo: { hasNextPage: false } } } } } });
     }
     resolved.add(variables.id);

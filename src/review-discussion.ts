@@ -19,14 +19,20 @@ export function scopedFixHead(body: string, slug: string): string | undefined {
   return new RegExp(`^@${slug}(?:\\[bot\\])? Fixed in ([a-f0-9]{40}):`, 'i').exec(body.trim())?.[1].toLowerCase();
 }
 
-type ReviewThread = { id: string; isResolved: boolean; comments: { nodes: { id: string; author?: { login: string } }[] } };
+type ThreadAuthor = { login: string; __typename: string };
+type ReviewThread = { id: string; isResolved: boolean; comments: { nodes: { id: string; author?: ThreadAuthor | null }[] } };
+
+function ownsThread(author: ThreadAuthor | null | undefined, bot: string): boolean {
+  // GraphQL Bot logins omit the suffix present in REST's bot login.
+  return author?.__typename === 'Bot' && (author.login === bot || author.login + '[bot]' === bot);
+}
 
 async function reviewThreads(api: Api, target: Target, head: string, baseSha: string, root?: string): Promise<ReviewThread[] | null> {
   const [owner, name] = target.repository.split('/');
   const threads: ReviewThread[] = [];
   let after: string | null = null;
   for (let page = 0; page < 10; page++) {
-    const result = await api<{ errors?: unknown[]; data?: { repository?: { pullRequest?: { headRefOid: string; baseRefOid: string; reviewThreads: { nodes: ReviewThread[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } } } }>('/graphql', { method: 'POST', body: JSON.stringify({ query: 'query FindReviewThread($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefOid baseRefOid reviewThreads(first: 100, after: $after) { nodes { id isResolved comments(first: 1) { nodes { id author { login } } } } pageInfo { hasNextPage endCursor } } } } }', variables: { owner, name, number: target.number, after } }) });
+    const result = await api<{ errors?: unknown[]; data?: { repository?: { pullRequest?: { headRefOid: string; baseRefOid: string; reviewThreads: { nodes: ReviewThread[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } } } }>('/graphql', { method: 'POST', body: JSON.stringify({ query: 'query FindReviewThread($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefOid baseRefOid reviewThreads(first: 100, after: $after) { nodes { id isResolved comments(first: 1) { nodes { id author { __typename login } } } } pageInfo { hasNextPage endCursor } } } } }', variables: { owner, name, number: target.number, after } }) });
     const pr = result.data?.repository?.pullRequest;
     if (result.errors?.length || !pr || pr.headRefOid !== head || pr.baseRefOid !== baseSha) return null;
     if (root) {
@@ -44,7 +50,7 @@ async function reviewThreads(api: Api, target: Target, head: string, baseSha: st
 
 async function resolveOwnThread(api: Api, target: Target, root: string, bot: string, head: string, baseSha: string): Promise<boolean> {
   const threads = await reviewThreads(api, target, head, baseSha, root);
-  const thread = threads?.find(item => item.comments.nodes[0]?.id === root && item.comments.nodes[0]?.author?.login === bot);
+  const thread = threads?.find(item => item.comments.nodes[0]?.id === root && ownsThread(item.comments.nodes[0]?.author, bot));
   if (!thread) return false;
   if (thread.isResolved) return true;
   const resolved = await api<{ errors?: unknown[]; data?: { resolveReviewThread?: { thread?: { id: string; isResolved: boolean } } } }>('/graphql', { method: 'POST', body: JSON.stringify({ query: 'mutation ResolveVerifiedThread($id: ID!) { resolveReviewThread(input: { threadId: $id }) { thread { id isResolved } } }', variables: { id: thread.id } }) });
@@ -179,7 +185,7 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
     if (!await matchesSnapshot()) return;
     if (verdict === 'fixed' && !conversation) {
       const threads = original.node_id ? await reviewThreads(api, target, pr.head.sha, pr.base.sha, original.node_id).catch(() => null) : null;
-      if (!threads?.some(item => item.comments.nodes[0]?.id === original.node_id && item.comments.nodes[0]?.author?.login === bot)) {
+      if (!threads?.some(item => item.comments.nodes[0]?.id === original.node_id && ownsThread(item.comments.nodes[0]?.author, bot))) {
         console.warn('Verified finding resolution unavailable; maintainer review required.');
         throw new Error('Verified finding resolution unavailable');
       }
@@ -289,7 +295,7 @@ export async function reconcileReviewThreads(api: Api, target: Target, config: {
   if (!await current()) return;
   const threads = await reviewThreads(api, target, head, baseSha);
   if (!threads) { console.warn('Earlier finding coverage unavailable or stale; threads remain open.'); return; }
-  const open = new Set(threads.filter(thread => !thread.isResolved && thread.comments.nodes[0]?.author?.login === bot).map(thread => thread.comments.nodes[0].id));
+  const open = new Set(threads.filter(thread => !thread.isResolved && ownsThread(thread.comments.nodes[0]?.author, bot)).map(thread => thread.comments.nodes[0].id));
   if (!open.size) return;
   const comments = await listComments(api, path);
   if (!comments) return;
