@@ -33,6 +33,8 @@ jobs:
               'size: L': ['f9d0c4', '301–800 changed lines'],
               'size: XL': ['d93f0b', 'More than 800 changed lines'],
               'review: pending': ['ededed', 'Agent review pending'],
+              'review: stale': ['c5def5', 'Previous review is for an older commit'],
+              'review: follow-up': ['fbca04', 'Review follow-up required'],
               'review: approved': ['0e8a16', 'Agent review passed'],
               'review: changes requested': ['d73a4a', 'Agent recommends changes'],
               'review: needs human': ['fbca04', 'Maintainer verification needed']
@@ -60,11 +62,16 @@ jobs:
               const wanted = ['type: ' + (types[prefix] ?? 'other'), 'size: ' + (size <= 25 ? 'XS' : size <= 100 ? 'S' : size <= 300 ? 'M' : size <= 800 ? 'L' : 'XL')];
               const attached = new Set(pr.labels.map(label => label.name));
               const reset = ['opened', 'reopened', 'synchronize', 'ready_for_review'].includes(context.payload.action);
+              const reviews = reset ? await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: number, per_page: 100 }) : [];
+              const official = reviews.filter(review => review.user?.login === 'oddmash-reviewer[bot]' && review.body?.includes('<!-- oddmash-app-review:') && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state));
+              const currentReview = official.some(review => review.commit_id === pr.head.sha);
+              const activeReview = reviews.some(review => review.user?.login === 'oddmash-reviewer[bot]' && review.commit_id === pr.head.sha && review.state === 'PENDING');
+              const resetReview = reset && !currentReview && !activeReview;
               const reviewLabels = [...attached].filter(name => name.startsWith('review: ') && Object.hasOwn(catalog, name));
-              if (reset || !reviewLabels.length) wanted.push('review: pending');
+              if (resetReview || !reviewLabels.length) wanted.push(official.length && !currentReview && !activeReview ? 'review: stale' : 'review: pending');
               for (const name of attached) {
                 const managed = Object.hasOwn(catalog, name);
-                if (managed && !wanted.includes(name) && (name.startsWith('type: ') || name.startsWith('size: ') || (reset && name.startsWith('review: ')))) {
+                if (managed && !wanted.includes(name) && (name.startsWith('type: ') || name.startsWith('size: ') || (resetReview && name.startsWith('review: ')))) {
                   try { await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name }); }
                   catch (error) { if (error.status !== 404) throw error; }
                 }

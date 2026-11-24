@@ -14,11 +14,15 @@ Advisory agents for Oddmash products. The first agent, Reviewer, helps maintaine
 | <img src="assets/agents/docs.svg" width="40" alt="Docs badge"> | Oddmash Docs | Code and documentation consistency | On request | `/docs` |
 | <img src="assets/agents/architect.svg" width="40" alt="Architect badge"> | Oddmash Architect | Design and maintainability assessment | On request | `/architect` |
 
-Reviewer is the only automatic agent. The other roles run on explicit maintainer mentions and produce advisory output. They share the same server and queue, while role-specific identity, permissions and model usage remain separately configurable. Dedicated apps must be configured before their own mentions become available; the Reviewer mention is the compatibility entry point.
+Reviewer is the only automatic entry point. Other roles respond to explicit maintainer mentions and produce advisory output. With optional coordinated review enabled, Reviewer selects at most two relevant PR advisors from changed-file metadata. These reports do not grant approval or merge authority. They share the same server and queue, while role-specific identity, permissions and model usage remain separately configurable. Dedicated apps must be configured before their own mentions become available; the Reviewer mention is the compatibility entry point.
 
 See [agent family and setup](docs/agent-family.md) for invocation details and role configuration.
 
 ## Reviewer
+
+Current-head automatic reviews wait for required CI. A new push makes an older review stale until current-head work begins; pending indicates active review. A small verified descendant of an approved head with unchanged base can receive bounded incremental analysis. Incremental reports never authorize a merge; explicit review requests always use full evidence. Missing, divergent, large or unverified comparisons fall back to a full review.
+
+Set `REVIEWER_AUTO_ADVISORY_ENABLED=true` to enable at most two additional advisor reports per automatically reviewed head. The Reviewer compatibility identity publishes the reports using existing scoped permissions and per-role model configuration. Triage remains issue-only. No advisor can invoke another advisor. Existing head and role markers prevent duplicate reports, and runtime logs contain role outcomes rather than source or credentials.
 
 - Analyzes open PRs in public and explicitly approved private repositories using GitHub's changed-file and check APIs.
 - Uses organization and trusted base-branch root and nested `AGENTS.md` guidance.
