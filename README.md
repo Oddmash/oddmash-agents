@@ -2,6 +2,22 @@
 
 Advisory agents for Oddmash products. The first agent, Reviewer, helps maintainers identify concrete regressions in pull requests while preserving project-specific conventions and maintainer control.
 
+## Agent family
+
+| | Agent | Responsibility | Execution | Command |
+| --- | --- | --- | --- | --- |
+| <img src="assets/agents/reviewer.svg" width="40" alt="Reviewer badge"> | Oddmash Reviewer | Code quality, defects and accessibility | Automatic | `/review` |
+| <img src="assets/agents/impact.svg" width="40" alt="Impact badge"> | Oddmash Impact | Product value, necessity and trade-offs | On request | `/impact` |
+| <img src="assets/agents/triage.svg" width="40" alt="Triage badge"> | Oddmash Triage | Issue classification, duplicates and priority | On request | `/triage` |
+| <img src="assets/agents/qa.svg" width="40" alt="QA badge"> | Oddmash QA | Missing tests and observed verification | On request | `/qa` |
+| <img src="assets/agents/release.svg" width="40" alt="Release badge"> | Oddmash Release | Changelog and release note drafts | On request | `/release` |
+| <img src="assets/agents/docs.svg" width="40" alt="Docs badge"> | Oddmash Docs | Code and documentation consistency | On request | `/docs` |
+| <img src="assets/agents/architect.svg" width="40" alt="Architect badge"> | Oddmash Architect | Design and maintainability assessment | On request | `/architect` |
+
+Reviewer is the only automatic agent. The other roles run on explicit maintainer mentions and produce advisory output. They share the same server and queue, while role-specific identity, permissions and model usage remain separately configurable. Dedicated apps must be configured before their own mentions become available; the Reviewer mention is the compatibility entry point.
+
+See [agent family and setup](docs/agent-family.md) for invocation details and role configuration.
+
 ## Reviewer
 
 - Analyzes open PRs in public and explicitly approved private repositories using GitHub's changed-file and check APIs.
