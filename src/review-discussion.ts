@@ -1,3 +1,4 @@
+import { withPendingReviewLock } from './review-lock.ts';
 import { createHash } from 'node:crypto';
 import type { AdvisoryRole } from './advisory-agents.ts';
 import { agentSkill, guidanceInstructions, loadProjectGuidance } from './agent-guidance.ts';
@@ -204,7 +205,8 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
     if (!reference || reference.root !== root || reference.rootKind !== target.reply.rootKind || reference.path !== filePath || question.issue_url !== `https://api.github.com${commentBase}` || !(original.body.includes('<!-- oddmash-app-review:') || original.body.includes('<!-- oddmash-finding:')) || (target.reply.rootKind === 'review' ? original.pull_request_url !== `https://api.github.com${base}` : original.issue_url !== question.issue_url)) return;
   } else if (original.in_reply_to_id || !original.body.includes('<!-- oddmash-finding:') || question.in_reply_to_id !== root || original.pull_request_url !== `https://api.github.com${base}` || question.pull_request_url !== original.pull_request_url) return;
   const marker = replyMarker(comment);
-  const thread = comments.filter(item => (conversation ? item.body.includes(rootMarker) : item.in_reply_to_id === root) && item.user.login === bot && item.body.includes('<!-- oddmash-discussion:'));
+  const belongsToThread = (item: Comment) => (conversation ? item.body.includes(rootMarker) : item.in_reply_to_id === root) && item.user.login === bot && item.body.includes('<!-- oddmash-discussion:');
+  const thread = comments.filter(belongsToThread);
   const existing = thread.find(item => item.body.includes(marker));
   const privateReview = Boolean(target.private);
   if (!safe(original.body, privateReview) || !safe(question.body, privateReview) || !safe(filePath, privateReview)) return;
@@ -264,13 +266,17 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
       await markAcknowledged(api, target, reaction.kind, id, clean + resolved);
     }
   };
-  const verifiedFix = requested ? thread.find(item => item.body.split('\n').includes(fixMarker)) : undefined;
-  if (!existing && verifiedFix) {
+  const findVerifiedFix = (items: Comment[]) => requested ? items.find(item => belongsToThread(item) && item.body.split('\n').includes(fixMarker)) : undefined;
+  const reuseVerifiedFix = async (verifiedFix: Comment) => {
     if (verifiedFix.body.includes('<!-- oddmash-discussion-acknowledged -->')) {
       if (await matchesSnapshot()) await reactToComment(api, target.repository, reaction, '+1');
     } else {
       await settleReply('fixed', verifiedFix.id, verifiedFix.body, undefined);
     }
+  };
+  const verifiedFix = findVerifiedFix(thread);
+  if (!existing && verifiedFix) {
+    await reuseVerifiedFix(verifiedFix);
     return;
   }
   if (existing) {
@@ -301,22 +307,31 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
       parsed.korean = '현재 커밋의 완전한 변경 내용에서 수정 근거를 확인하지 못했습니다. 지적을 열린 상태로 유지하니 커밋과 관련 파일을 확인해 주세요.';
     }
     if (typeof parsed.english !== 'string' || typeof parsed.korean !== 'string' || !parsed.english.trim() || !/[가-힣]/.test(parsed.korean) || parsed.english.length > 1200 || parsed.korean.length > 1200 || !safe(parsed.english, privateReview) || !safe(parsed.korean, privateReview)) return;
-    if (!await matchesSnapshot()) return;
-    const latest = await listComments(api, commentBase);
-    if (!latest || latest.some(item => item.user.login === bot && item.body.includes(marker)) || !latest.some(item => item.id === question.id && item.body === question.body && maintainer(item.user))) return;
-    const latestOriginal = await readOriginal(latest);
-    if (!latestOriginal || latestOriginal.id !== original.id || latestOriginal.user.login !== bot || latestOriginal.body !== original.body || originalHead(latestOriginal) !== originalHead(original) || latestOriginal.node_id !== original.node_id) return;
-    const reference = conversation ? `\n${rootMarker}\nIn response to [the original finding](https://github.com/${target.repository}/pull/${target.number}#${target.reply.rootKind === 'review' ? 'pullrequestreview' : 'issuecomment'}-${root}).\n` : '';
-    const verdict = parsed.verdict === 'fixed' || parsed.verdict === 'agree' ? parsed.verdict : undefined;
-    const completion = verdict ? `\n${completionMarker(verdict)}${verdict === 'fixed' ? '\n' + fixMarker : ''}` : '';
-    const resolutionPending = verdict === 'fixed' && !conversation ? status + 'Thread resolution pending. 스레드를 닫는 중입니다.' : '';
-    const body = `${marker}${completion}${reference}\n${plain(parsed.english)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(parsed.korean)}\n\n</details>${resolutionPending}`;
-    if (Buffer.byteLength(body, 'utf8') > 12_000) return;
-    const posted = await api<{ id: number }>(conversation ? `${commentBase}/comments` : `${base}/comments/${root}/replies`, { method: 'POST', body: JSON.stringify({ body }) });
-    if (verdict) {
-      completing = true;
-      await settleReply(verdict, posted.id, body, eyesId);
-    }
+    const publish = async () => {
+      if (!await matchesSnapshot()) return;
+      const latest = await listComments(api, commentBase);
+      if (!latest || latest.some(item => item.user.login === bot && item.body.includes(marker)) || !latest.some(item => item.id === question.id && item.body === question.body && maintainer(item.user))) return;
+      const latestOriginal = await readOriginal(latest);
+      if (!latestOriginal || latestOriginal.id !== original.id || latestOriginal.user.login !== bot || latestOriginal.body !== original.body || originalHead(latestOriginal) !== originalHead(original) || latestOriginal.node_id !== original.node_id) return;
+      const verified = findVerifiedFix(latest);
+      if (verified) {
+        await reuseVerifiedFix(verified);
+        return;
+      }
+      const reference = conversation ? `\n${rootMarker}\nIn response to [the original finding](https://github.com/${target.repository}/pull/${target.number}#${target.reply.rootKind === 'review' ? 'pullrequestreview' : 'issuecomment'}-${root}).\n` : '';
+      const verdict = parsed.verdict === 'fixed' || parsed.verdict === 'agree' ? parsed.verdict : undefined;
+      const completion = verdict ? `\n${completionMarker(verdict)}${verdict === 'fixed' ? '\n' + fixMarker : ''}` : '';
+      const resolutionPending = verdict === 'fixed' && !conversation ? status + 'Thread resolution pending. 스레드를 닫는 중입니다.' : '';
+      const body = `${marker}${completion}${reference}\n${plain(parsed.english)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(parsed.korean)}\n\n</details>${resolutionPending}`;
+      if (Buffer.byteLength(body, 'utf8') > 12_000) return;
+      const posted = await api<{ id: number }>(conversation ? `${commentBase}/comments` : `${base}/comments/${root}/replies`, { method: 'POST', body: JSON.stringify({ body }) });
+      if (verdict) {
+        completing = true;
+        await settleReply(verdict, posted.id, body, eyesId);
+      }
+    };
+    if (parsed.verdict === 'fixed') await withPendingReviewLock(api, base, pr.head.sha, bot, publish);
+    else await publish();
   } finally { if (!completing) await clearReceipt(api, target.repository, reaction, eyesId); }
 }
 

@@ -18,7 +18,8 @@ import { actionsQuotaEvidence, actionsWorkflowUrl } from './actions-quota.ts';
 import { automaticAdvisoryBudget, automaticAdvisoryPaths, coordinatedAdvisoriesEnabled, incrementalPaths, reviewBaseMarker, runCoordinatedAdvisories, selectAdvisoryRoles, type ChangeMetadata, type CompareEvidence } from './review-follow-up-policy.ts';
 
 type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: ReviewCheckHead; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
-export type Review = { id: number; node_id?: string; body: string | null; user: { login: string }; state: string; commit_id: string };
+import { acquirePendingReview, clearExpiredWebhookLock, ownsPendingReview, type Review } from './review-lock.ts';
+export { acquirePendingReview, expiredWebhookLock, ownsPendingReview, type Review } from './review-lock.ts';
 
 type Api = ReturnType<typeof import('./webhook.ts').githubApi>;
 
@@ -65,40 +66,6 @@ export function reviewFingerprint(repository: string, number: number, head: stri
 
 export function canRetryApprovedMerge(review: Review, marker: string): boolean {
   return review.state === 'APPROVED' && !review.body?.includes(marker);
-}
-
-export async function acquirePendingReview(api: Api, path: string, head: string, bot: string, webhook = false): Promise<number | null> {
-  try {
-    const body = '<!-- oddmash-review-lock -->' + (webhook ? `\n<!-- oddmash-webhook-lock:${Date.now()} -->` : '');
-    const pending = await api<Review>(`${path}/reviews`, { method: 'POST', body: JSON.stringify({ commit_id: head, body }) });
-    if (pending.state !== 'PENDING' || pending.user.login !== bot || !Number.isSafeInteger(pending.id)) throw new Error('Unexpected pending review response');
-    return pending.id;
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes('(422)')) throw error;
-    const reviews = await api<Review[]>(`${path}/reviews?per_page=100`);
-    if (reviews.some(review => review.user.login === bot && (review.state === 'PENDING' || review.commit_id === head && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED'].includes(review.state)))) return null;
-    throw error;
-  }
-}
-
-export function ownsPendingReview(reviews: Review[], bot: string, head: string, id: number): boolean {
-  if (reviews.length >= 100) return false;
-  const pending = reviews.filter(review => review.user.login === bot && review.state === 'PENDING');
-  const own = pending.find(review => review.id === id);
-  return !!own && own.commit_id === head && !!own.body?.includes('<!-- oddmash-review-lock -->') && pending.every(review => Number.isSafeInteger(review.id) && review.id >= id && review.commit_id === head && !!review.body?.includes('<!-- oddmash-review-lock -->'));
-}
-
-export function expiredWebhookLock(review: Review, bot: string, now = Date.now()): boolean {
-  const timestamp = Number(review.body?.match(/<!-- oddmash-webhook-lock:(\d{13}) -->/)?.[1]);
-  return review.state === 'PENDING' && review.user.login === bot && !!review.body?.includes('<!-- oddmash-review-lock -->') && Number.isSafeInteger(timestamp) && now - timestamp > 360_000;
-}
-
-export async function clearExpiredWebhookLock(api: Api, path: string, review: Review, bot: string): Promise<boolean> {
-  if (!expiredWebhookLock(review, bot)) return false;
-  const current = await api<Review>(`${path}/reviews/${review.id}`);
-  if (current.id !== review.id || current.commit_id !== review.commit_id || current.body !== review.body || !expiredWebhookLock(current, bot)) return false;
-  await api(`${path}/reviews/${review.id}`, { method: 'DELETE' });
-  return true;
 }
 
 type InlineFinding = { body: string; path: string; line: number; side: 'LEFT' | 'RIGHT' };
@@ -438,10 +405,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
             roles.unshift('qa');
           }
           console.info(roles.length ? 'Coordinated advisors selected: ' + roles.join(', ') : 'Coordinated advisors skipped: no eligible roles');
-          const summaries: string[] = [];
-          const completedRoles: string[] = [];
+          const summaries = new Map<string, string>();
           await runCoordinatedAdvisories(roles, remaining, async (role, signal) => {
-            const completed = completedRoles.length ? ` Completed roles: ${completedRoles.join(', ')}.` : '';
+            const completed = summaries.size ? ` Completed roles: ${[...summaries.keys()].join(', ')}.` : '';
             await progress?.update(`Specialist review in progress (${role})`, `Lead is coordinating the latest commit.${completed}`);
             const request = boundedRequest(signal);
             const advisor = await authorizeCoordinatedAdvisor({
@@ -451,19 +417,18 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
             if (!advisor) { console.info('Coordinated advisor unavailable: ' + role); return true; }
             const latest = await advisor.api<Pull>(path);
             if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) return false;
-            const advisoryConfig = { ...advisor.config, automatic: true, incrementalFiles: advisoryPaths, collectSummary: (section: string) => { summaries.push(section); } };
+            const advisoryConfig = { ...advisor.config, automatic: true, incrementalFiles: advisoryPaths, collectSummary: (section: string) => { summaries.set(role, section); } };
             await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(advisor.api, advisor.target, advisoryConfig, request) : runAdvisory(advisor.api, advisor.target, advisoryConfig, request));
-            completedRoles.push(role);
-            console.info('Coordinated advisor finished: ' + role);
+            console.info('Coordinated advisor returned: ' + role);
             return true;
           });
-          if (summaries.length) try {
+          if (summaries.size) try {
             const latestPull = await api<Pull>(path);
             const review = await api<Review>(`${path}/reviews/${publishedReviewId}`);
             if (latestPull.head.sha === current.head.sha && latestPull.base.sha === current.base.sha &&
                 latestPull.state === 'open' && !latestPull.draft && review.user.login === bot &&
                 review.commit_id === current.head.sha && review.body === body) {
-              const summary = body + '\n\n### Specialist follow-up / 전문 검토 후속 확인\n\n' + summaries.join('\n');
+              const summary = body + '\n\n### Specialist follow-up / 전문 검토 후속 확인\n\n' + [...summaries.values()].join('\n');
               await api(`${path}/reviews/${publishedReviewId}`, { method: 'PUT', body: JSON.stringify({ body: summary }) });
             }
           } catch {

@@ -171,6 +171,7 @@ test('each dedicated PR advisor publishes once with its own identity and bounded
     let calls = 0;
     const inline: { body: string; user: { login: string; type: string } }[] = [];
     let summaryFailed = false;
+    let currentHead = head;
     const api = githubApi('fixture', async (input, init) => {
       const url = String(input);
       if (url.includes('/reactions')) return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ id: 1 });
@@ -200,7 +201,7 @@ test('each dedicated PR advisor publishes once with its own identity and bounded
         return Response.json(comments);
       }
       assert.ok(!init?.method || init.method === 'GET');
-      return Response.json({ number: 7, title: 'Change', state: 'open', draft: false, changed_files: 1, head: { sha: head }, base: { sha: base, repo } });
+      return Response.json({ number: 7, title: 'Change', state: 'open', draft: false, changed_files: 1, head: { sha: currentHead }, base: { sha: base, repo } });
     });
     const request: typeof fetch = async (_input, init) => {
       calls++;
@@ -230,6 +231,12 @@ test('each dedicated PR advisor publishes once with its own identity and bounded
     assert.equal(comments.length, 1);
     assert.equal(summaries.length, 1);
     assert.match(summaries[0], /Four \/ 넷/);
+    await runAdvisory(api, automaticTarget, { bot, model: 'fixture', openaiKey: 'fixture', automatic: true, collectSummary: text => { summaries.push(text); } }, async (input, init) => {
+      currentHead = 'c'.repeat(40);
+      return request(input, init);
+    });
+    assert.equal(summaries.length, 1, 'An assessment for a superseded head must not be collected');
+
   }
 });
 
