@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { incrementalPaths, reviewBaseMarker, selectAdvisoryRoles } from '../src/review-follow-up-policy.ts';
+import { automaticAdvisoryBudget, automaticAdvisoryPaths, incrementalPaths, reviewBaseMarker, runCoordinatedAdvisories, selectAdvisoryRoles } from '../src/review-follow-up-policy.ts';
 
 const base = 'a'.repeat(40), oldHead = 'b'.repeat(40), head = 'c'.repeat(40);
 const approved = { commit_id: oldHead, state: 'APPROVED', body: reviewBaseMarker(base) };
@@ -17,12 +17,68 @@ test('only a verified compatible approved baseline permits bounded follow-up', (
   assert.equal(incrementalPaths(approved, head, base, { ...comparison, total_commits:2 }), undefined);
   assert.equal(incrementalPaths(approved, head, base, undefined), undefined);
 });
-test('advisory selection is deterministic, capped, and excludes issue triage', () => {
+test('automatic routing chooses only relevant roles and skips trivial docs', () => {
   assert.deepEqual(selectAdvisoryRoles([]), []);
-  assert.deepEqual(selectAdvisoryRoles([{ filename:'styles/theme.css' }]), []);
+  assert.deepEqual(selectAdvisoryRoles([{ filename:'README.md', status:'modified', changes:2 }]), []);
   assert.deepEqual(selectAdvisoryRoles([{ filename:'README.md' }]), ['docs']);
-  assert.deepEqual(selectAdvisoryRoles([{ filename:'package.json' },{ filename:'src/api/client.ts' },{ filename:'src/domain/model.ts' }]), ['architect','release']);
-  assert.ok(selectAdvisoryRoles([{ filename:'src/components/button.tsx' },{ filename:'docs/usage.md' },{ filename:'package.json' }]).length <= 2);
+  assert.deepEqual(selectAdvisoryRoles([{ filename:'styles/theme.css' }]), ['qa']);
+  assert.deepEqual(selectAdvisoryRoles([{ filename:'src/components/button.tsx' }]), ['impact','qa']);
+  assert.deepEqual(selectAdvisoryRoles([{ filename:'src/api/client.ts' }]), ['impact','qa','docs']);
+  assert.deepEqual(selectAdvisoryRoles([{ filename:'src/architecture/module.ts' }]), ['architect','qa']);
+  assert.deepEqual(selectAdvisoryRoles([{ filename:'package.json' }]), ['release']);
+});
+
+test('mixed changes select each justified role, respecting request budget and stable priority', () => {
+  const files = [{ filename:'src/components/button.tsx' }, { filename:'docs/usage.md' }, { filename:'package.json' }, { filename:'src/domain/model.ts' }];
+  const all = ['release','architect','impact','qa','docs'];
+  assert.deepEqual(selectAdvisoryRoles(files), all);
+  assert.deepEqual(selectAdvisoryRoles([...files].reverse()), all);
+  assert.deepEqual(selectAdvisoryRoles([...files,...files], 3), all.slice(0,3));
+  assert.deepEqual(selectAdvisoryRoles(files, 0), []);
+  assert.deepEqual(selectAdvisoryRoles(files, 50), all);
+});
+
+test('automatic routing excludes sensitive and operational paths', () => {
+  const filenames = ['src/auth.ts', 'src/security/check.ts', 'src/security-vulns.ts', '.github/workflows/ci.yml', '.env.local', 'src/deploy.ts', 'src/auto-merge.ts', 'credentials.pem', 'src/components/card.tsx'];
+  const files = filenames.map(filename => ({ filename }));
+  assert.deepEqual(automaticAdvisoryPaths(files), ['src/components/card.tsx']);
+  assert.deepEqual(selectAdvisoryRoles(files.slice(0,-1)), []);
+});
+
+test('budgets are bounded, tunable, and leave time for the primary review', () => {
+  assert.deepEqual(automaticAdvisoryBudget({}), { maxRequests:5, elapsedMs:90_000 });
+  assert.deepEqual(automaticAdvisoryBudget({ REVIEWER_AUTO_ADVISORY_MAX_REQUESTS:'100', REVIEWER_AUTO_ADVISORY_MAX_MS:'500000' }), { maxRequests:5, elapsedMs:120_000 });
+  assert.deepEqual(automaticAdvisoryBudget({ REVIEWER_AUTO_ADVISORY_MAX_REQUESTS:'2', REVIEWER_AUTO_ADVISORY_MAX_MS:'10000' }), { maxRequests:2, elapsedMs:10_000 });
+  assert.deepEqual(automaticAdvisoryBudget({}, 240_000), { maxRequests:5, elapsedMs:5_000 });
+  assert.deepEqual(automaticAdvisoryBudget({}, 245_000), { maxRequests:5, elapsedMs:0 });
+  assert.deepEqual(automaticAdvisoryBudget({ REVIEWER_AUTO_ADVISORY_MAX_REQUESTS:'0', REVIEWER_AUTO_ADVISORY_MAX_MS:'0' }), { maxRequests:0, elapsedMs:0 });
+});
+
+test('coordinator counts failed attempts, avoids triage and duplicates, and stops when stale', async () => {
+  const seen: string[] = [];
+  await runCoordinatedAdvisories(['triage','qa','qa','docs','release'], { maxRequests:2, elapsedMs:10_000 }, async (role, signal) => {
+    assert.equal(signal.aborted, false);
+    seen.push(role);
+    if (role === 'qa') throw new Error('Unavailable');
+    return true;
+  });
+  assert.deepEqual(seen, ['qa','docs']);
+  seen.length = 0;
+  await runCoordinatedAdvisories(['impact','qa'], { maxRequests:5, elapsedMs:10_000 }, async role => { seen.push(role); return false; });
+  assert.deepEqual(seen, ['impact']);
+});
+
+test('coordinator stops scheduling after elapsed or quota budget exhaustion', async () => {
+  let now = 0;
+  const seen: string[] = [];
+  await runCoordinatedAdvisories(['qa','docs'], { maxRequests:5, elapsedMs:50 }, async role => { seen.push(role); now = 51; return true; }, () => now);
+  assert.deepEqual(seen, ['qa']);
+  seen.length = 0;
+  await runCoordinatedAdvisories(['qa','docs'], { maxRequests:5, elapsedMs:10_000 }, async role => {
+    seen.push(role);
+    throw new Error('Model quota, rate or credit limit reached; stop and check API billing before retrying');
+  });
+  assert.deepEqual(seen, ['qa']);
 });
 
 test('release advisory recognizes nested version and release files', () => {
