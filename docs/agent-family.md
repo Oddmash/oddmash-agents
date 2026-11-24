@@ -16,6 +16,10 @@ For explicit manual requests until independent apps are configured, invoke each 
 
 For coordinated automatic requests, Reviewer resolves the selected role's own enabled App installation for the repository and uses that role's existing scoped token. Unavailable, unconfigured or unauthorized roles are skipped, with no fallback publication under Reviewer. No new app permissions or repository enrollment are granted by orchestration. Impact is dispatched to its existing impact-specific implementation, while the other five roles use the shared advisory engine. Neither path can approve or authorize a merge.
 
+## Release preparation
+
+For a new production release, run the [release preparation workflow](release-preparation.md). It uses Release for the exact candidate and conditionally QA, separately from individual PR advisory requests.
+
 ## Separate GitHub identities
 
 Register each `oddmash-<role>` GitHub App under Oddmash and install it only in authorized repositories. Subscribe only to issue comment events. Use Contents read, Checks read and Issues write repository permissions. PR-scoped advisory roles require Pull requests write for PR comment publication; Triage retains Pull requests read. No Contents write or Checks write. Advisory agents do not submit formal reviews or authorize merges. Restrict permissions to the existing approved repository identities. The app webhook URL is the existing production origin plus `/api/advisory?agent=<role>`.
