@@ -24,3 +24,6 @@ Follow the [Oddmash agent attribution convention](https://github.com/Oddmash/.gi
 - Find or create a scoped issue before implementation and verify an explicit issue reference in every implementation PR body before opening and at handoff.
 
 - Include a `## Acceptance criteria` section with explicit Markdown task-list entries in each implementation issue before opening a PR. Criteria must describe observable outcomes and remain subject to independent verification.
+
+- Work in parallel when changes are logically independent, even if they touch different sections of the same file. Sequence or stack PRs only when one needs another's behavior or when the changed logic overlaps; record the dependency explicitly. Reconcile actual conflicts against the current base and re-run the required CI before merging.
+- Batch related actionable review fixes and their regression tests into a focused push where practical. Respond to optional findings with an evidence-based disposition rather than unnecessary commits or repeated review requests. Preserve required exact-head CI, independent review, and normal merge commits.

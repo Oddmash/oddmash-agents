@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eligiblePull, linkedIssue, acceptanceOf, lowRisk, lowRiskReason, acceptanceSatisfied, protectedBranch, mergeAuthorized, mergeProof, type MergePull, type Candidate } from '../src/auto-merge.ts';
+import { eligiblePull, linkedIssue, acceptanceOf, lowRisk, lowRiskReason, repositoryMergeOptIn, mergeCandidate, acceptanceSatisfied, protectedBranch, mergeAuthorized, mergeProof, type MergePull, type Candidate } from '../src/auto-merge.ts';
 import { githubApi, mergeRepositoryAllowed } from '../src/webhook.ts';
 
 const target = { installation: 1, repository: 'Oddmash/kowrap', repositoryId: 42 };
@@ -192,4 +192,69 @@ test('automatic merge diagnostics distinguish repository scope, budget, evidence
   assert.equal(lowRiskReason([{ ...file, status: 'renamed', previous_filename: 'src/old.ts' }], 1, target.repository), 'changed file operation requires manual merge');
   assert.equal(lowRiskReason([{ ...file, filename: 'src/auth/session.ts' }], 1, target.repository), 'protected changed path requires manual merge');
   assert.equal(lowRiskReason([{ ...file, filename: 'tests/a.test.ts' }], 1, target.repository), 'changed test path is outside automatic merge scope');
+});
+
+
+test('infrastructure auto-merge is explicitly enabled by trusted repository metadata only', async () => {
+  const repository = 'Oddmash/oddmash-agents';
+  let values: unknown = [];
+  let reads = 0;
+  const api = githubApi('fixture', async (input, init) => {
+    reads++;
+    assert.equal(new URL(String(input)).pathname, '/repos/Oddmash/oddmash-agents/properties/values');
+    assert.equal(init?.method, undefined);
+    return Response.json(values);
+  });
+  assert.equal(await repositoryMergeOptIn(api, target.repository), 'not-required');
+  assert.equal(reads, 0);
+  assert.equal(await repositoryMergeOptIn(api, repository), 'disabled');
+  values = [{ property_name: 'oddmash-auto-merge', value: 'documentation' }];
+  assert.equal(await repositoryMergeOptIn(api, repository), 'documentation');
+  values = [{ property_name: 'oddmash-auto-merge', value: 'documentation' }, { property_name: 'oddmash-auto-merge', value: 'documentation' }];
+  assert.equal(await repositoryMergeOptIn(api, repository), 'disabled');
+  values = [{ property_name: 'oddmash-auto-merge', value: 'all' }];
+  assert.equal(await repositoryMergeOptIn(api, repository), 'disabled');
+  assert.equal(await repositoryMergeOptIn(githubApi('fixture', async () => new Response(null, { status: 403 })), repository), 'unavailable');
+  const doc = { filename: 'docs/usage.md', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' };
+  assert.equal(lowRiskReason([doc], 1, repository), 'repository requires root README-only changes');
+  assert.equal(lowRiskReason([doc], 1, repository, 'documentation'), undefined);
+  assert.equal(lowRiskReason([{ ...doc, filename: 'src/core.ts' }], 1, repository, 'documentation'), 'infrastructure documentation opt-in excludes runtime changes');
+  assert.equal(lowRiskReason([{ ...doc, filename: 'docs/review-policy.md' }], 1, repository, 'documentation'), 'protected changed path requires manual merge');
+  const orgDoc = { ...doc, filename: 'profile/README.md' };
+  assert.equal(lowRiskReason([orgDoc], 1, 'Oddmash/.github'), 'repository automatic merge opt-in is not enabled');
+  assert.equal(lowRiskReason([orgDoc], 1, 'Oddmash/.github', 'documentation'), undefined);
+  assert.equal(lowRiskReason([{ ...orgDoc, filename: 'docs/AI-CODE-REVIEW.md' }], 1, 'Oddmash/.github', 'documentation'), 'protected changed path requires manual merge');
+  assert.notEqual(mergeProof(candidate), mergeProof({ ...candidate, repositoryOptIn: 'documentation' }));
+});
+
+
+test('revoking the infrastructure setting before authorization prevents a write token', async () => {
+  const infrastructure = { installation: 1, repository: 'Oddmash/oddmash-agents', repositoryId: 1468182609, private: true };
+  const identity = { id: infrastructure.repositoryId, full_name: infrastructure.repository };
+  const pull = { ...pr, head: { sha: head, repo: identity }, base: { ...pr.base, repo: { ...identity, default_branch: 'main', private: true } } };
+  let reads = 0, minted = 0;
+  const api = githubApi('fixture', async input => {
+    const url = String(input);
+    if (url.endsWith('/properties/values')) {
+      reads++;
+      return Response.json([{ property_name: 'oddmash-auto-merge', value: reads < 3 ? 'documentation' : 'disabled' }]);
+    }
+    if (url.endsWith('/pulls/10')) return Response.json(pull);
+    if (url.endsWith('/issues/9')) return Response.json(issue);
+    if (url.includes('/files?')) return Response.json([{ ...files[0], filename: 'README.md' }]);
+    if (url.endsWith('/branches/main')) return Response.json(branch);
+    if (url.includes('/compare/')) return Response.json({ behind_by: 0, merge_base_commit: { sha: base } });
+    if (url.includes('/reviews?')) return Response.json([{ id: 5, user: { login: 'oddmash-reviewer[bot]', id: 100 }, state: 'APPROVED', commit_id: head }]);
+    if (url.includes('/check-runs?')) return Response.json({ total_count: 1, check_runs: [{ id: 1, name: 'verify', app: { id: 15368 }, status: 'completed', conclusion: 'success' }] });
+    if (url.endsWith('/status')) return Response.json({ total_count: 0, state: 'pending', statuses: [] });
+    assert.fail(url);
+  });
+  const initial = await mergeCandidate(api, infrastructure, 10);
+  assert.equal(initial?.repositoryOptIn, 'documentation');
+  assert.ok(initial);
+  let reason = '';
+  assert.equal(await mergeAuthorized(api, infrastructure, initial, 'oddmash-reviewer[bot]', 5, true, async () => { minted++; return api; }, value => { reason = value; }), false);
+  assert.equal(reason, 'repository automatic merge opt-in is not enabled');
+  assert.equal(reads, 3);
+  assert.equal(minted, 0);
 });
