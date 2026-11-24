@@ -14,7 +14,7 @@ import { reconcileReviewThreads, replyToReview, threadReconciliationExclusions, 
 import { retryableJobError } from './review-job.ts';
 import { publishAutomationStatus } from './review-status.ts';
 import { actionsQuotaEvidence, actionsWorkflowUrl } from './actions-quota.ts';
-import { automaticAdvisoryBudget, automaticAdvisoryPaths, incrementalPaths, reviewBaseMarker, runCoordinatedAdvisories, selectAdvisoryRoles, type ChangeMetadata, type CompareEvidence } from './review-follow-up-policy.ts';
+import { automaticAdvisoryBudget, automaticAdvisoryPaths, coordinatedAdvisoriesEnabled, incrementalPaths, reviewBaseMarker, runCoordinatedAdvisories, selectAdvisoryRoles, type ChangeMetadata, type CompareEvidence } from './review-follow-up-policy.ts';
 
 type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: ReviewCheckHead; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 export type Review = { id: number; node_id?: string; body: string | null; user: { login: string }; state: string; commit_id: string };
@@ -400,7 +400,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       progressResult = completedResult;
       await progress?.finish(progressResult.conclusion, progressResult.title);
       if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED !== 'true') console.info('Coordinated advisors disabled');
-      if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED === 'true') {
+      if (coordinatedAdvisoriesEnabled(target, process.env.REVIEWER_AUTO_ADVISORY_ENABLED)) {
         const budget = automaticAdvisoryBudget(process.env, Date.now() - executionStarted);
         if (budget.maxRequests > 0 && budget.elapsedMs > 0) {
           const planningStarted = Date.now();
@@ -414,7 +414,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           console.info(roles.length ? 'Coordinated advisors selected: ' + roles.join(', ') : 'Coordinated advisors skipped: no eligible roles');
           await runCoordinatedAdvisories(roles, remaining, async (role, signal) => {
             const request = boundedRequest(signal);
-            const advisor = await authorizeCoordinatedAdvisor({ ...target, number: current.number, expectedHead: current.head.sha }, role, appId, request);
+            const advisor = await authorizeCoordinatedAdvisor({
+              installation: target.installation, repository, repositoryId: target.repositoryId, private: target.private,
+              number: current.number, expectedHead: current.head.sha
+            }, role, appId, request);
             if (!advisor) { console.info('Coordinated advisor unavailable: ' + role); return true; }
             const latest = await advisor.api<Pull>(path);
             if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) return false;

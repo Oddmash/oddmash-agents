@@ -1,6 +1,6 @@
 # Oddmash agent family
 
-One repository, Vercel project and queue serve the agents. Each role has individual usage attribution and optionally independent model configuration. Lead retains its existing automatic review policy. Other agents primarily respond to explicit maintainer commands and publish advice, not approval or operational actions. The optional coordinated review mode selects relevant PR advisors only within the configured request and elapsed-time budgets; Triage remains issue-only. A small documentation-only edit needs no automatic advisor, a UI feature can select Impact and QA, an API change can also select Docs, and structural or release changes can select Architect or Release. The deterministic priority order resolves a limited budget without recursively invoking agents. See [agent operations](agent-operations.md) for limits.
+One repository, Vercel project and queue serve the agents. Each role has individual usage attribution and optionally independent model configuration. Lead retains its existing automatic review policy. Other agents primarily respond to explicit maintainer commands and publish advice, not approval or operational actions. When `REVIEWER_AUTO_ADVISORY_ENABLED=true`, Lead selects relevant PR advisors after a regular review or a full `/review` requested in PR conversation, within the configured request and elapsed-time budgets; Triage remains issue-only. A small documentation-only edit needs no automatic advisor, a UI feature can select Impact and QA, an API change can also select Docs, and structural or release changes can select Architect or Release. The deterministic priority order resolves a limited budget without recursively invoking agents. See [agent operations](agent-operations.md) for limits.
 
 | Role | Target | Command | Output |
 | --- | --- | --- | --- |
@@ -14,7 +14,7 @@ One repository, Vercel project and queue serve the agents. Each role has individ
 
 For explicit manual requests until independent apps are configured, invoke each advisory role with `@oddmash-lead[bot] /<role>`. Once configured, use `@oddmash-<role>[bot] /<role>`. Do not invoke both for the same assessment. Each role uses one updatable bilingual advisory for its own authenticated identity and evidence snapshot. It does not alter labels, issue state, checks, release or merge decisions.
 
-For coordinated automatic requests, Lead resolves the selected role's own enabled App installation for the repository and uses that role's existing scoped token. Unavailable, unconfigured or unauthorized roles are skipped, with no fallback publication under Lead. No new app permissions or repository enrollment are granted by orchestration. Impact is dispatched to its existing impact-specific implementation, while the other five roles use the shared advisory engine. Neither path can approve or authorize a merge.
+For coordinated requests, Lead resolves the selected role's own enabled App installation for the repository and uses that role's existing scoped token. Unavailable, unconfigured or unauthorized roles are skipped, with no fallback publication under Lead. No new app permissions or repository enrollment are granted by orchestration. Impact is dispatched to its existing impact-specific implementation, while the other five roles use the shared advisory engine. Neither path can approve or authorize a merge.
 
 
 The roles use [bundled shared skill guidance](skill-integration.md) and applicable project `AGENTS.md` from a trusted revision. Role prompts and repository policy define what each agent can report and which actions the service may take.
@@ -30,6 +30,8 @@ Maintainers can enter one command on the first non-empty line of an issue or PR 
 | Open issue | `/triage` |
 
 Lead receives the slash command. Advisory responses use the corresponding dedicated, enabled GitHub App installed on that repository. Explicit App mention commands still work. GitHub does not provide native autocomplete for these commands. For a review request awaiting required CI, the same comment is reused when review resumes.
+
+The release workflow syncs the GitHub Actions repository variable `REVIEWER_AUTO_ADVISORY_ENABLED` to Vercel Production when it is set to `true` or `false`. Leaving the Actions variable unset preserves the current Vercel setting. The setting takes effect with the next production release.
 
 ## Lead identity
 
