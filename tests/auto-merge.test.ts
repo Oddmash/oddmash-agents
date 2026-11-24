@@ -58,6 +58,26 @@ test('all current public product repositories are eligible while organization go
   assert.equal(mergeRepositoryAllowed({ installation: 1, repository: 'Oddmash/unknown', repositoryId: 42 }), false);
 });
 
+test('organization profiles require exact public identity, main and maintainer authorship', () => {
+  const repository = 'Oddmash/.github';
+  const repositoryId = 1455305553;
+  const target = { installation: 1, repository, repositoryId };
+  const identity = { id: repositoryId, full_name: repository };
+  const pull = { ...pr, head: { sha: head, repo: identity }, base: { ...pr.base, repo: { ...identity, default_branch: 'main', private: false } } };
+  assert.equal(mergeRepositoryAllowed(target), true);
+  assert.equal(mergeRepositoryAllowed({ ...target, repositoryId: 42 }), false);
+  assert.equal(mergeRepositoryAllowed({ ...target, private: true }), false);
+  assert.equal(eligiblePull(pull, target), true);
+  assert.equal(eligiblePull({ ...pull, base: { ...pull.base, ref: 'develop' } }, target), false);
+  assert.equal(eligiblePull({ ...pull, user: { id: 99, login: user.login } }, target), false);
+  for (const filename of ['profile/README.md', 'docs/ko/README.md', 'docs/ja/README.md', 'docs/zh-CN/README.md']) {
+    assert.equal(lowRisk([{ ...files[0], filename }], 1, repository), true);
+  }
+  for (const filename of ['AGENTS.md', 'CONTRIBUTING.md', 'docs/AI-CODE-REVIEW.md', '.github/workflows/ci.yml', 'docs/example.md', 'assets/agent-family.svg']) {
+    assert.equal(lowRisk([{ ...files[0], filename }], 1, repository), false);
+  }
+});
+
 test('requires one linked issue and all explicit criteria', () => {
   assert.equal(linkedIssue('Closes #9'), 9);
   assert.equal(linkedIssue('Closes #9\nFixes #10'), null);
