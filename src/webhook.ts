@@ -145,6 +145,7 @@ export async function authorize(target: Target, appId: string, key: string, requ
 const publicMergeRepositories = new Set(['Oddmash/kowrap', 'Oddmash/oddmash-ui', 'Oddmash/interaction-inspector', 'Oddmash/Vertactics', 'Oddmash/boundra']);
 
 export function mergeRepositoryAllowed(target: Target): boolean {
+  if (target.repository === 'Oddmash/.github') return target.private !== true && target.repositoryId === 1455305553;
   return positive(target.repositoryId) && (target.private === true ? privateRepositoryAllowed(target.repository, target.repositoryId) : publicMergeRepositories.has(target.repository));
 }
 
