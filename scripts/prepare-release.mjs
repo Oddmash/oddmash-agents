@@ -14,7 +14,7 @@ const api = async path => {
   if (!response.ok) throw new Error('Release preparation metadata unavailable');
   return response.json();
 };
-const { evidence, assertCurrent } = await collectPreparation(api, previous, candidate);
+const { evidence, projectGuidance, assertCurrent } = await collectPreparation(api, previous, candidate);
 const runs = await api(root + '/actions/workflows/prepare-release.yml/runs?branch=main&event=workflow_dispatch&head_sha=' + candidate + '&per_page=100');
 const existing = reusablePreparation(runs.workflow_runs, previous, candidate, currentId);
 const header = `# Release preparation\n\n- Previous release: ${previous}\n- Candidate: \`${candidate}\`\n- Main CI: successful\n- Evidence: ${evidence.complete ? 'bounded commit metadata' : 'partial metadata; manual confirmation required'}\n\n`;
@@ -22,7 +22,7 @@ if (existing) {
   await assertCurrent();
   appendFileSync(summary, header + `Reused [previous preparation](https://github.com/Oddmash/oddmash-agents/actions/runs/${existing.id}). No model calls were made.\n`);
 } else {
-  const config = role => ({ model: process.env[role.toUpperCase() + '_OPENAI_MODEL'] || process.env.OPENAI_MODEL || 'gpt-5.4', key: process.env[role.toUpperCase() + '_OPENAI_API_KEY'] || process.env.OPENAI_API_KEY });
+  const config = role => ({ model: process.env[role.toUpperCase() + '_OPENAI_MODEL'] || process.env.OPENAI_MODEL || 'gpt-5.4', key: process.env[role.toUpperCase() + '_OPENAI_API_KEY'] || process.env.OPENAI_API_KEY, projectGuidance });
   let qa;
   let qaFailed = false;
   if (evidence.qaRequired) {

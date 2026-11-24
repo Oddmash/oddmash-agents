@@ -17,6 +17,8 @@ For explicit manual requests until independent apps are configured, invoke each 
 For coordinated automatic requests, Lead resolves the selected role's own enabled App installation for the repository and uses that role's existing scoped token. Unavailable, unconfigured or unauthorized roles are skipped, with no fallback publication under Lead. No new app permissions or repository enrollment are granted by orchestration. Impact is dispatched to its existing impact-specific implementation, while the other five roles use the shared advisory engine. Neither path can approve or authorize a merge.
 
 
+The roles use [bundled shared skill guidance](skill-integration.md) and applicable project `AGENTS.md` from a trusted revision. Role prompts and repository policy define what each agent can report and which actions the service may take.
+
 ## Slash commands
 
 Maintainers can enter one command on the first non-empty line of an issue or PR comment. Put optional context on subsequent lines. Quoted or embedded commands and comments containing multiple commands are ignored. The total comment limit is 2,000 characters.

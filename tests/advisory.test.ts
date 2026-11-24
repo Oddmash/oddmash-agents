@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { advisoryRoles, advisoryCommand } from '../src/advisory-agents.ts';
+import { agentSkill } from '../src/agent-guidance.ts';
 import { dedicatedAdvisoryTarget, route, githubApi } from '../src/webhook.ts';
 import { runAdvisory, validAdvisory } from '../src/advisory.ts';
 import { advisoryConfig, advisoryModelConfig } from '../src/runtime-config.ts';
 import { createReviewJob, verifyReviewJob } from '../src/review-job.ts';
+import { githubContentFixture } from './github-content-fixture.ts';
 
 const user = { id: 135234546, login: 'qtaghdi', type: 'User' };
 const repo = { id: 71, full_name: 'Oddmash/example', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
@@ -44,23 +46,76 @@ test('dedicated identity is signed independently and may not reuse the reviewer 
   } finally { for (const k of keys) { if (old[k] === undefined) delete process.env[k]; else process.env[k] = old[k]; } }
 });
 
-test('triage reads bounded related issues, posts only one advisory and never changes issue state', async () => {
+test('triage uses the verified default branch and refreshes one advisory when it changes', async () => {
   const target = route('issue_comment', event('triage', true), 'oddmash-reviewer')!;
   const comments: { id: number; body: string; user: { login: string } }[] = [];
   const writes: string[] = [];
   const bot = 'oddmash-reviewer[bot]';
+  const defaultBranch = 'release/next';
+  let base = 'b'.repeat(40);
+  let branchChangesDuringRequest = false;
   const api = githubApi('fixture', async (input, init) => {
-    const url = String(input);
-    if (url.includes('/reactions')) return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ id: 1 });
-    if (url.includes('/comments')) { if (init?.method === 'POST') { writes.push(url); comments.push({ id: 12, body: JSON.parse(String(init.body)).body, user: { login: bot } }); } return Response.json(comments); }
-    if (url.includes('/issues?')) return Response.json([{ number: 8, title: 'Related report' }, { number: 9, title: 'PR not an issue', pull_request: {} }]);
+    const url = new URL(String(input));
+    const root = `/repos/${repo.full_name}`;
+    if (url.pathname === root) return Response.json({ ...repo, default_branch: defaultBranch });
+    if (url.pathname === `${root}/branches/${encodeURIComponent(defaultBranch)}`) return Response.json({ name: defaultBranch, commit: { sha: base } });
+    if (url.pathname.startsWith(`${root}/contents/`)) {
+      assert.equal(url.pathname, `${root}/contents/AGENTS.md`);
+      assert.equal(url.searchParams.get('ref'), base);
+      return Response.json(githubContentFixture('AGENTS.md', `Project issue guidance ${base[0]}`));
+    }
+    if (url.pathname.includes('/reactions')) return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ id: 1 });
+    if (url.pathname.endsWith('/comments') || url.pathname.endsWith('/comments/12')) {
+      if (init?.method === 'POST' || init?.method === 'PATCH') {
+        writes.push(`${init.method} ${url.pathname}`);
+        comments[0] = { id: 12, body: JSON.parse(String(init.body)).body, user: { login: bot } };
+      }
+      return Response.json(comments);
+    }
+    if (url.pathname === `${root}/issues`) return Response.json([{ number: 8, title: 'Related report' }, { number: 9, title: 'PR not an issue', pull_request: {} }]);
+    assert.equal(url.pathname, `${root}/issues/7`);
     return Response.json({ number: 7, title: 'Bug report', body: 'Expected behavior', state: 'open' });
   });
   let calls = 0;
-  const request: typeof fetch = async (_input, init) => { calls++; const body = JSON.parse(String(init?.body)); assert.equal(body.store, false); assert.deepEqual(JSON.parse(body.input).relatedIssues, [{ number: 8, title: 'Related report' }]); return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(result) }] }] }); };
+  const request: typeof fetch = async (_input, init) => {
+    calls++;
+    const body = JSON.parse(String(init?.body));
+    const context = JSON.parse(body.input);
+    assert.equal(body.store, false);
+    assert.deepEqual(context.relatedIssues, [{ number: 8, title: 'Related report' }]);
+    assert.deepEqual(context.sharedSkill, agentSkill('triage'));
+    assert.deepEqual(Object.values(context.projectGuidance), [`Project issue guidance ${base[0]}`]);
+    if (branchChangesDuringRequest) base = 'd'.repeat(40);
+    return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(result) }] }] });
+  };
   await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
   await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
-  assert.equal(calls, 1); assert.equal(writes.length, 1); assert.match(comments[0].body, /Oddmash Triage/);
+  assert.equal(calls, 1);
+  base = 'c'.repeat(40);
+  branchChangesDuringRequest = true;
+  await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+  assert.equal(calls, 2);
+  assert.equal(writes.length, 1);
+  branchChangesDuringRequest = false;
+  await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+  assert.equal(calls, 3);
+  assert.deepEqual(writes, [`POST /repos/${repo.full_name}/issues/7/comments`, `PATCH /repos/${repo.full_name}/issues/comments/12`]);
+  assert.match(comments[0].body, /Oddmash Triage/);
+});
+
+test('triage stops before guidance or a model request when repository identity changes', async () => {
+  const target = route('issue_comment', event('triage', true), 'oddmash-reviewer')!;
+  const paths: string[] = [];
+  const api = githubApi('fixture', async input => {
+    const path = new URL(String(input)).pathname;
+    paths.push(path);
+    if (path === `/repos/${repo.full_name}/issues/7`) return Response.json({ number: 7, state: 'open' });
+    assert.equal(path, `/repos/${repo.full_name}`);
+    return Response.json({ ...repo, id: repo.id + 1, default_branch: 'main' });
+  });
+  const request: typeof fetch = async () => assert.fail('model must not run');
+  await runAdvisory(api, target, { bot: 'oddmash-reviewer[bot]', model: 'fixture', openaiKey: 'fixture' }, request);
+  assert.deepEqual(paths, [`/repos/${repo.full_name}/issues/7`, `/repos/${repo.full_name}`]);
 });
 
 test('QA receives observed check metadata without publishing a formal review', async () => {
@@ -120,6 +175,15 @@ test('each dedicated PR advisor publishes once with its own identity and bounded
       if (url.includes('/reactions')) return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ id: 1 });
       if (url.includes('/check-runs?')) return Response.json({ total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] });
       if (url.includes('/files?')) return Response.json([{ filename: 'src/example.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
+      if (url.includes('/contents/')) {
+        const guidanceUrl = new URL(url);
+        assert.equal(guidanceUrl.searchParams.get('ref'), base);
+        assert.match(guidanceUrl.pathname, /\/contents\/(?:src\/)?AGENTS\.md$/);
+        const guidance = guidanceUrl.pathname.endsWith('/src/AGENTS.md')
+          ? githubContentFixture('src/AGENTS.md', 'Scoped source guidance')
+          : githubContentFixture('AGENTS.md', 'Root project guidance');
+        return Response.json(guidance);
+      }
       if (url.includes('/pulls/7/comments')) {
         if (init?.method === 'POST') {
           const body = JSON.parse(String(init.body));
@@ -139,8 +203,12 @@ test('each dedicated PR advisor publishes once with its own identity and bounded
     });
     const request: typeof fetch = async (_input, init) => {
       calls++;
-      assert.equal(JSON.parse(String(init?.body)).max_output_tokens, 1100);
-      assert.ok(JSON.parse(String(init?.body)).text.format.schema.required.includes('inlineFindings'));
+      const body = JSON.parse(String(init?.body));
+      const context = JSON.parse(body.input);
+      assert.equal(body.max_output_tokens, 1100);
+      assert.ok(body.text.format.schema.required.includes('inlineFindings'));
+      assert.deepEqual(context.sharedSkill, agentSkill(role));
+      assert.deepEqual(Object.values(context.projectGuidance), ['Root project guidance', 'Scoped source guidance']);
       const inlineFindings = [
         { path: 'src/example.ts', line: 1, evidence: 'new', en: 'The new case lacks a fallback.', ko: '새 사례에 대체 처리가 없습니다.' },
         { path: 'src/example.ts', line: 2, evidence: 'wrong', en: 'Invalid position.', ko: '위치가 잘못되었습니다.' }

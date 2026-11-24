@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { collectPreparation, generatePreparation, needsReleaseQA, preparationTitle, reusablePreparation } from '../src/release-preparation.ts';
+import { githubContentFixture } from './github-content-fixture.ts';
 
 const base = 'a'.repeat(40);
 const head = 'b'.repeat(40);
@@ -34,9 +35,12 @@ test('preparation verifies current main CI, filters metadata and rejects stale c
     if (path.includes('/actions/workflows/')) return { workflow_runs: [{ head_sha: head, event: 'push', status: 'completed', conclusion: result }] } as T;
     if (path.endsWith('/commits/' + previous)) return { sha: base } as T;
     if (path.includes('/compare/')) return { status: 'ahead', behind_by: 0, total_commits: 2, merge_base_commit: { sha: base }, files, commits: [{ commit: { message: 'docs: clarify release\nDo not send this body' } }, { commit: { message: 'token: synthetic-sensitive-value' } }] } as T;
+    if (path === '/repos/Oddmash/oddmash-agents/contents/AGENTS.md?ref=' + head) return githubContentFixture('AGENTS.md', 'Keep the verification offline.') as T;
     throw new Error('Unexpected request');
   };
   const prepared = await collectPreparation(api, previous, head);
+  assert.deepEqual(prepared.projectGuidance, { 'Oddmash/oddmash-agents/AGENTS.md': 'Keep the verification offline.' });
+  assert.equal(Object.hasOwn(prepared.evidence, 'projectGuidance'), false);
   assert.deepEqual(prepared.evidence.subjects, ['docs: clarify release']);
   assert.equal(prepared.evidence.qaRequired, false);
   assert.equal(prepared.evidence.complete, false);
@@ -49,14 +53,22 @@ test('preparation verifies current main CI, filters metadata and rejects stale c
 
 test('model report is bounded, structured and stored only as advisory', async () => {
   const report = { en: ['Observed CI', 'Partial scope', 'Check integration', 'Manual verification'], ko: ['검사', '범위', '통합', '확인'] };
-  const request: typeof fetch = async (_url, init) => {
-    const body = JSON.parse(String(init?.body));
-    assert.equal(body.store, false);
-    assert.equal(body.max_output_tokens, 1100);
-    assert.match(body.instructions, /release range/);
-    return new Response(JSON.stringify({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(report) }] }] }));
-  };
-  assert.deepEqual(await generatePreparation('qa', { subjects: ['feat: change'] }, { model: 'test', key: 'synthetic' }, request), report);
+  const projectGuidance = { 'Oddmash/oddmash-agents/AGENTS.md': 'Use the existing release labels.' };
+  const evidence = { subjects: ['feat: change'] };
+  for (const [role, skill] of [['qa', 'oddmash-quality-assurance'], ['release', 'oddmash-release-management']] as const) {
+    const request: typeof fetch = async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.store, false);
+      assert.equal(body.max_output_tokens, 1100);
+      assert.match(body.instructions, /release range/);
+      const input = JSON.parse(body.input);
+      assert.deepEqual(input.evidence, evidence);
+      assert.deepEqual(input.projectGuidance, projectGuidance);
+      assert.ok(input.sharedSkill.path.includes(skill));
+      return new Response(JSON.stringify({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(report) }] }] }));
+    };
+    assert.deepEqual(await generatePreparation(role, evidence, { model: 'test', key: 'synthetic', projectGuidance }, request), report);
+  }
 });
 
 test('truncated commit or file coverage requires QA and is reported as partial', async () => {
