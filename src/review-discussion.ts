@@ -16,11 +16,11 @@ const replyMarker = (id: number) => `<!-- oddmash-discussion:${id} -->`;
 
 export function scopedFixHead(body: string, slug: string): string | undefined {
   if (!/^[a-z0-9-]+$/i.test(slug)) return;
-  return new RegExp(`^@${slug}(?:\\[bot\\])? Fixed in ([a-f0-9]{40}):`, 'i').exec(body.trim())?.[1].toLowerCase();
+  return new RegExp(`^(?:@${slug}(?:\\[bot\\])? )?Fixed in ([a-f0-9]{40}):`, 'i').exec(body.trim())?.[1].toLowerCase();
 }
 
 type ThreadAuthor = { login: string; __typename: string };
-type ReviewThread = { id: string; isResolved: boolean; comments: { nodes: { id: string; author?: ThreadAuthor | null }[] } };
+type ReviewThread = { id: string; isResolved: boolean; viewerCanResolve?: boolean; comments: { nodes: { id: string; author?: ThreadAuthor | null }[] } };
 
 function ownsThread(author: ThreadAuthor | null | undefined, bot: string): boolean {
   // GraphQL Bot logins omit the suffix present in REST's bot login.
@@ -32,7 +32,7 @@ async function reviewThreads(api: Api, target: Target, head: string, baseSha: st
   const threads: ReviewThread[] = [];
   let after: string | null = null;
   for (let page = 0; page < 10; page++) {
-    const result = await api<{ errors?: unknown[]; data?: { repository?: { pullRequest?: { headRefOid: string; baseRefOid: string; reviewThreads: { nodes: ReviewThread[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } } } }>('/graphql', { method: 'POST', body: JSON.stringify({ query: 'query FindReviewThread($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefOid baseRefOid reviewThreads(first: 100, after: $after) { nodes { id isResolved comments(first: 1) { nodes { id author { __typename login } } } } pageInfo { hasNextPage endCursor } } } } }', variables: { owner, name, number: target.number, after } }) });
+    const result = await api<{ errors?: unknown[]; data?: { repository?: { pullRequest?: { headRefOid: string; baseRefOid: string; reviewThreads: { nodes: ReviewThread[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } } } }>('/graphql', { method: 'POST', body: JSON.stringify({ query: 'query FindReviewThread($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefOid baseRefOid reviewThreads(first: 100, after: $after) { nodes { id isResolved viewerCanResolve comments(first: 1) { nodes { id author { __typename login } } } } pageInfo { hasNextPage endCursor } } } } }', variables: { owner, name, number: target.number, after } }) });
     const pr = result.data?.repository?.pullRequest;
     if (result.errors?.length || !pr || pr.headRefOid !== head || pr.baseRefOid !== baseSha) return null;
     if (root) {
@@ -53,6 +53,7 @@ async function resolveOwnThread(api: Api, target: Target, root: string, bot: str
   const thread = threads?.find(item => item.comments.nodes[0]?.id === root && ownsThread(item.comments.nodes[0]?.author, bot));
   if (!thread) return false;
   if (thread.isResolved) return true;
+  if (thread.viewerCanResolve === false) throw new Error('GitHub resolve permission unavailable');
   const resolved = await api<{ errors?: unknown[]; data?: { resolveReviewThread?: { thread?: { id: string; isResolved: boolean } } } }>('/graphql', { method: 'POST', body: JSON.stringify({ query: 'mutation ResolveVerifiedThread($id: ID!) { resolveReviewThread(input: { threadId: $id }) { thread { id isResolved } } }', variables: { id: thread.id } }) });
   return !resolved.errors?.length && resolved.data?.resolveReviewThread?.thread?.id === thread.id && resolved.data.resolveReviewThread.thread.isResolved === true;
 }
@@ -60,7 +61,7 @@ async function resolveOwnThread(api: Api, target: Target, root: string, bot: str
 const sha = /^[a-f0-9]{40}$/i;
 const originalHead = (comment: Comment) => comment.original_commit_id ?? comment.commit_id;
 const pathFor = (target: Target) => `/repos/${target.repository}/pulls/${target.number}`;
-const eligiblePull = (pr: Pull, target: Target) => pr.state === 'open' && !pr.draft && pr.base.repo.full_name === target.repository && pr.base.repo.id === target.repositoryId && pr.base.repo.private === Boolean(target.private) && sha.test(pr.head.sha) && sha.test(pr.base.sha);
+const eligiblePull = (pr: Pull, target: Target) => pr.state === 'open' && !pr.draft && pr.base.repo.full_name === target.repository && pr.base.repo.id === target.repositoryId && pr.base.repo.private === Boolean(target.private) && sha.test(pr.head.sha) && sha.test(pr.base.sha) && (!target.expectedHead || pr.head.sha === target.expectedHead);
 
 async function correctionPatch(api: Api, target: Target, original: Comment, path: string, head: string): Promise<ChangedFile | undefined> {
   const before = originalHead(original);
@@ -159,7 +160,7 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
   if (!comments) return;
   const readOriginal = async (items: Comment[]) => conversation && target.reply?.rootKind === 'review' ? api<Comment>(`${base}/reviews/${root}`) : items.find(item => item.id === root);
   const original = await readOriginal(comments);
-  const question = comments.find(item => item.id === comment && maintainer(item.user) && mentioned(item.body, slug));
+  const question = comments.find(item => item.id === comment && maintainer(item.user) && ((!conversation && target.reply?.byThread) || mentioned(item.body, slug)));
   if (!original || original.id !== root || original.user.login !== bot || original.user.type !== 'Bot' || typeof original.body !== 'string' || !question) return;
   if (config.specialist && !original.body.split('\n').includes(`<!-- oddmash-specialist:${config.specialist} -->`)) return;
   const filePath = conversation ? target.reply.path : original.path;
@@ -197,7 +198,7 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
       throw new Error('Discussion acknowledgement reaction unavailable');
     }
     if (verdict === 'fixed' && !conversation) {
-      if (!original.node_id || !await resolveOwnThread(api, target, original.node_id, bot, pr.head.sha, pr.base.sha).catch(() => false)) {
+      if (!original.node_id || !await resolveOwnThread(api, target, original.node_id, bot, pr.head.sha, pr.base.sha)) {
         console.warn('Verified finding resolution unavailable; maintainer review required.');
         throw new Error('Verified finding resolution unavailable');
       }
@@ -209,9 +210,12 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
     try {
       await finish(verdict);
     } catch (error) {
-      const reason = error instanceof Error && error.message === 'Discussion acknowledgement reaction unavailable'
+      const message = error instanceof Error ? error.message : '';
+      const reason = message === 'Discussion acknowledgement reaction unavailable'
         ? 'GitHub did not confirm the acknowledgement reaction.'
-        : 'GitHub did not confirm the thread resolution.';
+        : message === 'GitHub resolve permission unavailable'
+          ? 'This bot cannot resolve the thread in GitHub. A repository maintainer can resolve it.'
+          : 'GitHub did not confirm the thread resolution.';
       if (await matchesSnapshot()) {
         const resource = reaction.kind === 'inline' ? 'pulls' : 'issues';
         const update = clean + status + reason;

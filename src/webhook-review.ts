@@ -165,6 +165,21 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
   const root = '/repos/' + repository;
   const eligibleBase = (item: Pull) => item.base.repo.full_name === repository && item.base.repo.id === target.repositoryId && item.base.repo.private === Boolean(target.private);
   if (target.reply && target.number) {
+    if (target.reply.byThread) {
+      const thread = await api<{ id: number; body: string; user: { type: string; login: string }; in_reply_to_id?: number; pull_request_url: string }>(`${root}/pulls/comments/${target.reply.root}`);
+      if (thread.id !== target.reply.root || thread.in_reply_to_id || thread.user?.type !== 'Bot' ||
+          thread.pull_request_url !== `https://api.github.com${root}/pulls/${target.number}` ||
+          !thread.body?.startsWith('<!-- oddmash-finding:')) return;
+      if (thread.user.login !== bot) {
+        const role = /^oddmash-(impact|qa|release|docs|architect)\[bot\]$/.exec(thread.user.login)?.[1] as
+          'impact' | 'qa' | 'release' | 'docs' | 'architect' | undefined;
+        if (!role || !thread.body.split('\n').includes(`<!-- oddmash-specialist:${role} -->`)) return;
+        const advisor = await authorizeCoordinatedAdvisor(target, role, appId);
+        if (advisor) await runAgentExecution(executionContext(role, ''), () => replyToReview(advisor.api, advisor.target,
+          { slug: `oddmash-${role}`, openaiKey: advisor.config.openaiKey, model: advisor.config.model, specialist: role }));
+        return;
+      }
+    }
     await replyToReview(api, target, { slug, openaiKey, model });
     return;
   }
@@ -405,7 +420,6 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
       requestApproved = event === 'APPROVE';
       progressResult = completedResult;
-      await progress?.finish(progressResult.conclusion, progressResult.title);
       if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED !== 'true') console.info('Coordinated advisors disabled');
       if (coordinatedAdvisoriesEnabled(target, process.env.REVIEWER_AUTO_ADVISORY_ENABLED)) {
         const budget = automaticAdvisoryBudget(process.env, Date.now() - executionStarted);
@@ -424,7 +438,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           }
           console.info(roles.length ? 'Coordinated advisors selected: ' + roles.join(', ') : 'Coordinated advisors skipped: no eligible roles');
           const summaries: string[] = [];
+          const completedRoles: string[] = [];
           await runCoordinatedAdvisories(roles, remaining, async (role, signal) => {
+            const completed = completedRoles.length ? ` Completed roles: ${completedRoles.join(', ')}.` : '';
+            await progress?.update(`Specialist review in progress (${role})`, `Lead is coordinating the latest commit.${completed}`);
             const request = boundedRequest(signal);
             const advisor = await authorizeCoordinatedAdvisor({
               installation: target.installation, repository, repositoryId: target.repositoryId, private: target.private,
@@ -435,6 +452,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
             if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) return false;
             const advisoryConfig = { ...advisor.config, automatic: true, incrementalFiles: advisoryPaths, collectSummary: (section: string) => { summaries.push(section); } };
             await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(advisor.api, advisor.target, advisoryConfig, request) : runAdvisory(advisor.api, advisor.target, advisoryConfig, request));
+            completedRoles.push(role);
             console.info('Coordinated advisor finished: ' + role);
             return true;
           });
@@ -452,7 +470,11 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           }
         } else console.info('Coordinated advisors skipped: budget exhausted');
       }
-      if (reconciliation) await reconcileReviewThreads(api, { ...target, number: current.number }, config, current.head.sha, current.base.sha, fetch, threadReconciliationExclusions(reconciliation));
+      if (reconciliation) {
+        await progress?.update('Verifying earlier findings', 'Checking the current commit against open review discussions.');
+        await reconcileReviewThreads(api, { ...target, number: current.number }, config, current.head.sha, current.base.sha, fetch, threadReconciliationExclusions(reconciliation));
+      }
+      await progress?.finish(progressResult.conclusion, progressResult.title);
       if (event === 'APPROVE' && incrementalFiles === undefined) await attemptMerge(pendingId);
       await publishAutomationStatus(api, repository, pr.number, bot, current.head.sha, 'review', 'review completed', true);
       const label = reviewOutcome(event, followUp).label;

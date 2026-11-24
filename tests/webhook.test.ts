@@ -44,6 +44,14 @@ test('maintainer can request a fresh review or mention the bot in its inline thr
   assert.equal(route('issue_comment', { ...comment, issue: { number: 2 } }, slug), null);
   const reply = { ...comment, comment: { ...comment.comment, body: `@${slug}[bot] Is this required?`, in_reply_to_id: 4 } };
   assert.deepEqual(route('pull_request_review_comment', reply, slug)?.reply, { comment: 5, root: 4 });
+  const currentHead = 'a'.repeat(40);
+  const unmentioned = { ...reply, pull_request: { ...reply.pull_request, head: { sha: currentHead } },
+    comment: { ...reply.comment, body: `Fixed in ${currentHead}: the control is restored.` } };
+  assert.deepEqual(route('pull_request_review_comment', unmentioned, slug)?.reply, { comment: 5, root: 4, byThread: true });
+  assert.equal(route('pull_request_review_comment', unmentioned, slug)?.expectedHead, currentHead);
+  assert.equal(route('pull_request_review_comment', unmentioned, 'oddmash-qa', '', undefined, false), null);
+  assert.equal(route('issue_comment', unmentioned, slug), null);
+  assert.equal(route('pull_request_review_comment', { ...unmentioned, comment: { ...unmentioned.comment, in_reply_to_id: undefined } }, slug), null);
   assert.equal(route('pull_request_review_comment', { ...reply, sender: { ...actor, type: 'Bot' } }, slug), null);
   assert.equal(route('pull_request_review_comment', { ...reply, action: 'edited' }, slug), null);
   assert.equal(route('pull_request_review_comment', { ...reply, comment: { ...reply.comment, body: '@other is this required?' } }, slug), null);

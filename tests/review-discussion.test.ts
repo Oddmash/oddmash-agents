@@ -211,11 +211,11 @@ test('scoped completion retries a failed reaction or resolution without posting 
     assert.equal(resolved, false);
     assert.equal(receipts, 0);
     assert.match(comments[2].body, failure === 'reaction' ? /did not confirm the acknowledgement/ : /did not confirm the thread resolution/);
-    const anotherRequest = { ...followup, id: 7, body: `@oddmash-reviewer Fixed in ${nextHead}: verified the restored control.` };
+    const anotherRequest = { ...followup, id: 7, body: `Fixed in ${nextHead}: verified the restored control.` };
     comments.push(anotherRequest);
-    await replyToReview(api, { ...target, reply: { root: 4, comment: 7 } }, config, model);
+    await replyToReview(api, { ...target, reply: { root: 4, comment: 7, byThread: true } }, config, model);
     comments.push({ ...anotherRequest, id: 8 });
-    await replyToReview(api, { ...target, reply: { root: 4, comment: 8 } }, config, model);
+    await replyToReview(api, { ...target, reply: { root: 4, comment: 8, byThread: true } }, config, model);
     await replyToReview(api, target, config, model);
     assert.equal(replies, 1);
     assert.equal(modelCalls, 1);
