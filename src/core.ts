@@ -221,7 +221,7 @@ export function inlineComment(context: ReviewContext, finding: Finding): string 
 }
 
 const omissionActions: Record<OmissionReason, [string, string]> = {
-  protected: ['Protected path excluded by review policy; inspect the change and permissions locally without sharing sensitive content.', '검토 정책상 보호된 경로입니다. 민감한 내용을 공유하지 말고 로컬에서 변경 사항과 권한을 확인하세요.'],
+  protected: ['Protected path excluded by review policy; this is a coverage restriction, not a confirmed security finding. Inspect the affected paths in Files changed locally.', '검토 정책상 제외된 경로입니다. 보안 문제가 확인되었다는 뜻은 아닙니다. Files changed에서 해당 변경을 직접 확인하세요.'],
   sensitive: ['Potentially sensitive content excluded; inspect locally and confirm that no sensitive values are committed.', '민감할 수 있는 내용이 제외되었습니다. 로컬에서 확인하고 민감한 값이 커밋되지 않았는지 검증하세요.'],
   image: ['Image has no text diff; compare before/after captures for layout, readability, and sensitive information.', '이미지의 텍스트 diff가 없습니다. 이전·이후 캡처의 레이아웃, 가독성, 민감한 정보 노출을 확인하세요.'],
   lockfile: ['Generated dependency lockfile lacks a complete text diff. Check the declared dependency changes, frozen installation and relevant dependency verification; passing CI alone does not establish full diff coverage.', '생성된 의존성 잠금 파일의 전체 텍스트 diff가 없습니다. 선언된 의존성 변경, 고정 설치 및 관련 의존성 검증을 확인하세요. CI 통과만으로 전체 diff 검토가 완료된 것은 아닙니다.'],
@@ -252,20 +252,20 @@ function manualReviewLines(details: OmissionDetail[], language: 0 | 1): string[]
 
 export function formatReport(context: ReviewContext, findings: Finding[], modelValid = true, omissionDetails: OmissionDetail[] = [], inlineCovered = false): string {
   const lines = [reviewMarker(context)];
-  if (!findings.length) lines.push('No validated findings in the reviewed changes. This is not an approval or proof of correctness.');
+  if (!findings.length && context.files.length && modelValid) lines.push(`No validated findings in ${context.files.length} reviewed file(s). This is not an approval or proof of correctness.`);
   const blockingCount = findings.filter(f => isBlockingFinding(context, f)).length;
   if (inlineCovered && findings.length) lines.push(`${blockingCount} blocking, ${findings.length - blockingCount} advisory. See the inline review threads for details.`);
   for (const f of inlineCovered ? [] : findings) {
     lines.push(`- **${isBlockingFinding(context, f) ? 'BLOCKING' : 'ADVISORY'} / ${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.evidence)} ${isBlockingFinding(context, f) ? 'Fix' : 'Consider'}: ${clean(f.recommendation)} Verify: ${clean(f.verification)}`);
   }
   if (context.omitted.length) lines.push('', '**Manual review coverage**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 0) : ['- Some changes require manual review; inspect Files changed for unreviewed entries.']));
-  if (!context.files.length) lines.push('No changed file could be reviewed. Inspect the complete diff before approval.');
+  if (!context.files.length) lines.push('Automated review was not performed: 0 eligible files. No conclusion can be drawn. Inspect the complete diff before approval.');
   else if (!modelValid) lines.push('The review response contained findings that could not be validated against the changed lines. Compare the reported findings with the exact diff or request a fresh review.');
   const translated = (inlineCovered ? [] : findings).filter(f => f.korean).map(f => `- **${isBlockingFinding(context, f) ? '수정 필수' : '참고 의견'} / ${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.evidence)} ${isBlockingFinding(context, f) ? '수정' : '제안'}: ${koreanText(f.korean!.recommendation)} 확인: ${koreanText(f.korean!.verification)}`);
   if (inlineCovered && findings.length) translated.push(`수정 필수 ${blockingCount}건, 참고 의견 ${findings.length - blockingCount}건. 상세 내용은 인라인 리뷰를 확인하세요.`);
-  if (!findings.length) translated.push('검토한 변경 사항에서 확인된 문제는 없습니다. 승인 또는 정확성을 보장하지 않습니다.');
+  if (!findings.length && context.files.length && modelValid) translated.push(`검토한 파일 ${context.files.length}개에서 확인된 문제는 없습니다. 승인 또는 정확성을 보장하지 않습니다.`);
   if (context.omitted.length) translated.push('', '**수동 검토 범위**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 1) : ['- 일부 변경 사항은 수동 검토가 필요합니다. Files changed에서 미검토 항목을 확인하세요.']));
-  if (!context.files.length) translated.push('검토할 수 있는 변경 파일이 없습니다. 승인 전 전체 diff를 확인하세요.');
+  if (!context.files.length) translated.push('자동 검토 대상 파일이 0개여서 리뷰를 수행하지 못했습니다. 코드에 대한 결론을 내릴 수 없습니다. 승인 전 전체 diff를 확인하세요.');
   else if (!modelValid) translated.push('리뷰 응답에 변경된 줄을 기준으로 검증할 수 없는 결과가 포함되었습니다. 결과를 실제 diff와 비교하거나 재리뷰를 요청하세요.');
   if (translated.length) lines.push('', koreanDetails(translated));
   return lines.join('\n');
