@@ -71,10 +71,11 @@ test('organization documentation requires exact public identity, main and mainta
   assert.equal(eligiblePull({ ...pull, base: { ...pull.base, ref: 'develop' } }, target), false);
   assert.equal(eligiblePull({ ...pull, user: { id: 99, login: user.login } }, target), false);
   for (const filename of ['AGENTS.md', 'CONTRIBUTING.md', 'PULL_REQUEST_TEMPLATE.md', 'profile/README.md', 'docs/ko/README.md', 'docs/ja/README.md', 'docs/zh-CN/README.md', 'docs/ko/CONTRIBUTING.md', '.github/ISSUE_TEMPLATE/bug_report_en.md', '.github/ISSUE_TEMPLATE/feature.md']) {
-    assert.equal(lowRisk([{ ...files[0], filename }], 1, repository), true);
+    assert.equal(lowRiskReason([{ ...files[0], filename }], 1, repository), 'repository automatic merge opt-in is not enabled');
+    assert.equal(lowRiskReason([{ ...files[0], filename }], 1, repository, 'documentation'), undefined);
   }
   for (const filename of ['SECURITY.md', 'CODEOWNERS', '.github/CODEOWNERS', 'docs/AI-CODE-REVIEW.md', '.github/workflows/ci.yml', '.github/ISSUE_TEMPLATE/config.yml', 'docs/example.md', 'assets/agent-family.svg']) {
-    assert.equal(lowRisk([{ ...files[0], filename }], 1, repository), false);
+    assert.equal(lowRiskReason([{ ...files[0], filename }], 1, repository, 'documentation'), 'protected changed path requires manual merge');
   }
 });
 
