@@ -266,6 +266,12 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     let progressResult: { conclusion: 'success' | 'failure' | 'neutral' | 'cancelled'; title: string } = { conclusion: 'cancelled', title: 'Review not submitted' };
     try {
       await progress?.update('Collecting changes', 'Preparing the current commit review.');
+      try {
+        const active = await api<Pull>(path);
+        if (active.head.sha !== pr.head.sha || active.base.sha !== pr.base.sha || active.state !== 'open' || active.draft || !eligibleBase(active)) return;
+        await api(`${root}/issues/${pr.number}/labels`, { method: 'POST', body: JSON.stringify({ labels: ['review: pending'] }) });
+        for (const attached of active.labels) if (attached.name !== 'review: pending' && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' }).catch(()=>undefined);
+      } catch { console.warn('Review pending label unavailable'); }
       let mergeReason = !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
       const withheld = (reason: string) => { mergeReason = reason; console.log('Maintainer auto-merge withheld: ' + reason); };
       const candidate = config.autoMerge ? await mergeCandidate(api, target, pr.number, withheld).catch(error => {
