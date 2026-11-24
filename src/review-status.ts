@@ -1,4 +1,5 @@
 import type { githubApi } from './webhook.ts';
+import { crossRepositoryIssueReference } from './auto-merge.ts';
 
 type Api = ReturnType<typeof githubApi>;
 type Kind = 'merge' | 'review';
@@ -37,7 +38,7 @@ const messages: Record<string, [string, string]> = {
   'changed paths or review budget are ineligible': ['Some changed paths or the review size require manual merge.', '변경 파일 범위 또는 검토 규모 때문에 수동 머지가 필요합니다.'],
   'missing single closing issue link': ['Link exactly one eligible same-repository issue using a standalone Refs #N or Closes #N line.', '독립된 Refs #N 또는 Closes #N 줄로 동일 저장소의 적격 이슈 하나를 연결하세요.'],
   'multi-issue release requires manual merge': ['This release correctly links multiple issues. Complete CI and review, then merge manually.', '이 릴리스는 여러 이슈를 정상적으로 연결했습니다. CI와 리뷰 완료 후 수동 머지하세요.'],
-  'cross-repository issue reference requires manual merge': ['Cross-repository issue references are valid but require manual merge.', '다른 저장소 이슈 연결은 유효하지만 수동 머지가 필요합니다.'],
+  'cross-repository issue reference requires manual merge': ['Automatic merge verifies acceptance criteria through one issue in this PR’s repository. This PR links an issue in a different repository. Keep the reference and merge manually after CI and review pass.', '자동 머지는 이 PR과 같은 저장소의 이슈 하나를 기준으로 완료 조건을 검증합니다. 이 PR은 다른 저장소의 이슈를 연결했습니다. 이슈 연결을 유지하고 CI와 리뷰 통과 후 수동으로 머지하세요.'],
   'integration branch requires Refs': ['Use Refs for integration branches; close completed issues on the default branch only.', '통합 브랜치는 Refs를 사용하고 완료된 이슈는 기본 브랜치에서만 닫으세요.'],
   'missing single issue reference': ['Link exactly one eligible same-repository issue using a standalone Refs #N or Closes #N line.', '독립된 Refs #N 또는 Closes #N 줄로 동일 저장소의 적격 이슈 하나를 연결하세요.'],
   'issue acceptance criteria are ineligible': ['The linked issue and partial PR scope need eligible acceptance criteria.', '연결된 이슈와 부분 작업 범위에 유효한 완료 기준이 필요합니다.'],
@@ -90,12 +91,16 @@ export async function publishAutomationStatus(api: Api, repository: string, numb
     if (!known) return;
     const existing = known[0];
     if (completed && !existing) return;
-    const current = await api<{ state: string; head: { sha: string }; merged?: boolean }>(`/repos/${repository}/pulls/${number}`);
+    const current = await api<{ state: string; head: { sha: string }; merged?: boolean; body?: string | null }>(`/repos/${repository}/pulls/${number}`);
     if (current.head.sha !== head || (!completed && current.state !== 'open')) return;
     const [en, ko] = statusText(kind, reason);
+    const reference = kind === 'merge' && reason === 'cross-repository issue reference requires manual merge'
+      ? crossRepositoryIssueReference(current.body ?? null) : undefined;
+    const referenceEn = reference ? `\n\nLinked issue: \`${reference}\`` : '';
+    const referenceKo = reference ? `\n\n연결 이슈 \`${reference}\`` : '';
     const links = reason === 'Actions billing or quota block' ? `\n\n[Workflow run${workflowRunUrl ? '' : 's'}](${workflowRunUrl ?? `https://github.com/${repository}/actions`}) · ${billingHelpLink(repository)}` : '';
     const title = completed ? 'Completed' : kind === 'merge' ? 'Auto-merge withheld' : 'Review processing failed';
-    const body = `${marker}\n**${title}**\n\n${en}${links}\n\nCommit: \`${head.slice(0, 12)}\`\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${ko}\n\n</details>`;
+    const body = `${marker}\n**${title}**\n\n${en}${referenceEn}${links}\n\nCommit: \`${head.slice(0, 12)}\`\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${ko}${referenceKo}\n\n</details>`;
     if (existing?.body === body) return;
     if (existing) await api(`/repos/${repository}/issues/comments/${existing.id}`, { method: 'PATCH', body: JSON.stringify({ body }) });
     else {
