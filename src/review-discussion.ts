@@ -1,4 +1,4 @@
-import { withPendingReviewLock } from './review-lock.ts';
+import { ownsPendingReview, withPendingReviewLock, type Review } from './review-lock.ts';
 import { createHash } from 'node:crypto';
 import type { AdvisoryRole } from './advisory-agents.ts';
 import { agentSkill, guidanceInstructions, loadProjectGuidance } from './agent-guidance.ts';
@@ -56,9 +56,10 @@ async function resolveThread(api: Api, id: string): Promise<boolean> {
   return !result.errors?.length && result.data?.resolveReviewThread?.thread?.id === id && result.data.resolveReviewThread.thread.isResolved === true;
 }
 
-export function scopedLeadThreadResolution(target: Target, appId: string, key: string, slug: string, enabled: string | undefined, request: typeof fetch = fetch): Resolution | undefined {
-  if (enabled !== 'true' || appId !== '5881606' || slug !== 'oddmash-lead' ||
-      target.repository !== 'Oddmash/oddmash-ui' || target.repositoryId !== 1456324802 || target.private ||
+export function scopedLeadThreadResolution(target: Target, appId: string, key: string, slug: string, flags: { ui?: string; skills?: string }, request: typeof fetch = fetch): Resolution | undefined {
+  const allowed = (flags.ui === 'true' && target.repository === 'Oddmash/oddmash-ui' && target.repositoryId === 1456324802) ||
+    (flags.skills === 'true' && target.repository === 'Oddmash/oddmash-skills' && target.repositoryId === 1468154482);
+  if (!allowed || appId !== '5881606' || slug !== 'oddmash-lead' || target.private ||
       !target.number || !target.reply || target.reply.kind === 'conversation' || target.advisoryIdentity) return;
   return async (threadId, stillCurrent) => {
     if (!/^PRRT_[a-zA-Z0-9_-]{1,200}$/.test(threadId)) return false;
@@ -91,6 +92,31 @@ async function resolveOwnThread(api: Api, target: Target, root: string, bot: str
     const current = await api<Pull>(pathFor(target));
     return eligiblePull(current, target) && current.head.sha === head && current.base.sha === baseSha;
   });
+}
+
+async function publishPendingThreadReply(api: Api, target: Target, original: Comment, bot: string, pr: Pull, pendingId: number, body: string, stillCurrent: () => Promise<boolean>) {
+  const path = pathFor(target);
+  if (!original.node_id) throw new Error('Verified finding resolution unavailable');
+  const threads = await reviewThreads(api, target, pr.head.sha, pr.base.sha, original.node_id);
+  const thread = threads?.find(item => item.comments.nodes[0]?.id === original.node_id && ownsThread(item.comments.nodes[0]?.author, bot));
+  if (!thread) throw new Error('Verified finding resolution unavailable');
+  const review = await api<Review>(`${path}/reviews/${pendingId}`);
+  if (!ownsPendingReview([review], bot, pr.head.sha, pendingId) || !review.node_id) throw new Error('Pending review identity changed');
+
+  // GitHub rejects a standalone REST reply while this account has a pending review.
+  const result = await api<{ errors?: unknown[]; data?: { addPullRequestReviewThreadReply?: { comment?: { fullDatabaseId?: string | number; pullRequestReview?: { id?: string; state?: string } } } } }>('/graphql', {
+    method: 'POST', body: JSON.stringify({
+      query: 'mutation AttachVerifiedThreadReply($input: AddPullRequestReviewThreadReplyInput!) { addPullRequestReviewThreadReply(input: $input) { comment { fullDatabaseId pullRequestReview { id state } } } }',
+      variables: { input: { pullRequestReviewId: review.node_id, pullRequestReviewThreadId: thread.id, body } }
+    })
+  });
+  const attached = result.data?.addPullRequestReviewThreadReply?.comment;
+  const id = Number(attached?.fullDatabaseId);
+  if (result.errors?.length || !Number.isSafeInteger(id) || id < 1 ||
+      attached?.pullRequestReview?.id !== review.node_id || attached.pullRequestReview.state !== 'PENDING') throw new Error('Pending discussion reply could not be attached');
+  if (!await stillCurrent()) return;
+  await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event: 'COMMENT', body: '' }) });
+  return { id };
 }
 
 const sha = /^[a-f0-9]{40}$/i;
@@ -307,7 +333,7 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
       parsed.korean = '현재 커밋의 완전한 변경 내용에서 수정 근거를 확인하지 못했습니다. 지적을 열린 상태로 유지하니 커밋과 관련 파일을 확인해 주세요.';
     }
     if (typeof parsed.english !== 'string' || typeof parsed.korean !== 'string' || !parsed.english.trim() || !/[가-힣]/.test(parsed.korean) || parsed.english.length > 1200 || parsed.korean.length > 1200 || !safe(parsed.english, privateReview) || !safe(parsed.korean, privateReview)) return;
-    const publish = async () => {
+    const publish = async (pendingId?: number) => {
       if (!await matchesSnapshot()) return;
       const latest = await listComments(api, commentBase);
       if (!latest || latest.some(item => item.user.login === bot && item.body.includes(marker)) || !latest.some(item => item.id === question.id && item.body === question.body && maintainer(item.user))) return;
@@ -324,7 +350,10 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
       const resolutionPending = verdict === 'fixed' && !conversation ? status + 'Thread resolution pending. 스레드를 닫는 중입니다.' : '';
       const body = `${marker}${completion}${reference}\n${plain(parsed.english)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(parsed.korean)}\n\n</details>${resolutionPending}`;
       if (Buffer.byteLength(body, 'utf8') > 12_000) return;
-      const posted = await api<{ id: number }>(conversation ? `${commentBase}/comments` : `${base}/comments/${root}/replies`, { method: 'POST', body: JSON.stringify({ body }) });
+      const posted = !conversation && pendingId !== undefined
+        ? await publishPendingThreadReply(api, target, original, bot, pr, pendingId, body, matchesSnapshot)
+        : await api<{ id: number }>(conversation ? `${commentBase}/comments` : `${base}/comments/${root}/replies`, { method: 'POST', body: JSON.stringify({ body }) });
+      if (!posted) return;
       if (verdict) {
         completing = true;
         await settleReply(verdict, posted.id, body, eyesId);
