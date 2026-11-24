@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import { acquirePendingReview, attachReviewFindings, attachReviewFindingsWithCoverage, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock, ownsPendingReview, reviewWebhook } from '../src/webhook-review.ts';
 import { githubApi } from '../src/webhook.ts';
+import { threadReconciliationExclusions } from '../src/review-discussion.ts';
+import { reviewBaseMarker } from '../src/review-follow-up-policy.ts';
 
 const path = '/repos/Oddmash/example/pulls/1';
 const bot = 'oddmash-reviewer[bot]';
@@ -75,6 +77,70 @@ test('concurrent eligible PR deliveries waiting on CI create one queued check wi
   assert.equal(pending.size, 0);
   assert.equal(check?.status, 'queued');
   assert.equal((check?.output as { title: string }).title, 'Waiting for CI');
+});
+
+test('a full neutral webhook review schedules reconciliation for the current PR and retries only with green CI', async t => {
+  const root = '/repos/Oddmash/example';
+  const repository = { id: 7, full_name: 'Oddmash/example', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
+  const base = 'b'.repeat(40);
+  const pr = { number: 1, state: 'open', draft: false, user: { login: 'fixture', id: 10 }, head: { sha: head },
+    base: { sha: base, repo: repository }, changed_files: 0, title: 'Fixture', labels: [] };
+  const previous = { id: 10, user: { login: bot }, state: 'COMMENTED', commit_id: 'c'.repeat(40), body: '<!-- oddmash-app-review:earlier -->' };
+  let current: typeof previous | undefined;
+  let green = true, reconciliations = 0;
+  const priorAutomatic = process.env.REVIEWER_AUTO_ADVISORY_ENABLED;
+  process.env.REVIEWER_AUTO_ADVISORY_ENABLED = 'false';
+  t.after(() => { if (priorAutomatic === undefined) delete process.env.REVIEWER_AUTO_ADVISORY_ENABLED; else process.env.REVIEWER_AUTO_ADVISORY_ENABLED = priorAutomatic; });
+  t.mock.method(globalThis, 'fetch', async (input: URL | RequestInfo, init?: RequestInit) => {
+    const endpoint = new URL(String(input)).pathname;
+    if (endpoint === '/app/installations/3') return Response.json({ account: { login: 'Oddmash' }, suspended_at: null });
+    if (endpoint === '/app/installations/3/access_tokens') return Response.json({ token: 'fixture' });
+    if (endpoint === root) return Response.json(repository);
+    if (endpoint === path) return Response.json(pr);
+    if (endpoint === root + '/pulls') return Response.json([pr]);
+    if (endpoint === path + '/files' || endpoint.endsWith('/comments') || endpoint.endsWith('/labels')) return Response.json([]);
+    if (endpoint.includes('/contents/')) return new Response(null, { status: 404 });
+    if (endpoint === root + '/commits/' + head + '/check-runs') return Response.json({ total_count: 1, check_runs: [
+      { name: 'verify', status: 'completed', conclusion: green ? 'success' : 'failure', app: { id: 15368 } }
+    ] });
+    if (endpoint === path + '/reviews') {
+      if (init?.method === 'POST') {
+        current = { ...previous, ...JSON.parse(String(init.body)), id: 11, state: 'PENDING' };
+        return Response.json(current);
+      }
+      return Response.json(current ? [previous, current] : [previous]);
+    }
+    if (endpoint === path + '/reviews/11/events') {
+      const { event, body } = JSON.parse(String(init?.body));
+      assert.equal(event, 'COMMENT');
+      current = { ...current!, state: 'COMMENTED', body };
+      return Response.json(current);
+    }
+    if (endpoint === '/graphql') {
+      const request = JSON.parse(String(init?.body));
+      assert.equal(request.variables.number, 1);
+      reconciliations++;
+      return Response.json({ data: { repository: { pullRequest: { headRefOid: head, baseRefOid: base, reviewThreads: {
+        nodes: [], pageInfo: { hasNextPage: false }
+      } } } } });
+    }
+    assert.fail(`Unexpected request: ${endpoint}`);
+  });
+  const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const target = { installation: 3, repository: repository.full_name, repositoryId: repository.id, sha: head };
+  const config = { appId: '42', key, slug: 'oddmash-reviewer', openaiKey: 'fixture', model: 'fixture' };
+  await reviewWebhook(target, config);
+  assert.equal(current?.state, 'COMMENTED');
+  assert.ok(current?.body.includes(reviewBaseMarker(base)));
+  assert.equal(threadReconciliationExclusions(current!.body)?.size, 0);
+  assert.equal(reconciliations, 1);
+  green = false;
+  await reviewWebhook(target, config);
+  assert.equal(reconciliations, 1);
+  green = true;
+  await reviewWebhook(target, config);
+  assert.equal(reconciliations, 2);
+  assert.equal(current?.id, 11);
 });
 
 test('only expired webhook locks owned by the bot are eligible for recovery', () => {
