@@ -2,7 +2,7 @@ export const progressCheckName = 'Oddmash Reviewer / review';
 
 type Api = <T>(path: string, init?: RequestInit) => Promise<T>;
 type Conclusion = 'success' | 'failure' | 'neutral' | 'cancelled';
-type ProgressIdentity = { appId: number; number: number; request?: string; waiting?: boolean; reuseOnly?: boolean };
+type ProgressIdentity = { appId: number; number: number; request?: string; waiting?: boolean; waitingSummary?: string; reuseOnly?: boolean };
 type CheckRun = { id: number; name: string; head_sha: string; external_id: string | null; status: string; app?: { id: number } };
 
 export async function startReviewProgress(api: Api, repository: string, head: string, identity?: ProgressIdentity) {
@@ -27,7 +27,8 @@ export async function startReviewProgress(api: Api, repository: string, head: st
       id = existing?.id;
     } catch { console.warn('Review progress lookup unavailable'); finished = true; }
   }
-  if (!id && !finished && !identity?.reuseOnly) await write('queued', identity?.waiting ? 'Waiting for CI' : 'Review queued', identity?.waiting ? 'Review will start after required checks pass.' : 'Waiting to collect review evidence.');
+  if (!id && !finished && !identity?.reuseOnly) await write('queued', identity?.waiting ? 'Waiting for CI' : 'Review queued', identity?.waiting ? identity.waitingSummary ?? 'Review will start after required checks pass.' : 'Waiting to collect review evidence.');
+  else if (id && identity?.waiting && identity.waitingSummary && !identity.reuseOnly) await write('queued', 'Waiting for CI', identity.waitingSummary);
   return {
     update: async (title: string, summary: string) => { if (id) await write('in_progress', title, summary); },
     finish: async (conclusion: Conclusion, title: string, summary = 'See the pull request review for details.') => { if (id && !finished) finished = await write('completed', title, summary, conclusion); }

@@ -1,6 +1,6 @@
 # Oddmash agent family
 
-One repository, Vercel project and queue serve the agents. Each role has individual usage attribution and optionally independent model configuration. Reviewer retains its existing automatic review policy. Other agents primarily respond to explicit maintainer commands and publish advice, not approval or operational actions. The optional coordinated review mode selects at most two PR advisors; Triage remains issue-only.
+One repository, Vercel project and queue serve the agents. Each role has individual usage attribution and optionally independent model configuration. Reviewer retains its existing automatic review policy. Other agents primarily respond to explicit maintainer commands and publish advice, not approval or operational actions. The optional coordinated review mode selects relevant PR advisors only within the configured request and elapsed-time budgets; Triage remains issue-only. A small documentation-only edit needs no automatic advisor, a UI feature can select Impact and QA, an API change can also select Docs, and structural or release changes can select Architect or Release. The deterministic priority order resolves a limited budget without recursively invoking agents. See [agent operations](agent-operations.md) for limits.
 
 | Role | Target | Command | Output |
 | --- | --- | --- | --- |

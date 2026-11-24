@@ -111,3 +111,15 @@ test('incomplete progress lookup does not create duplicate runs', async () => {
   await progress.update('Collecting', 'Example');
   assert.equal(calls, 1);
 });
+
+test('waiting progress displays supplied diagnostic without changing queued status', async () => {
+  const calls: Record<string, unknown>[] = [];
+  const api = async <T>(_path: string, init?: RequestInit): Promise<T> => {
+    if (!init) return { total_count: 0, check_runs: [] } as T;
+    calls.push(JSON.parse(String(init.body)));
+    return { id: 42 } as T;
+  };
+  await startReviewProgress(api, 'Oddmash/example', 'a'.repeat(40), { appId: 42, number: 7, waiting: true, waitingSummary: 'Missing verify. Open Checks.' });
+  assert.equal(calls[0].status, 'queued');
+  assert.deepEqual(calls[0].output, { title: 'Waiting for CI', summary: 'Missing verify. Open Checks.' });
+});
