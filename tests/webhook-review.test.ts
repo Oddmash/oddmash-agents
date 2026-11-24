@@ -248,6 +248,98 @@ test('a full neutral webhook review schedules reconciliation for the current PR 
   assert.equal(current?.id, 11);
 });
 
+test('coordinated reviews publish only after all selected specialists finish', async t => {
+  const root = '/repos/Oddmash/example';
+  const repository = { id: 7, full_name: 'Oddmash/example', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
+  const base = 'b'.repeat(40);
+  const files = ['src/example.ts', 'docs/guide.md'].map(filename => ({
+    filename, status: 'modified', changes: 4, additions: 2, deletions: 2, patch: '@@ -1,2 +1,2 @@\n-old\n-before\n+new\n+after'
+  }));
+  const pr = { number: 1, state: 'open', draft: false, user: { login: 'fixture', id: 10 }, head: { sha: head },
+    base: { sha: base, repo: repository }, changed_files: files.length, title: 'Fixture', labels: [] };
+  const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const specialists = [{ role: 'qa', appId: 43, file: files[0] }, { role: 'docs', appId: 44, file: files[1] }];
+  const env = { ...process.env };
+  const overrides: Record<string, string> = {
+    REVIEWER_AUTO_ADVISORY_ENABLED: 'true', REVIEWER_AUTO_ADVISORY_MAX_REQUESTS: '2', REVIEWER_AUTO_ADVISORY_MAX_MS: '90000',
+    REVIEWER_CHECK_PROGRESS_ENABLED: 'false'
+  };
+  for (const { role, appId } of specialists) {
+    const prefix = role.toUpperCase();
+    Object.assign(overrides, {
+      [prefix + '_APP_ENABLED']: 'true', [prefix + '_APP_ID']: String(appId), [prefix + '_APP_PRIVATE_KEY']: key,
+      [prefix + '_WEBHOOK_SECRET']: role, [prefix + '_OPENAI_API_KEY']: role
+    });
+  }
+  Object.assign(process.env, overrides);
+  t.after(() => {
+    for (const name of Object.keys(overrides)) {
+      if (env[name] === undefined) delete process.env[name];
+      else process.env[name] = env[name];
+    }
+  });
+  const events: string[] = [];
+  const comments: Record<string, unknown>[] = [];
+  let review: Record<string, unknown> | undefined;
+  t.mock.method(globalThis, 'fetch', async (input: URL | RequestInfo, init?: RequestInit) => {
+    const url = new URL(String(input));
+    const endpoint = url.pathname;
+    const token = new Headers(init?.headers).get('authorization')?.slice(7);
+    const method = init?.method ?? 'GET';
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    if (url.hostname === 'api.openai.com') {
+      const specialist = specialists.find(({ role }) => role === token);
+      events.push('assessed ' + (specialist?.role ?? 'lead'));
+      const report = specialist ? {
+        en: Array(4).fill(specialist.role + ' summary'), ko: Array(4).fill('검토했습니다.'),
+        inlineFindings: [{ path: specialist.file.filename, line: 1, evidence: 'new', en: 'Check the displayed state.', ko: '표시 상태를 확인하세요.' }]
+      } : { findings: [], acceptance: [], allRequirementsMet: false };
+      return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(report) }] }] });
+    }
+    if (endpoint === root + '/installation') {
+      const jwt = JSON.parse(Buffer.from(token!.split('.')[1], 'base64url').toString());
+      const advisor = specialists.find(({ appId }) => appId === Number(jwt.iss));
+      assert.ok(advisor);
+      return Response.json({ id: advisor.appId, app_id: advisor.appId, app_slug: 'oddmash-' + advisor.role, suspended_at: null });
+    }
+    const installation = /^\/app\/installations\/(\d+)(\/access_tokens)?$/.exec(endpoint);
+    if (installation) return Response.json(installation[2] ? { token: installation[1] } : { account: { login: 'Oddmash' }, suspended_at: null });
+    if (endpoint === root) return Response.json(repository);
+    if (endpoint === path) return Response.json(pr);
+    if (endpoint === path + '/files') return Response.json(files);
+    if (endpoint.includes('/contents/')) return new Response(null, { status: 404 });
+    if (endpoint === root + '/commits/' + head + '/check-runs') return Response.json({ total_count: 1, check_runs: [
+      { name: 'verify', status: 'completed', conclusion: 'success', app: { id: 15368 } }
+    ] });
+    if (endpoint === path + '/reviews') {
+      if (method !== 'POST') return Response.json(review ? [review] : []);
+      review = { ...body, id: 11, state: 'PENDING', user: { login: bot } };
+      return Response.json(review);
+    }
+    if (endpoint === path + '/reviews/11/events') {
+      events.push('published lead');
+      assert.match(body.body, /qa summary/);
+      assert.match(body.body, /docs summary/);
+      review = { ...review, state: 'COMMENTED', body: body.body };
+      return Response.json(review);
+    }
+    if (endpoint === path + '/comments') {
+      if (method !== 'POST') return Response.json(comments);
+      const specialist = specialists.find(({ appId }) => String(appId) === token);
+      assert.ok(specialist);
+      events.push('published ' + specialist.role);
+      const comment = { ...body, id: comments.length + 1, user: { login: 'oddmash-' + specialist.role + '[bot]' } };
+      comments.push(comment);
+      return Response.json(comment);
+    }
+    if (endpoint.endsWith('/labels') || endpoint === root + '/issues/1/comments') return Response.json([]);
+    assert.fail('Unexpected request: ' + method + ' ' + endpoint);
+  });
+  const target = { installation: 3, repository: repository.full_name, repositoryId: repository.id, number: 1, expectedHead: head };
+  await reviewWebhook(target, { appId: '42', key, slug: 'oddmash-reviewer', openaiKey: 'lead', model: 'fixture' });
+  assert.deepEqual(events, ['assessed lead', 'assessed qa', 'assessed docs', 'published lead', 'published qa', 'published docs']);
+});
+
 test('only expired webhook locks owned by the bot are eligible for recovery', () => {
   const now = 1_800_000_000_000;
   const body = `<!-- oddmash-review-lock -->\n<!-- oddmash-webhook-lock:${now - 361_000} -->`;

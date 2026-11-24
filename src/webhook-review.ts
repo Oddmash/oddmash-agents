@@ -328,6 +328,56 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       });
       const current = await api<Pull>(path);
       if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft || !eligibleBase(current)) return;
+      const summaries = new Map<string, { section: string; publish?: () => Promise<void> }>();
+      let selectedRoles: readonly string[] = [];
+      if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED !== 'true') console.info('Coordinated advisors disabled');
+      if (coordinatedAdvisoriesEnabled(target, process.env.REVIEWER_AUTO_ADVISORY_ENABLED)) {
+        const budget = automaticAdvisoryBudget(process.env, Date.now() - executionStarted);
+        if (budget.maxRequests > 0 && budget.elapsedMs > 0) {
+          const planningStarted = Date.now();
+          const planningSignal = AbortSignal.timeout(budget.elapsedMs);
+          const boundedRequest = (signal: AbortSignal): typeof fetch => (input, init) => fetch(input, { ...init, signal: AbortSignal.any([signal, init?.signal ?? signal]) });
+          const metadata = await githubApi(githubToken, boundedRequest(planningSignal))<ChangeMetadata[]>(`${path}/files?per_page=100&page=1`).catch(() => []);
+          const scoped = incrementalFiles === undefined ? metadata : metadata.filter(file => incrementalFiles.includes(file.filename));
+          const advisoryPaths = automaticAdvisoryPaths(scoped);
+          const remaining = { ...budget, elapsedMs: Math.max(0, budget.elapsedMs - (Date.now() - planningStarted)) };
+          const roles = selectAdvisoryRoles(scoped, remaining.maxRequests);
+          if (roles.includes('qa')) {
+            roles.splice(roles.indexOf('qa'), 1);
+            roles.unshift('qa');
+          }
+          selectedRoles = roles;
+          console.info(roles.length ? 'Coordinated advisors selected: ' + roles.join(', ') : 'Coordinated advisors skipped: no eligible roles');
+          await runCoordinatedAdvisories(roles, remaining, async (role, signal) => {
+            const completed = summaries.size ? ` Completed roles: ${[...summaries.keys()].join(', ')}.` : '';
+            await progress?.update(`Specialist review in progress (${role})`, `Lead is coordinating the latest commit.${completed}`);
+            const request = boundedRequest(signal);
+            const advisor = await authorizeCoordinatedAdvisor({
+              installation: target.installation, repository, repositoryId: target.repositoryId, private: target.private,
+              number: current.number, expectedHead: current.head.sha
+            }, role, appId, request);
+            if (!advisor) { console.info('Coordinated advisor unavailable: ' + role); return true; }
+            const latest = await advisor.api<Pull>(path);
+            if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) return false;
+            const advisoryConfig = { ...advisor.config, automatic: true, incrementalFiles: advisoryPaths, collectSummary: (section: string, publishFindings?: (publicationApi: Api) => Promise<void>) => {
+              summaries.set(role, { section, publish: publishFindings ? () => publishFindings(advisor.publicationApi) : undefined });
+            } };
+            await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(advisor.api, advisor.target, advisoryConfig, request) : runAdvisory(advisor.api, advisor.target, advisoryConfig, request));
+            console.info('Coordinated advisor returned: ' + role);
+            return true;
+          });
+        } else console.info('Coordinated advisors skipped: budget exhausted');
+        const latestPull = await api<Pull>(path);
+        if (latestPull.head.sha !== current.head.sha || latestPull.base.sha !== current.base.sha ||
+            latestPull.merge_commit_sha !== current.merge_commit_sha || latestPull.state !== 'open' ||
+            latestPull.draft || !eligibleBase(latestPull)) return;
+      }
+      const specialistNotes = [...summaries.values()].map(result => result.section);
+      const missingRoles = selectedRoles.filter(role => !summaries.has(role));
+      if (missingRoles.length) specialistNotes.push(`- No result for / 검토 결과 없음: ${missingRoles.join(', ')}.`);
+      const specialistSummary = specialistNotes.length
+        ? '\n\n### Specialist follow-up / 전문 검토 후속 확인\n\n' + specialistNotes.join('\n')
+        : '';
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
       if (!ownsPendingReview(latest, bot, current.head.sha, pendingId) || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state) && (!approved || review.id > approved.id))))) return;
       const finalChecks = await readChecks(current);
@@ -346,7 +396,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         ((event === 'APPROVE' && target.recheck) || (event === 'COMMENT' && hasEarlierReview));
       const reconciliation = reconcileThreads ? threadReconciliationMarker(result.comments.map(comment => comment.path)) : '';
       const scopeNote = `\n\n${reviewBaseMarker(current.base.sha)}` + (reconciliation ? `\n${reconciliation}` : '') + (incrementalFiles !== undefined ? '\n\nIncremental follow-up only. Earlier files were not re-reviewed; request a full review before approval or merge.\n\n증분 검토입니다. 이전 파일은 다시 검토하지 않았으며 승인 또는 머지 전 전체 리뷰가 필요합니다.' : '');
-      let body = formatReviewBody(event, finalMarker, result.report, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote;
+      let body = formatReviewBody(event, finalMarker, result.report, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote + specialistSummary;
       const attemptMerge = async (reviewId: number) => {
         if (!candidate) { await mergeStatus(mergeReason); return; }
         if (candidate.pull.head.sha !== result.head || candidate.pull.base.sha !== current.base.sha) { await mergeStatus('candidate changed'); return; }
@@ -374,8 +424,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
       const advisory = event === 'COMMENT' && !target.recheck ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
       const attachment = event !== 'APPROVE' ? await attachReviewFindingsWithCoverage(api, path, pendingId, result.head, bot, result.comments) : { attached: 0, covered: true };
-      if (attachment.covered) body = formatReviewBody(event, finalMarker, result.inlineReport, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote;
-      const publishedReviewId = advisory && !attachment.attached ? advisory.id : pendingId;
+      if (attachment.covered) body = formatReviewBody(event, finalMarker, result.inlineReport, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote + specialistSummary;
       if (advisory && !attachment.attached) {
         if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
       } else {
@@ -388,53 +437,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
       requestApproved = event === 'APPROVE';
       progressResult = completedResult;
-      if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED !== 'true') console.info('Coordinated advisors disabled');
-      if (coordinatedAdvisoriesEnabled(target, process.env.REVIEWER_AUTO_ADVISORY_ENABLED)) {
-        const budget = automaticAdvisoryBudget(process.env, Date.now() - executionStarted);
-        if (budget.maxRequests > 0 && budget.elapsedMs > 0) {
-          const planningStarted = Date.now();
-          const planningSignal = AbortSignal.timeout(budget.elapsedMs);
-          const boundedRequest = (signal: AbortSignal): typeof fetch => (input, init) => fetch(input, { ...init, signal: AbortSignal.any([signal, init?.signal ?? signal]) });
-          const metadata = await githubApi(githubToken, boundedRequest(planningSignal))<ChangeMetadata[]>(`${path}/files?per_page=100&page=1`).catch(() => []);
-          const scoped = incrementalFiles === undefined ? metadata : metadata.filter(file => incrementalFiles.includes(file.filename));
-          const advisoryPaths = automaticAdvisoryPaths(scoped);
-          const remaining = { ...budget, elapsedMs: Math.max(0, budget.elapsedMs - (Date.now() - planningStarted)) };
-          const roles = selectAdvisoryRoles(scoped, remaining.maxRequests);
-          if (roles.includes('qa')) {
-            roles.splice(roles.indexOf('qa'), 1);
-            roles.unshift('qa');
-          }
-          console.info(roles.length ? 'Coordinated advisors selected: ' + roles.join(', ') : 'Coordinated advisors skipped: no eligible roles');
-          const summaries = new Map<string, string>();
-          await runCoordinatedAdvisories(roles, remaining, async (role, signal) => {
-            const completed = summaries.size ? ` Completed roles: ${[...summaries.keys()].join(', ')}.` : '';
-            await progress?.update(`Specialist review in progress (${role})`, `Lead is coordinating the latest commit.${completed}`);
-            const request = boundedRequest(signal);
-            const advisor = await authorizeCoordinatedAdvisor({
-              installation: target.installation, repository, repositoryId: target.repositoryId, private: target.private,
-              number: current.number, expectedHead: current.head.sha
-            }, role, appId, request);
-            if (!advisor) { console.info('Coordinated advisor unavailable: ' + role); return true; }
-            const latest = await advisor.api<Pull>(path);
-            if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) return false;
-            const advisoryConfig = { ...advisor.config, automatic: true, incrementalFiles: advisoryPaths, collectSummary: (section: string) => { summaries.set(role, section); } };
-            await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(advisor.api, advisor.target, advisoryConfig, request) : runAdvisory(advisor.api, advisor.target, advisoryConfig, request));
-            console.info('Coordinated advisor returned: ' + role);
-            return true;
-          });
-          if (summaries.size) try {
-            const latestPull = await api<Pull>(path);
-            const review = await api<Review>(`${path}/reviews/${publishedReviewId}`);
-            if (latestPull.head.sha === current.head.sha && latestPull.base.sha === current.base.sha &&
-                latestPull.state === 'open' && !latestPull.draft && review.user.login === bot &&
-                review.commit_id === current.head.sha && review.body === body) {
-              const summary = body + '\n\n### Specialist follow-up / 전문 검토 후속 확인\n\n' + [...summaries.values()].join('\n');
-              await api(`${path}/reviews/${publishedReviewId}`, { method: 'PUT', body: JSON.stringify({ body: summary }) });
-            }
-          } catch {
-            console.warn('Coordinated review summary update failed');
-          }
-        } else console.info('Coordinated advisors skipped: budget exhausted');
+      for (const specialist of summaries.values()) {
+        try { await specialist.publish?.(); }
+        catch { console.warn('Coordinated specialist findings publication failed'); }
       }
       if (reconciliation) {
         await progress?.update('Verifying earlier findings', 'Checking the current commit against open review discussions.');

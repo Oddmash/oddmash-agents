@@ -225,11 +225,19 @@ test('each dedicated PR advisor publishes once with its own identity and bounded
     assert.equal(comments.length, 1);
     assert.match(comments[0].body, new RegExp(`oddmash-advisory:${role}`));
     const summaries: string[] = [];
+    const publications: ((publicationApi: typeof api) => Promise<void>)[] = [];
     const automaticTarget = { ...target, requestComment: undefined };
-    await runAdvisory(api, automaticTarget, { bot, model: 'fixture', openaiKey: 'fixture', automatic: true, collectSummary: text => { summaries.push(text); } }, request);
-    assert.equal(inline.length, 1);
+    inline.length = 0;
+    await runAdvisory(api, automaticTarget, { bot, model: 'fixture', openaiKey: 'fixture', automatic: true, collectSummary: (text, publish) => {
+      summaries.push(text);
+      if (publish) publications.push(publish);
+    } }, request);
+    assert.equal(inline.length, 0);
     assert.equal(comments.length, 1);
     assert.equal(summaries.length, 1);
+    assert.equal(publications.length, 1);
+    await publications[0](api);
+    assert.equal(inline.length, 1);
     assert.match(summaries[0], /Four \/ 넷/);
     await runAdvisory(api, automaticTarget, { bot, model: 'fixture', openaiKey: 'fixture', automatic: true, collectSummary: text => { summaries.push(text); } }, async (input, init) => {
       currentHead = 'c'.repeat(40);
