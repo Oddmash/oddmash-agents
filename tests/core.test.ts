@@ -134,7 +134,7 @@ test('manual review identifies omitted public files, reasons, and verification a
   assert.doesNotMatch(report, /proof of correctness|정확성을 보장/);
   assert.match(report, /`src\/renamed.ts`: GitHub did not provide a text diff/);
   assert.match(report, /`src\/incomplete.ts`: GitHub diff is incomplete/);
-  assert.match(report, /Protected path excluded/);
+  assert.match(report, /Confidential path/);
   assert.match(report, /Potentially sensitive content excluded/);
   assert.match(report, /수동 검토 범위/);
   assert.match(report, /이전·이후 캡처의 레이아웃/);
@@ -146,7 +146,7 @@ test('manual review identifies omitted public files, reasons, and verification a
   assert.doesNotMatch(privateReport, /private-fixture/);
   assert.match(privateReport, /inspect the complete diff/i);
   assert.match(privateReport, /0 eligible files/);
-  assert.match(privateReport, /not a confirmed security finding/);
+  assert.match(privateReport, /Path requires local review/);
   assert.doesNotMatch(privateReport, /No validated findings|확인된 문제는 없습니다/);
 });
 
@@ -204,6 +204,24 @@ test('quality review selects ordinary manifests and auth source independently of
   }
   assert.equal(selectFiles(changes, 45_000, true, 'strict').files.some(item => item.filename === '.github/workflows/ci.yml'), false);
   assert.equal(selectFiles(changes, 45_000, true, 'strict').files.some(item => item.filename === 'src/auth/session.ts'), false);
+});
+
+test('private quality review includes webhook review code and tests while protecting credentials and rename origins', () => {
+  const paths = ['src/webhook-review.ts', 'tests/webhook-review.test.ts'];
+  const changes = paths.map(filename => ({ ...file, filename }));
+  assert.deepEqual(selectFiles(changes, 45_000, true, 'quality').files.map(item => item.filename), paths);
+  assert.equal(selectFiles(changes, 45_000, true, 'strict').files.length, 0);
+  const restricted = selectFiles([
+    { ...changes[0], patch: '@@ -1 +1 @@\n-old\n+const token = "synthetic-fixture-value";' },
+    { ...changes[1], previous_filename: '.aws/credentials' },
+  ], 45_000, true, 'quality');
+  assert.deepEqual(restricted.omissionDetails, [{ reason: 'sensitive', path: paths[0] }, { reason: 'protected' }]);
+  assert.doesNotMatch(JSON.stringify(restricted), /synthetic-fixture-value|\.aws/);
+  const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: restricted.files, omitted: restricted.omitted, guidance: {}, checks: [] };
+  const report = formatReport(context, [], true, restricted.omissionDetails);
+  assert.match(report, /Confidential path[.] Inspect the change locally/);
+  assert.match(report, /민감 경로입니다[.]/);
+  assert.doesNotMatch(report, /정책|보안 문제가 확인/);
 });
 
 test('quality review hides confidential names, rename origins and credential-like content', () => {

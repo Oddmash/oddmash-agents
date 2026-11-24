@@ -253,7 +253,7 @@ test('approved private review uses scoped auth and excludes private sensitive da
   assert.equal(modelCalls, 1);
   assert.equal(result.decision, 'COMMENT');
   assert.equal(result.issueVerified, false);
-  assert.match(result.report, /Protected path excluded/);
+  assert.match(result.report, /Confidential path/);
   assert.match(result.report, /`src\/other.ts`: Potentially sensitive content excluded/);
   assert.match(result.report, /`docs\/diagram.png`: Image has no text diff/);
   assert.doesNotMatch(result.report, /fixture-hidden-name|synthetic-fixture-value|fixture-sensitive-guidance|src\/renamed.ts/);
