@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual, createSign } from 'node:crypto';
 type Repository = { id: number; full_name: string; private: boolean; visibility: string; owner: { login: string }; archived?: boolean };
 type Actor = { id: number; login: string; type?: string };
 type Payload = { action?: string; installation?: { id: number }; repository?: Repository; pull_request?: { number: number; draft: boolean; head?: { sha: string } }; check_suite?: { head_sha: string; app?: { id: number }; pull_requests?: { number: number }[] }; sender?: Actor; requested_reviewer?: Actor; issue?: { number: number; pull_request?: object }; comment?: { id: number; user: Actor; body: string; in_reply_to_id?: number } };
-export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string; expectedHead?: string; private?: boolean; recheck?: string; requestComment?: { kind: 'inline' | 'issue'; id: number; root?: number }; reply?: { comment: number; root: number; kind?: 'conversation'; rootKind?: 'issue' | 'review'; path?: string } };
+export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string; expectedHead?: string; impact?: true; private?: boolean; recheck?: string; requestComment?: { kind: 'inline' | 'issue'; id: number; root?: number }; reply?: { comment: number; root: number; kind?: 'conversation'; rootKind?: 'issue' | 'review'; path?: string } };
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 const shaPattern = /^[a-f0-9]{40}$/i;
 
@@ -44,6 +44,12 @@ export function reviewCommand(body: string, slug: string): boolean {
   return new RegExp(`^${mention}[ \\t]+/(?:re)?review$`, 'i').test(firstLine);
 }
 
+export function impactCommand(body: string, slug: string): boolean {
+  if (!/^[a-z0-9-]+$/i.test(slug)) return false;
+  const normalized = body.trim().toLowerCase();
+  return normalized === '@' + slug.toLowerCase() + ' /impact' || normalized === '@' + slug.toLowerCase() + '[bot] /impact';
+}
+
 export function conversationFixReference(body: string, slug: string, repository: string, number: number): { root: number; rootKind: 'issue' | 'review'; path: string } | undefined {
   if (!/^[a-z0-9-]+$/i.test(slug) || !new RegExp(`^@${slug}(?:\\[bot\\])? Fixed in [a-f0-9]{40}:`, 'i').test(body.trim())) return;
   const original = /^Original: (https:\/\/github\.com\/[^\s]+)$/m.exec(body)?.[1];
@@ -73,6 +79,7 @@ export function route(event: string | null, p: Payload, slug = '', delivery = ''
   if (event === 'pull_request' && ['opened', 'reopened', 'synchronize', 'ready_for_review'].includes(p.action ?? '') && p.pull_request?.draft === false && positive(p.pull_request.number)) return { ...target, number: p.pull_request.number, ...(shaPattern.test(p.pull_request.head?.sha ?? '') ? { expectedHead: p.pull_request.head!.sha } : {}) };
   if (event === 'pull_request' && p.action === 'review_requested' && maintainer(p.sender) && p.requested_reviewer?.login === `${slug}[bot]` && p.requested_reviewer.type === 'Bot' && p.pull_request?.draft === false && positive(p.pull_request.number) && /^[a-f0-9-]{36}$/i.test(delivery)) return { ...target, number: p.pull_request.number, ...(shaPattern.test(p.pull_request.head?.sha ?? '') ? { expectedHead: p.pull_request.head!.sha } : {}), recheck: delivery };
   if (p.action === 'created' && maintainer(p.sender) && maintainer(p.comment?.user) && positive(p.comment?.id) && typeof p.comment.body === 'string' && p.comment.body.length <= 2000) {
+    if (event === 'issue_comment' && p.issue?.pull_request && positive(p.issue.number) && impactCommand(p.comment.body, slug)) return { ...target, number: p.issue.number, impact: true, requestComment: { kind: 'issue', id: p.comment.id } };
     if (event === 'issue_comment' && p.issue?.pull_request && positive(p.issue.number) && reviewCommand(p.comment.body, slug)) return { ...target, number: p.issue.number, recheck: `comment-${p.comment.id}`, requestComment: { kind: 'issue', id: p.comment.id } };
     if (event === 'issue_comment' && p.issue?.pull_request && positive(p.issue.number)) {
       const reference = conversationFixReference(p.comment.body, slug, repo.full_name, p.issue.number);
