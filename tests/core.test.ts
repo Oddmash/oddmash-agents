@@ -75,6 +75,20 @@ test('separates advisory findings, coverage gaps and approval without weakening 
   assert.equal(reviewOutcome('APPROVE', followUp).label, 'review: approved');
 });
 
+test('inline-first reporting preserves code and does not repeat confirmed inline findings', () => {
+  const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: [file], omitted: ['asset'], guidance: {}, checks: [] };
+  const example = { ...finding, evidence: 'Use `items.some(x => x > 0)` and `count < 2`.', verification: 'Run the empty-array test.' } as Finding;
+  const inline = inlineComment(context, example);
+  assert.match(inline, /x => x > 0/);
+  assert.match(inline, /count < 2/);
+  assert.match(inline, /Verify: Run the empty-array test/);
+  const summary = formatReport(context, [example], true, [], true);
+  assert.match(summary, /0 blocking, 1 advisory/);
+  assert.doesNotMatch(summary, /items\.some|Run the empty-array test/);
+  assert.match(summary, /Manual review coverage/);
+  assert.match(formatReport(context, [example]), /items\.some/);
+});
+
 test('skipped conditional jobs require a passing aggregate verify check', () => {
   const skipped = { name: 'quality', status: 'completed', conclusion: 'skipped' };
   const verify = { name: 'verify', status: 'completed', conclusion: 'success' };
@@ -88,7 +102,7 @@ test('review output is concise without CI summaries or typographic dashes', () =
   const example = { ...finding, rule: 'Label — accessibility', evidence: 'Missing — label' } as Finding;
   const report = formatReport(context, [example]);
   assert.doesNotMatch(report, /CI evidence|CI: success|[\u2013\u2014\u2015]/);
-  assert.doesNotMatch(inlineComment(context, example), /[\u2013\u2014\u2015]|Verify:/);
+  assert.doesNotMatch(inlineComment(context, example), /[\u2013\u2014\u2015]/);
   const approved = formatReviewBody('APPROVE', '<!-- marker -->', report);
   assert.match(approved, /@qtaghdi/);
   assert.equal(formatReviewBody('APPROVE', '<!-- marker -->', report, { id: 135234546, login: 'qtaghdi' }), '<!-- marker -->\nApproved.');

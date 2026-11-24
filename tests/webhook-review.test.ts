@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { acquirePendingReview, attachReviewFindings, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock, reviewWebhook } from '../src/webhook-review.ts';
+import { acquirePendingReview, attachReviewFindings, attachReviewFindingsWithCoverage, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock, reviewWebhook } from '../src/webhook-review.ts';
 import { githubApi } from '../src/webhook.ts';
 
 const path = '/repos/Oddmash/example/pulls/1';
@@ -140,4 +140,15 @@ test('rejects partial batch attachment before submitting the review', async () =
     return Response.json({ errors: [{ message: 'fixture error' }] });
   });
   await assert.rejects(attachReviewFindings(api, path, 42, head, bot, [finding]), /could not be attached/);
+});
+
+
+test('only suppresses the summary when existing bot threads cover every finding', async () => {
+  const finding = { body: `<!-- oddmash-finding:${'a'.repeat(24)} -->`, path: 'src/ui.ts', line: 1, side: 'RIGHT' as const };
+  const api = githubApi('fixture-token', async url => {
+    assert.equal(new URL(String(url)).pathname, `${path}/comments`);
+    return Response.json([{ user: { login: bot }, body: finding.body }]);
+  });
+  assert.deepEqual(await attachReviewFindingsWithCoverage(api, path, 42, head, bot, [finding]), { attached: 0, covered: true });
+  assert.deepEqual(await attachReviewFindingsWithCoverage(api, path, 42, head, bot, [{ ...finding, body: 'Missing marker' }]), { attached: 0, covered: false });
 });

@@ -46,7 +46,7 @@ export function validateConfig(c: Config) {
   if ((c.post && !c.githubToken) || !c.openaiKey || !c.model) throw new Error('Required configuration missing');
 }
 
-export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ report: string; posted: boolean; assessment: ReviewDecision; decision: ReviewDecision; followUp: ReviewFollowUp; head: string; issueVerified: boolean; comments: { body: string; path: string; line: number; side: 'LEFT' | 'RIGHT' }[] }> {
+export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ report: string; inlineReport: string; posted: boolean; assessment: ReviewDecision; decision: ReviewDecision; followUp: ReviewFollowUp; head: string; issueVerified: boolean; comments: { body: string; path: string; line: number; side: 'LEFT' | 'RIGHT' }[] }> {
   validateConfig(c);
   const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   const api = async <T>(path: string, init: RequestInit = {}, optional = false, publicRead = false): Promise<T | null> => {
@@ -146,10 +146,11 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     else findings = findings.map(({ blockingEvidence: _unconfirmed, ...finding }) => finding);
   }
   const report = formatReport(context, findings, modelValid, selected.omissionDetails);
+  const inlineReport = formatReport(context, findings, modelValid, selected.omissionDetails, true);
   const assessment = reviewAssessment(context, findings, modelValid);
   const decision = reviewDecision(context, findings, modelValid && (checks?.total_count ?? context.checks.length) <= context.checks.length);
   const comments = findings.map(finding => ({ body: inlineComment(context, finding), path: finding.path, line: finding.line, side: finding.side ?? 'RIGHT' as const }));
-  const result = { report, assessment, decision, followUp: reviewFollowUp(context, findings, modelValid), head: pr.head.sha, comments, issueVerified };
+  const result = { report, inlineReport, assessment, decision, followUp: reviewFollowUp(context, findings, modelValid), head: pr.head.sha, comments, issueVerified };
   if (!c.post) return { ...result, posted: false };
   const existing = new Set<string>();
   for (let page = 1; page <= 10; page++) {
@@ -173,6 +174,6 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     await api(`${prPath}/reviews/${advisory.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: report }) });
     return { ...result, posted: true };
   }
-  await api(`${prPath}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: report, event: 'COMMENT', commit_id: pr.head.sha, comments: fresh }) });
+  await api(`${prPath}/reviews`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: fresh.length === findings.length ? inlineReport : report, event: 'COMMENT', commit_id: pr.head.sha, comments: fresh }) });
   return { ...result, posted: true };
 }

@@ -191,7 +191,7 @@ export function validateFindings(value: unknown, files: ChangedFile[], privateRe
   return result;
 }
 
-const clean = (value: string) => safeText(value).replace(/[<>]/g, '').replace(/@/g, '@\u200b').replace(/\r/g, '').replace(/\n/g, ' ').replace(/\s*[\u2013\u2014\u2015]\s*/g, ' - ');
+const clean = (value: string) => safeText(value).replace(/<(?=[A-Za-z/!?])/g, '&lt;').replace(/@/g, '@\u200b').replace(/\r/g, '').replace(/\n/g, ' ').replace(/\s*[\u2013\u2014\u2015]\s*/g, ' - ');
 export function reviewMarker(context: ReviewContext): string {
   const id = createHash('sha256').update(`${context.repository}:${context.number}:${context.head}`).digest('hex').slice(0, 24);
   return `<!-- oddmash-review:${id} -->`;
@@ -208,12 +208,12 @@ const koreanDetails = (lines: string[]) => ['<details>', '<summary>한국어 (Ko
 export function inlineComment(context: ReviewContext, finding: Finding): string {
   const blocking = isBlockingFinding(context, finding);
   const lines = [findingMarker(context, finding), `**${blocking ? 'BLOCKING' : 'ADVISORY'} / ${finding.severity.toUpperCase()}: ${clean(finding.rule)}**`, '', clean(finding.evidence), '', `${blocking ? 'Fix' : 'Consider'}: ${clean(finding.recommendation)}`];
-  if (blocking || finding.severity === 'high') lines.push('', `Verify: ${clean(finding.verification)}`);
+  lines.push('', `Verify: ${clean(finding.verification)}`);
   if (finding.suggestion) lines.push('', '```suggestion', finding.suggestion, '```');
   if (finding.korean) {
     const ko = finding.korean;
     const translated = [koreanText(ko.rule), '', koreanText(ko.evidence), '', `${blocking ? '수정' : '제안'}: ${koreanText(ko.recommendation)}`];
-    if (blocking || finding.severity === 'high') translated.push('', `확인: ${koreanText(ko.verification)}`);
+    translated.push('', `확인: ${koreanText(ko.verification)}`);
     lines.push('', koreanDetails(translated));
   }
   return lines.join('\n');
@@ -248,16 +248,19 @@ function manualReviewLines(details: OmissionDetail[], language: 0 | 1): string[]
   });
 }
 
-export function formatReport(context: ReviewContext, findings: Finding[], modelValid = true, omissionDetails: OmissionDetail[] = []): string {
+export function formatReport(context: ReviewContext, findings: Finding[], modelValid = true, omissionDetails: OmissionDetail[] = [], inlineCovered = false): string {
   const lines = [reviewMarker(context)];
   if (!findings.length) lines.push('No validated findings in the reviewed changes. This is not an approval or proof of correctness.');
-  for (const f of findings) {
+  const blockingCount = findings.filter(f => isBlockingFinding(context, f)).length;
+  if (inlineCovered && findings.length) lines.push(`${blockingCount} blocking, ${findings.length - blockingCount} advisory. See the inline review threads for details.`);
+  for (const f of inlineCovered ? [] : findings) {
     lines.push(`- **${isBlockingFinding(context, f) ? 'BLOCKING' : 'ADVISORY'} / ${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.evidence)} ${isBlockingFinding(context, f) ? 'Fix' : 'Consider'}: ${clean(f.recommendation)} Verify: ${clean(f.verification)}`);
   }
   if (context.omitted.length) lines.push('', '**Manual review coverage**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 0) : ['- Some changes require manual review; inspect Files changed for unreviewed entries.']));
   if (!context.files.length) lines.push('No changed file could be reviewed. Inspect the complete diff before approval.');
   else if (!modelValid) lines.push('The review response contained findings that could not be validated against the changed lines. Compare the reported findings with the exact diff or request a fresh review.');
-  const translated = findings.filter(f => f.korean).map(f => `- **${isBlockingFinding(context, f) ? '수정 필수' : '참고 의견'} / ${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.evidence)} ${isBlockingFinding(context, f) ? '수정' : '제안'}: ${koreanText(f.korean!.recommendation)} 확인: ${koreanText(f.korean!.verification)}`);
+  const translated = (inlineCovered ? [] : findings).filter(f => f.korean).map(f => `- **${isBlockingFinding(context, f) ? '수정 필수' : '참고 의견'} / ${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.evidence)} ${isBlockingFinding(context, f) ? '수정' : '제안'}: ${koreanText(f.korean!.recommendation)} 확인: ${koreanText(f.korean!.verification)}`);
+  if (inlineCovered && findings.length) translated.push(`수정 필수 ${blockingCount}건, 참고 의견 ${findings.length - blockingCount}건. 상세 내용은 인라인 리뷰를 확인하세요.`);
   if (!findings.length) translated.push('검토한 변경 사항에서 확인된 문제는 없습니다. 승인 또는 정확성을 보장하지 않습니다.');
   if (context.omitted.length) translated.push('', '**수동 검토 범위**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 1) : ['- 일부 변경 사항은 수동 검토가 필요합니다. Files changed에서 미검토 항목을 확인하세요.']));
   if (!context.files.length) translated.push('검토할 수 있는 변경 파일이 없습니다. 승인 전 전체 diff를 확인하세요.');

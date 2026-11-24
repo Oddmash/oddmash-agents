@@ -2,7 +2,7 @@ import { runReview } from './reviewer.ts';
 import { formatReviewBody, reviewOutcome } from './core.ts';
 import { publicRepositories as repositories, reviewTarget } from './routing.ts';
 import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvidence } from './checks.ts';
-import { acquirePendingReview, attachReviewFindings, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, type Review } from './webhook-review.ts';
+import { acquirePendingReview, attachReviewFindingsWithCoverage, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, type Review } from './webhook-review.ts';
 
 const target = reviewTarget(process.env.REVIEW_REPOSITORY ?? '', process.env.REVIEW_PR_NUMBER ?? '');
 const githubToken = process.env.GITHUB_TOKEN ?? '';
@@ -54,10 +54,10 @@ for (const repository of repositories) {
     const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
     if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))) continue;
     const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks);
-    const body = formatReviewBody(event, finalMarker, result.report, current.user, result.followUp);
+    const attachment = event !== 'APPROVE' ? await attachReviewFindingsWithCoverage(api, path, pendingId, result.head, bot, result.comments) : { attached: 0, covered: true };
+    const body = formatReviewBody(event, finalMarker, attachment.covered ? result.inlineReport : result.report, current.user, result.followUp);
     const advisory = event === 'COMMENT' ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
-    const attachedCount = event !== 'APPROVE' ? await attachReviewFindings(api, path, pendingId, result.head, bot, result.comments) : 0;
-    if (advisory && !attachedCount) {
+    if (advisory && !attachment.attached) {
       if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
     } else {
       const beforeSubmit = await api<Pull>(path);
