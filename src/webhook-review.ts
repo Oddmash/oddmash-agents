@@ -190,13 +190,6 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     };
     const mergeStatus = (reason: string, completed = false) => publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'merge', reason, completed);
     const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`), Number(appId));
-    const retryThreadReconciliation = async (review: Review | undefined) => {
-      if (!review?.body || !['APPROVED', 'COMMENTED'].includes(review.state) || !review.body.includes(reviewBaseMarker(pr.base.sha))) return;
-      const exclusions = threadReconciliationExclusions(review.body);
-      if (exclusions && reviewChecksSuccessful(await readChecks(pr), repository)) {
-        await reconcileReviewThreads(api, { ...target, number: pr.number }, config, pr.head.sha, pr.base.sha, fetch, exclusions);
-      }
-    };
     const retryExistingApproval = async () => {
       if (existingApproval?.state !== 'APPROVED') return;
       let reason = !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
@@ -217,6 +210,13 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       } catch (error) {
         await mergeStatus(error instanceof Error ? error.message : reason);
         throw error;
+      }
+    };
+    const retryThreadReconciliation = async (review: Review | undefined) => {
+      if (!review?.body || !['APPROVED', 'COMMENTED'].includes(review.state) || !review.body.includes(reviewBaseMarker(pr.base.sha))) return;
+      const exclusions = threadReconciliationExclusions(review.body);
+      if (exclusions && reviewChecksSuccessful(await readChecks(pr), repository)) {
+        await reconcileReviewThreads(api, { ...target, number: pr.number }, config, pr.head.sha, pr.base.sha, fetch, exclusions);
       }
     };
     if (!target.recheck && hasOfficialReview(reviews, bot, pr.head.sha)) {

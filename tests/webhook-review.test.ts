@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import { acquirePendingReview, attachReviewFindings, attachReviewFindingsWithCoverage, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock, ownsPendingReview, reviewWebhook } from '../src/webhook-review.ts';
 import { githubApi } from '../src/webhook.ts';
-import { threadReconciliationExclusions } from '../src/review-discussion.ts';
-import { reviewBaseMarker } from '../src/review-follow-up-policy.ts';
 
 const path = '/repos/Oddmash/example/pulls/1';
 const bot = 'oddmash-reviewer[bot]';
@@ -131,8 +129,8 @@ test('a full neutral webhook review schedules reconciliation for the current PR 
   const config = { appId: '42', key, slug: 'oddmash-reviewer', openaiKey: 'fixture', model: 'fixture' };
   await reviewWebhook(target, config);
   assert.equal(current?.state, 'COMMENTED');
-  assert.ok(current?.body.includes(reviewBaseMarker(base)));
-  assert.equal(threadReconciliationExclusions(current!.body)?.size, 0);
+  assert.ok(current?.body.includes(`<!-- oddmash-review-base:${base} -->`));
+  assert.ok(current?.body.includes('<!-- oddmash-verified-thread-reconciliation: -->'));
   assert.equal(reconciliations, 1);
   green = false;
   await reviewWebhook(target, config);
