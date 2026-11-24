@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { acquirePendingReview, attachReviewFindings, attachReviewFindingsWithCoverage, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock, reviewWebhook } from '../src/webhook-review.ts';
+import { acquirePendingReview, attachReviewFindings, attachReviewFindingsWithCoverage, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock, ownsPendingReview, reviewWebhook } from '../src/webhook-review.ts';
 import { githubApi } from '../src/webhook.ts';
 
 const path = '/repos/Oddmash/example/pulls/1';
@@ -152,4 +152,16 @@ test('only suppresses the summary when existing bot threads cover every finding'
   });
   assert.deepEqual(await attachReviewFindingsWithCoverage(api, path, 42, head, bot, [finding]), { attached: 0, covered: true });
   assert.deepEqual(await attachReviewFindingsWithCoverage(api, path, 42, head, bot, [{ ...finding, body: 'Missing marker' }]), { attached: 0, covered: false });
+});
+
+
+test('simultaneous pending reviews elect only the oldest owned lock and fail closed on incomplete evidence', () => {
+  const lock = (id: number) => ({ id, state: 'PENDING', user: { login: bot }, commit_id: head, body: '<!-- oddmash-review-lock -->' });
+  const concurrent = [lock(44), lock(42)];
+  assert.equal(ownsPendingReview(concurrent, bot, head, 42), true);
+  assert.equal(ownsPendingReview(concurrent, bot, head, 44), false);
+  assert.equal(ownsPendingReview([lock(44)], bot, head, 42), false);
+  assert.equal(ownsPendingReview([lock(42), { ...lock(44), body: 'unrelated pending review' }], bot, head, 42), false);
+  assert.equal(ownsPendingReview([lock(42), { ...lock(44), commit_id: 'b'.repeat(40) }], bot, head, 42), false);
+  assert.equal(ownsPendingReview(Array.from({ length: 100 }, (_, i) => lock(i + 42)), bot, head, 42), false);
 });
