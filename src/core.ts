@@ -63,11 +63,20 @@ const privateSensitiveValue = /(?:\b(?:gh[opsu]_|github_pat_|xox[baprs]-|sk[-_]|
 export const privateSensitiveText = (value: string) => sensitiveValue.test(value) || privateSensitiveValue.test(value);
 
 const confidentialPath = /(?:^|\/)(?:\.aws|\.ssh|\.vercel|\.kube|\.docker|\.npmrc|\.pypirc|\.netrc|certs?|certificates|data|dumps|uploads|logs|fixtures|credentials?|secrets?|keys?)(?:\/|$)|\.(?:crt|cer|keystore|jks|kdbx|env|tfvars|tfstate|sqlite|sqlite3|csv)$/i;
-const ordinaryManifest = /^(?:\.github\/workflows\/(?:ci|verify|test|build|lint|typecheck|deploy|release|pages)\.ya?ml|(?:package|tsconfig(?:\.[a-z]+)?|vercel)\.json|(?:next|vite|vitest|eslint|prettier|tailwind|postcss)\.config\.[cm]?[jt]s|(?:Dockerfile|docker-compose\.ya?ml|compose\.ya?ml))$/i;
+const ordinaryManifest = /^(?:\.github\/workflows\/(?:ci|verify|test|build|lint|typecheck|deploy|release|prepare-release|pages)\.ya?ml|(?:package|tsconfig(?:\.[a-z]+)?|vercel)\.json|(?:next|vite|vitest|eslint|prettier|tailwind|postcss)\.config\.[cm]?[jt]s|(?:Dockerfile|docker-compose\.ya?ml|compose\.ya?ml))$/i;
 const confidentialName = /(?:^|\/)[^/]*(?:secret|credential|private[-_]?key|service[-_]?account)[^/]*(?:\/|$)/i;
 const ordinaryAuthSource = /^src\/(?:(?:auth(?:entication|orization)?|security)\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+|(?:auth(?:entication|orization)?|security))\.[cm]?[jt]sx?$/i;
 const qualityPath = (path: string) => ordinaryManifest.test(path) || (ordinaryAuthSource.test(path) && !/(?:^|[-_./])(?:token|webhook|firebase|deploy|vercel)(?:[-_./]|$)/i.test(path));
 const explicitlyConfidential = (path: string) => sensitivePath.test(path) || confidentialPath.test(path) || confidentialName.test(path) || privateSensitiveText(path);
+
+function sensitiveReviewPatch(patch: string, filename: string, privateReview: boolean, quality: boolean): boolean {
+  if (!privateReview || !quality || !/\.[cm]?[jt]sx?$/i.test(filename)) {
+    return privateReview || quality ? privateSensitiveText(patch) : sensitiveValue.test(patch);
+  }
+  // A standalone environment lookup names a setting without supplying its value.
+  const reference = /^[ +\-][ \t]*(?:const|let)[ \t]+[a-z_$][\w$]*[ \t]*=[ \t]*process\.env\.([A-Z_][A-Z0-9_]*)[ \t]*;?[ \t]*$/gim;
+  return privateSensitiveText(patch.replace(reference, '$1'));
+}
 
 export function patchComplete(file: ChangedFile): boolean {
   if (!file.patch) return false;
@@ -101,23 +110,27 @@ export function selectFiles(files: ChangedFile[], budget = 45_000, privateReview
   const omitted: string[] = [];
   const omissionDetails: OmissionDetail[] = [];
   let remaining = budget;
+  const quality = purpose === 'quality';
   for (const file of files) {
     const paths = [file.filename, ...(file.previous_filename ? [file.previous_filename] : [])];
-    const protectedPath = paths.some(path => sensitivePath.test(path) || (purpose === 'quality' && explicitlyConfidential(path)));
-    const privateExcluded = privateReview && paths.some(path => privateSensitiveText(path) || (privateSensitivePath.test(path) && !(purpose === 'quality' && qualityPath(path))));
+    const protectedPath = paths.some(path => sensitivePath.test(path) || (quality && explicitlyConfidential(path)));
+    const privateExcluded = privateReview && paths.some(path => privateSensitiveText(path) || (privateSensitivePath.test(path) && !(quality && qualityPath(path))));
     let reason: OmissionReason | undefined;
     if (protectedPath) reason = 'protected';
     else if (privateExcluded) reason = 'private-policy';
-    else if (file.patch && (sensitiveValue.test(file.patch) || ((privateReview || purpose === 'quality') && privateSensitiveText(file.patch)))) reason = 'sensitive';
+    else if (file.patch && sensitiveReviewPatch(file.patch, file.filename, privateReview, quality)) reason = 'sensitive';
     else if (/(?:^|\/)(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|Cargo\.lock|uv\.lock|poetry\.lock)$/.test(file.filename) && (!file.patch || !patchComplete(file))) reason = 'lockfile';
     else if (!file.patch) reason = /\.(?:png|jpe?g|webp|gif|avif|ico|bmp|tiff?)$/i.test(file.filename) ? 'image' : 'missing-patch';
     else if (!patchComplete(file)) reason = 'incomplete-patch';
     else if (file.patch.length > remaining) reason = 'budget';
     else if (selected.length >= 40) reason = 'file-limit';
     if (reason) {
-      const hidden = privateReview || reason === 'protected' || reason === 'private-policy' || reason === 'sensitive' || privateSensitiveText(file.filename);
+      const privateReportPath = privateReview && quality && !protectedPath &&
+        (!file.previous_filename || !privateSensitivePath.test(file.previous_filename) || qualityPath(file.previous_filename));
+      const hidden = privateReview || reason === 'protected' || reason === 'sensitive' || privateSensitiveText(file.filename);
       omitted.push(privateReview ? 'Omitted private file' : hidden ? 'Omitted protected file' : file.filename);
-      const path = !hidden && /^[A-Za-z0-9_./ -]{1,180}$/.test(file.filename) && !privateSensitiveText(file.filename) ? file.filename : undefined;
+      // Coverage paths are rendered in the PR only. Private model omissions use anonymous entries.
+      const path = (!hidden || privateReportPath) && /^[A-Za-z0-9_./ -]{1,180}$/.test(file.filename) ? file.filename : undefined;
       omissionDetails.push({ reason, ...(path ? { path } : {}) });
       continue;
     }
@@ -273,7 +286,7 @@ function manualReviewLines(details: OmissionDetail[], language: 0 | 1): string[]
 
 export function formatReport(context: ReviewContext, findings: Finding[], modelValid = true, omissionDetails: OmissionDetail[] = [], inlineCovered = false): string {
   const lines = [reviewMarker(context)];
-  if (!findings.length && context.files.length && modelValid) lines.push(`No validated findings in ${context.files.length} reviewed file(s). This is not an approval or proof of correctness.`);
+  if (!findings.length && context.files.length && modelValid) lines.push(`No validated findings in ${context.files.length} reviewed ${context.files.length === 1 ? 'file' : 'files'}.`);
   const blockingCount = findings.filter(f => isBlockingFinding(context, f)).length;
   if (inlineCovered && findings.length) lines.push(`${blockingCount} blocking, ${findings.length - blockingCount} advisory. See the inline review threads for details.`);
   for (const f of inlineCovered ? [] : findings) {
@@ -284,7 +297,7 @@ export function formatReport(context: ReviewContext, findings: Finding[], modelV
   else if (!modelValid) lines.push('The review response contained findings that could not be validated against the changed lines. Compare the reported findings with the exact diff or request a fresh review.');
   const translated = (inlineCovered ? [] : findings).filter(f => f.korean).map(f => `- **${isBlockingFinding(context, f) ? '수정 필수' : '참고 의견'} / ${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.evidence)} ${isBlockingFinding(context, f) ? '수정' : '제안'}: ${koreanText(f.korean!.recommendation)} 확인: ${koreanText(f.korean!.verification)}`);
   if (inlineCovered && findings.length) translated.push(`수정 필수 ${blockingCount}건, 참고 의견 ${findings.length - blockingCount}건. 상세 내용은 인라인 리뷰를 확인하세요.`);
-  if (!findings.length && context.files.length && modelValid) translated.push(`검토한 파일 ${context.files.length}개에서 확인된 문제는 없습니다. 승인 또는 정확성을 보장하지 않습니다.`);
+  if (!findings.length && context.files.length && modelValid) translated.push(`검토한 파일 ${context.files.length}개에서 확인된 문제는 없습니다.`);
   if (context.omitted.length) translated.push('', '**수동 검토 범위**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 1) : ['- 일부 변경 사항은 수동 검토가 필요합니다. Files changed에서 미검토 항목을 확인하세요.']));
   if (!context.files.length) translated.push('자동 검토 대상 파일이 0개여서 리뷰를 수행하지 못했습니다. 코드에 대한 결론을 내릴 수 없습니다. 승인 전 전체 diff를 확인하세요.');
   else if (!modelValid) translated.push('리뷰 응답에 변경된 줄을 기준으로 검증할 수 없는 결과가 포함되었습니다. 결과를 실제 diff와 비교하거나 재리뷰를 요청하세요.');

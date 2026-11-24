@@ -34,7 +34,7 @@ test('allows bounded UI suggestions and drops unchanged or unsafe replacements',
 test('formats non-blocking reports with stable markers', () => {
   const context = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: [file], omitted: [], guidance: {}, checks: [] };
   const report = formatReport(context, []);
-  assert.match(report, /not an approval/);
+  assert.match(report, /No validated findings in 1 reviewed file\./);
   assert.ok(report.startsWith(reviewMarker(context)));
   assert.notEqual(reviewMarker(context), reviewMarker({ ...context, head: 'b'.repeat(40) }));
   assert.match(formatReport(context, [], false), /could not be validated against the changed lines/);
@@ -129,6 +129,9 @@ test('manual review identifies omitted public files, reasons, and verification a
   const report = formatReport(context, [], true, selected.omissionDetails);
   assert.match(report, /`docs\/assets\/demo.png`, `docs\/assets\/demo-dark.jpg`: Image has no text diff/);
   assert.match(report, /compare before\/after captures/);
+  assert.match(report, /No validated findings in 1 reviewed file\./);
+  assert.match(report, /검토한 파일 1개에서 확인된 문제는 없습니다\./);
+  assert.doesNotMatch(report, /proof of correctness|정확성을 보장/);
   assert.match(report, /`src\/renamed.ts`: GitHub did not provide a text diff/);
   assert.match(report, /`src\/incomplete.ts`: GitHub diff is incomplete/);
   assert.match(report, /Protected path excluded/);
@@ -192,7 +195,7 @@ test('distinguishes unavailable generated lockfile diffs without changing review
 
 
 test('quality review selects ordinary manifests and auth source independently of strict private coverage', () => {
-  const paths = ['.github/workflows/ci.yml', 'vercel.json', 'tsconfig.json', 'next.config.ts', 'Dockerfile', 'src/auth/session.ts', 'src/authorization/permissions.ts'];
+  const paths = ['.github/workflows/ci.yml', '.github/workflows/prepare-release.yml', 'vercel.json', 'tsconfig.json', 'next.config.ts', 'Dockerfile', 'src/auth/session.ts', 'src/authorization/permissions.ts'];
   const changes = paths.map(filename => ({ ...file, filename }));
   for (const visibility of [false, true]) {
     const selection = selectFiles(changes, 45_000, visibility, 'quality');
@@ -214,11 +217,22 @@ test('quality review hides confidential names, rename origins and credential-lik
     const selection = selectFiles(changes, 45_000, visibility, 'quality');
     assert.equal(selection.files.length, 0);
     assert.deepEqual(selection.omissionDetails.map(item => item.reason), ['protected', 'protected', 'protected', 'sensitive']);
-    assert.ok(selection.omissionDetails.every(item => !item.path));
-    assert.doesNotMatch(JSON.stringify(selection), /env.local|aws\/credentials|synthetic-fixture-value|session.ts|vercel.json/);
+    assert.deepEqual(selection.omissionDetails.flatMap(item => item.path ? [item.path] : []), visibility ? ['vercel.json'] : []);
+    assert.doesNotMatch(JSON.stringify(selection), /env.local|aws\/credentials|synthetic-fixture-value|session.ts/);
   }
   const privateSelection = selectFiles([{ ...file, filename: 'config/internal.ts' }], 45_000, true, 'quality');
-  assert.deepEqual(privateSelection.omissionDetails, [{ reason: 'private-policy' }]);
+  assert.deepEqual(privateSelection.omissionDetails, [{ reason: 'private-policy', path: 'config/internal.ts' }]);
+});
+
+test('private quality recognizes standalone environment lookups and excludes literal values', () => {
+  const patch = (line: string) => '@@ -1 +1 @@\n-old\n+' + line;
+  const script = { ...file, filename: 'scripts/prepare-release.mjs', patch: patch('const token = process.env.GITHUB_TOKEN;') };
+  const reference = selectFiles([script], 45_000, true, 'quality');
+  assert.equal(reference.files[0]?.patch, script.patch);
+  assert.equal(selectFiles([script], 45_000, true, 'strict').omissionDetails[0]?.reason, 'sensitive');
+  for (const line of ["const token = 'synthetic-fixture-value';", "const token = process.env.GITHUB_TOKEN || 'synthetic-fixture-value';", 'const token = process.env.GITHUB_TOKEN; // password: synthetic-fixture-value']) {
+    assert.deepEqual(selectFiles([{ ...script, patch: patch(line) }], 45_000, true, 'quality').omissionDetails, [{ reason: 'sensitive', path: script.filename }]);
+  }
 });
 
 test('needs human explains the exact reason and directs maintainers to verification tabs', () => {

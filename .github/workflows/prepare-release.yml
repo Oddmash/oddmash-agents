@@ -1,0 +1,43 @@
+name: Prepare release
+run-name: Prepare release ${{ inputs.previous_tag }} -> ${{ inputs.candidate_sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      previous_tag:
+        description: Latest published stable release tag
+        required: true
+        type: string
+      candidate_sha:
+        description: Exact reviewed main commit SHA
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: agents-release-preparation
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'Oddmash/oddmash-agents' && github.actor_id == '135234546' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+      - name: Prepare advisory report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PREVIOUS_TAG: ${{ inputs.previous_tag }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          QA_OPENAI_API_KEY: ${{ secrets.QA_OPENAI_API_KEY }}
+          QA_OPENAI_MODEL: ${{ vars.QA_OPENAI_MODEL }}
+          RELEASE_OPENAI_API_KEY: ${{ secrets.RELEASE_OPENAI_API_KEY }}
+          RELEASE_OPENAI_MODEL: ${{ vars.RELEASE_OPENAI_MODEL }}
+        run: node scripts/prepare-release.mjs

@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   try { payload = JSON.parse(new TextDecoder().decode(bytes)); } catch { return new Response('Bad request', { status: 400 }); }
   if (!payload || typeof payload !== 'object' || request.headers.get('x-github-event') !== 'issue_comment') return new Response('Ignored', { status: 200 });
   const delivery = request.headers.get('x-github-delivery') ?? '';
-  const routed = route('issue_comment', payload, config.slug, delivery);
+  const routed = route('issue_comment', payload, config.slug, delivery, undefined, false);
   if (!routed || routed.advisory !== role) return new Response('Ignored', { status: 200 });
   const target = { ...routed, advisoryIdentity: role };
   const execution = executionContext(role, delivery);

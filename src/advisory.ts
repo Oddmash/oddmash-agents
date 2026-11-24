@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { advisoryProfiles, isAdvisoryRole } from './advisory-agents.ts';
 import { privateSensitiveText, safeText, selectFiles, type ChangedFile } from './core.ts';
-import { completeCommentReaction, reactToComment, type githubApi, type Target } from './webhook.ts';
+import { completeCommentReaction, reactToComment, slashRequestContext, type githubApi, type Target } from './webhook.ts';
 import { boundedModelBody, recordUsage, type Usage } from './model-request.ts';
 
 type Api = ReturnType<typeof githubApi>;
@@ -58,7 +58,12 @@ export async function runAdvisory(api: Api, target: Target, config: { bot: strin
       partial ||= checks.total_count !== checks.check_runs.length || checks.check_runs.length === 0;
     }
   }
-  const revision = `<!-- oddmash-advisory-revision:${fingerprint(subject)}:${createHash('sha256').update(JSON.stringify(role === 'qa' ? context.observedChecks : role === 'triage' ? context.relatedIssues : null)).digest('hex')} -->`;
+  const requestContext = await slashRequestContext(api, target, role);
+  if (requestContext) context.requestContext = requestContext;
+  const revisionEvidence = role === 'qa' ? context.observedChecks : role === 'triage' ? context.relatedIssues : null;
+  const revisionInputs = target.requestComment?.slash ? [revisionEvidence, requestContext ?? null] : revisionEvidence;
+  const revisionHash = createHash('sha256').update(JSON.stringify(revisionInputs)).digest('hex');
+  const revision = `<!-- oddmash-advisory-revision:${fingerprint(subject)}:${revisionHash} -->`;
   const find = async () => {
     for (let page = 1; page <= 10; page++) {
       const comments = await api<Comment[]>(`${commentsPath}?per_page=100&page=${page}`);

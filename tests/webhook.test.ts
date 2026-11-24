@@ -169,3 +169,46 @@ test('PR advisory identities request pull request write access while Triage rema
     assert.deepEqual(requests, [{ repository_ids: [repo.id], permissions: { contents: 'read', pull_requests: role === 'triage' ? 'read' : 'write', checks: 'read', issues: 'write' } }]);
   }
 });
+
+test('Lead alone routes each standalone slash command in its supported context', () => {
+  const user = { id: 135234546, login: 'qtaghdi', type: 'User' };
+  const make = (body: string, pull = true) => ({
+    ...event, action: 'created', sender: user, issue: { number: 2, ...(pull ? { pull_request: {} } : {}) },
+    comment: { id: 5, user, body, in_reply_to_id: 4 }
+  });
+  for (const role of ['review', 'qa', 'docs', 'impact', 'architect', 'release', 'triage'] as const) {
+    const pull = role !== 'triage';
+    const payload = make(`\n /${role}\r\n\nPlease check the fallback path.`, pull);
+    const target = route('issue_comment', payload, 'oddmash-lead');
+    assert.deepEqual(target?.requestComment, { kind: 'issue', id: 5, slash: true });
+    assert.equal(target?.advisory, role === 'review' ? undefined : role);
+    assert.equal(target?.recheck, role === 'review' ? 'comment-5' : undefined);
+    assert.equal(route('issue_comment', make('/' + role, !pull), 'oddmash-lead'), null);
+    assert.equal(route('issue_comment', payload, 'oddmash-' + role, '', undefined, false), null);
+  }
+  assert.deepEqual(route('pull_request_review_comment', make('/review'), 'oddmash-lead')?.requestComment,
+    { kind: 'inline', id: 5, root: 4, slash: true });
+  assert.equal(route('pull_request_review_comment', make('/qa'), 'oddmash-lead'), null);
+  for (const body of ['> /review', '    /review', 'Please /review', '/review and /qa', '/review\n/qa', '/qa\n@oddmash-lead[bot] /review', '\x60\x60\x60\n/review\n\x60\x60\x60']) {
+    assert.equal(route('issue_comment', make(body), 'oddmash-lead'), null);
+  }
+  for (const payload of [
+    { ...make('/review'), sender: { ...user, id: 9 } },
+    { ...make('/review'), comment: { ...make('/review').comment, user: { ...user, id: 9 } } },
+    { ...make('/review'), action: 'edited' },
+    { ...make('/review'), repository: { ...repo, private: true, visibility: 'private' } }
+  ]) assert.equal(route('issue_comment', payload, 'oddmash-lead'), null);
+});
+
+test('slash request context is scoped to the authenticated maintainer and subject', async () => {
+  const { slashRequestContext } = await import('../src/webhook.ts');
+  const sender = { id: 135234546, login: 'qtaghdi', type: 'User' };
+  const payload = { ...event, action: 'created', sender, issue: { number: 2, pull_request: {} }, comment: { id: 5, user: sender, body: '/qa' } };
+  const target = route('issue_comment', payload, 'oddmash-lead')!;
+  const item = { ...payload.comment, issue_url: `https://api.github.com/repos/${repo.full_name}/issues/2`, body: '/qa\nCheck the fallback path.' };
+  const api = (comment: typeof item) => githubApi('fixture', async () => Response.json(comment));
+  assert.equal(await slashRequestContext(api(item), target, 'qa'), 'Check the fallback path.');
+  assert.equal(await slashRequestContext(api({ ...item, body: '/qa\nsecret: synthetic-value' }), target, 'qa'), undefined);
+  assert.equal(await slashRequestContext(api({ ...item, issue_url: item.issue_url + '0' }), target, 'qa'), undefined);
+  assert.equal(await slashRequestContext(api({ ...item, body: '/docs\nDifferent scope.' }), target, 'qa'), undefined);
+});

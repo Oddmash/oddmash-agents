@@ -3,7 +3,7 @@ import { waitUntil } from '@vercel/functions';
 import { ignoredReviewRequest, route, validSignature } from '../src/webhook.ts';
 import { reviewWebhook } from '../src/webhook-review.ts';
 import { send } from '@vercel/queue';
-import { createReviewJob, reviewTopic } from '../src/review-job.ts';
+import { createReviewJob, leadDeliveryKey, reviewTopic } from '../src/review-job.ts';
 import { runtimeConfig } from '../src/runtime-config.ts';
 
 export function GET() {
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
   if (process.env.REVIEWER_QUEUE_ENABLED === 'true') {
     let job;
     try { job = createReviewJob(delivery, target, secret); } catch { return new Response('Bad request', { status: 400 }); }
-    try { await send(reviewTopic, job, { idempotencyKey: delivery, retentionSeconds: 86400 }); }
+    try { await send(reviewTopic, job, { idempotencyKey: leadDeliveryKey(target, delivery), retentionSeconds: 86400 }); }
     catch { console.error('Reviewer queue publish failed'); return new Response('Unavailable', { status: 503 }); }
     recordQueued(execution);
     if (target.requestComment) console.info('Reviewer comment request queued');
