@@ -6,6 +6,12 @@ Maintainer comment requests that arrive before passing checks persist a bot-auth
 
 Usage events record only model, phase and numeric input/output/total tokens. Aggregate them by phase and model using the applicable pricing; do not log prompts or source. Missing usage is not recorded as zero cost.
 
+## Review outcomes
+
+Confirmed actionable defects request changes. Advisory findings remain comments with a developer follow-up, not a demand for maintainer approval. Incomplete coverage or invalid evidence is listed separately and requires manual verification before approval. The review status label and check title reflect these distinct outcomes. Approval still requires zero findings, complete coverage and passing exact-head checks; merge eligibility is unchanged. Browser lifecycle findings must account for both bfcache preservation and restoration before proposing cleanup.
+
+Anchored findings appear once in their inline threads, including verification steps. The final review body contains the outcome, finding counts and coverage gaps. If inline coverage cannot be confirmed, preserve the full finding text in the review body. Existing same-head inline threads remain deduplicated.
+
 ## Evaluation
 
 Maintain a reviewed corpus of synthetic or expressly approved public patches. Include no-defect changes, deleted behavior, incorrect loading states, accessibility regressions, SSR mismatches, intentional alternative implementations, and ordinary correctness regressions. Label expected finding anchors and separately adjudicate whether each finding is genuinely actionable. The anchor evaluator counts true positives, false positives and false negatives without counting duplicate anchors. Anchor matches alone do not prove semantic correctness; evaluate severity, evidence and false blocking manually. Compare model versions on the same corpus before enabling policy changes.
