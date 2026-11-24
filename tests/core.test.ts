@@ -149,9 +149,9 @@ test('manual review summarizes bounded file counts and explains coverage limits'
   assert.ok(many.omissionDetails.every(item => item.reason === 'file-limit'));
   const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: many.files, omitted: many.omitted, guidance: {}, checks: [] };
   const report = formatReport(context, [], true, [...many.omissionDetails, { reason: 'pagination', count: 5 }]);
-  assert.match(report, /`src\/file-51.ts` \(3 unlisted\): Review file limit reached/);
+  assert.match(report, /`src\/file-51.ts` \(3 files without listed paths\): Review file limit reached/);
   assert.doesNotMatch(report, /src\/file-52.ts/);
-  assert.match(report, /\(5 unlisted\): Files beyond the fetched page/);
+  assert.match(report, /\(5 files without listed paths\): Files beyond the fetched page/);
 });
 
 test('renders English first and Korean translation in a collapsed section', () => {
@@ -168,4 +168,17 @@ test('renders English first and Korean translation in a collapsed section', () =
   }
   assert.doesNotMatch(formatReviewBody('APPROVE', '<!-- marker -->', formatReport(context, [valid])), /<details>/);
   assert.equal(validateFindings([{ ...bilingual, korean: { ...bilingual.korean, evidence: 'password: synthetic-fixture-value' } }], [file])[0].korean, undefined);
+});
+
+
+test('distinguishes unavailable generated lockfile diffs without changing review coverage requirements', () => {
+  const selected = selectFiles([{ filename: 'pnpm-lock.yaml', status: 'modified' }, { filename: 'package-lock.json', status: 'removed' }, { filename: 'src/unknown.ts', status: 'modified' }], 45000, true);
+  assert.deepEqual(selected.omissionDetails.map(item => item.reason), ['lockfile', 'lockfile', 'missing-patch']);
+  assert.ok(selected.omissionDetails.every(item => !item.path));
+  const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: selected.files, omitted: selected.omitted, guidance: {}, checks: [] };
+  const report = formatReport(context, [], true, selected.omissionDetails);
+  assert.match(report, /Generated dependency lockfile/);
+  assert.match(report, /passing CI alone does not establish full diff coverage/);
+  assert.doesNotMatch(report, /pnpm-lock|package-lock|src\/unknown/);
+  assert.equal(reviewDecision(context, [], true), 'COMMENT');
 });

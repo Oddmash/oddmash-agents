@@ -77,7 +77,7 @@ export function patchComplete(file: ChangedFile): boolean {
   return sawHunk && oldRemaining === 0 && newRemaining === 0 && (file.additions === undefined || additions === file.additions) && (file.deletions === undefined || deletions === file.deletions);
 }
 
-export type OmissionReason = 'protected' | 'sensitive' | 'image' | 'missing-patch' | 'incomplete-patch' | 'budget' | 'file-limit' | 'pagination';
+export type OmissionReason = 'protected' | 'sensitive' | 'image' | 'lockfile' | 'missing-patch' | 'incomplete-patch' | 'budget' | 'file-limit' | 'pagination';
 export type OmissionDetail = { reason: OmissionReason; path?: string; count?: number };
 
 export function selectFiles(files: ChangedFile[], budget = 45_000, privateReview = false): { files: ChangedFile[]; omitted: string[]; omissionDetails: OmissionDetail[] } {
@@ -90,6 +90,7 @@ export function selectFiles(files: ChangedFile[], budget = 45_000, privateReview
     let reason: OmissionReason | undefined;
     if (protectedPath) reason = 'protected';
     else if (file.patch && (sensitiveValue.test(file.patch) || (privateReview && privateSensitiveText(file.patch)))) reason = 'sensitive';
+    else if (/(?:^|\/)(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|Cargo\.lock|uv\.lock|poetry\.lock)$/.test(file.filename) && (!file.patch || !patchComplete(file))) reason = 'lockfile';
     else if (!file.patch) reason = /\.(?:png|jpe?g|webp|gif|avif|ico|bmp|tiff?)$/i.test(file.filename) ? 'image' : 'missing-patch';
     else if (!patchComplete(file)) reason = 'incomplete-patch';
     else if (file.patch.length > remaining) reason = 'budget';
@@ -223,6 +224,7 @@ const omissionActions: Record<OmissionReason, [string, string]> = {
   protected: ['Protected path excluded by review policy; inspect the change and permissions locally without sharing sensitive content.', '검토 정책상 보호된 경로입니다. 민감한 내용을 공유하지 말고 로컬에서 변경 사항과 권한을 확인하세요.'],
   sensitive: ['Potentially sensitive content excluded; inspect locally and confirm that no sensitive values are committed.', '민감할 수 있는 내용이 제외되었습니다. 로컬에서 확인하고 민감한 값이 커밋되지 않았는지 검증하세요.'],
   image: ['Image has no text diff; compare before/after captures for layout, readability, and sensitive information.', '이미지의 텍스트 diff가 없습니다. 이전·이후 캡처의 레이아웃, 가독성, 민감한 정보 노출을 확인하세요.'],
+  lockfile: ['Generated dependency lockfile lacks a complete text diff. Check the declared dependency changes, frozen installation and relevant dependency verification; passing CI alone does not establish full diff coverage.', '생성된 의존성 잠금 파일의 전체 텍스트 diff가 없습니다. 선언된 의존성 변경, 고정 설치 및 관련 의존성 검증을 확인하세요. CI 통과만으로 전체 diff 검토가 완료된 것은 아닙니다.'],
   'missing-patch': ['GitHub did not provide a text diff; open the file in Files changed and compare the base and head versions.', 'GitHub가 텍스트 diff를 제공하지 않았습니다. Files changed에서 파일의 이전·이후 버전을 비교하세요.'],
   'incomplete-patch': ['GitHub diff is incomplete; inspect the complete file diff and affected behavior.', 'GitHub diff가 불완전합니다. 전체 파일 변경과 영향을 받는 동작을 확인하세요.'],
   budget: ['Review size budget exceeded; inspect the remaining changes and relevant regression tests.', '리뷰 분량 제한을 초과했습니다. 남은 변경 사항과 관련 회귀 테스트를 확인하세요.'],
@@ -242,9 +244,9 @@ function manualReviewLines(details: OmissionDetail[], language: 0 | 1): string[]
   return [...groups].map(([reason, group]) => {
     const paths = group.paths.slice(0, remaining);
     remaining -= paths.length;
-    const location = paths.length ? paths.map(path => `\`${path}\``).join(', ') : language === 0 ? 'Path not listed' : '경로 비공개';
+    const location = paths.length ? paths.map(path => `\`${path}\``).join(', ') : language === 0 ? 'Files requiring separate verification' : '별도 검증이 필요한 파일';
     const unlisted = group.count - paths.length;
-    return `- ${location}${unlisted ? ` (${language === 0 ? `${unlisted} unlisted` : `미표시 ${unlisted}개`})` : ''}: ${omissionActions[reason][language]}`;
+    return `- ${location}${unlisted ? ` (${language === 0 ? `${unlisted} files without listed paths` : `경로 미표시 ${unlisted}개`})` : ''}: ${omissionActions[reason][language]}`;
   });
 }
 

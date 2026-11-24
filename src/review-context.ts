@@ -8,6 +8,11 @@ export function reviewFocus(repository: string): string[] {
   if (name.endsWith('/oddmash-ui')) return [...common, 'Keyboard interaction, accessibility, responsive states, design tokens and SSR'];
   if (name.endsWith('/interaction-inspector')) return [...common, 'Event lifecycle, cleanup, focus handling and extension compatibility'];
   if (/\/(?:cash-out|overtime-prototype)$/.test(name)) return [...common, 'Game state transitions, input, lifecycle and multiplayer consistency'];
+  if (name.endsWith('/boundra')) return [...common, 'Public package API compatibility, runtime boundaries and cross-platform CLI behavior'];
+  if (name.endsWith('/oddmash-website')) return [...common, 'Localization, navigation, accessibility, responsive layout and static output'];
+  if (name.endsWith('/vertactics')) return [...common, 'Editor state, map coordinate consistency, persistence and input interaction'];
+  if (name.endsWith('/oddmash-skills')) return [...common, 'Skill integration contracts, deterministic installer and documentation consistency'];
+  if (name.endsWith('/oddmash-agents')) return [...common, 'Review outcome consistency, bounded processing, idempotent publication and regression fixtures'];
   return common;
 }
 
