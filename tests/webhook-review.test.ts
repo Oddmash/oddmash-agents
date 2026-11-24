@@ -281,6 +281,7 @@ test('coordinated reviews publish only after all selected specialists finish', a
   const events: string[] = [];
   const comments: Record<string, unknown>[] = [];
   let review: Record<string, unknown> | undefined;
+  let pending: Record<string, unknown> | undefined;
   t.mock.method(globalThis, 'fetch', async (input: URL | RequestInfo, init?: RequestInit) => {
     const url = new URL(String(input));
     const endpoint = url.pathname;
@@ -312,17 +313,33 @@ test('coordinated reviews publish only after all selected specialists finish', a
       { name: 'verify', status: 'completed', conclusion: 'success', app: { id: 15368 } }
     ] });
     if (endpoint === path + '/reviews') {
-      if (method !== 'POST') return Response.json(review ? [review] : []);
-      review = { ...body, id: 11, state: 'PENDING', user: { login: bot } };
-      return Response.json(review);
+      if (method !== 'POST') return Response.json([review, pending].filter(Boolean));
+      pending = { ...body, id: review ? 12 : 11, state: 'PENDING', user: { login: bot } };
+      return Response.json(pending);
     }
     if (endpoint === path + '/reviews/11/events') {
       events.push('published lead');
+      assert.equal(body.event, 'APPROVE');
       assert.match(body.body, /qa summary/);
       assert.match(body.body, /docs summary/);
-      review = { ...review, state: 'COMMENTED', body: body.body };
+      review = { ...pending, state: 'APPROVED', body: body.body };
+      pending = undefined;
       return Response.json(review);
     }
+    if (endpoint === path + '/reviews/11' && method === 'PUT') {
+      events.push('updated lead');
+      assert.match(body.body, /qa summary/);
+      assert.match(body.body, /docs summary/);
+      review = { ...review, body: body.body };
+      return Response.json(review);
+    }
+    if (endpoint === path + '/reviews/12') {
+      if (method === 'DELETE') { pending = undefined; return new Response(null, { status: 204 }); }
+      return Response.json(pending);
+    }
+    if (endpoint === '/graphql') return Response.json({ data: { repository: { pullRequest: {
+      headRefOid: head, baseRefOid: base, reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } }
+    } } } });
     if (endpoint === path + '/comments') {
       if (method !== 'POST') return Response.json(comments);
       const specialist = specialists.find(({ appId }) => String(appId) === token);
@@ -336,8 +353,15 @@ test('coordinated reviews publish only after all selected specialists finish', a
     assert.fail('Unexpected request: ' + method + ' ' + endpoint);
   });
   const target = { installation: 3, repository: repository.full_name, repositoryId: repository.id, number: 1, expectedHead: head };
-  await reviewWebhook(target, { appId: '42', key, slug: 'oddmash-reviewer', openaiKey: 'lead', model: 'fixture' });
+  const config = { appId: '42', key, slug: 'oddmash-reviewer', openaiKey: 'lead', model: 'fixture' };
+  await reviewWebhook(target, config);
   assert.deepEqual(events, ['assessed lead', 'assessed qa', 'assessed docs', 'published lead', 'published qa', 'published docs']);
+  events.length = 0;
+  const recheck = { ...target, recheck: 'fixture-recheck' };
+  await reviewWebhook(recheck, config);
+  await reviewWebhook(recheck, config);
+  assert.deepEqual(events, ['assessed lead', 'updated lead']);
+  assert.equal(pending, undefined);
 });
 
 test('only expired webhook locks owned by the bot are eligible for recovery', () => {

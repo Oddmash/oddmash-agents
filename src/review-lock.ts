@@ -3,6 +3,16 @@ import { setTimeout } from 'node:timers/promises';
 type Api = ReturnType<typeof import('./webhook.ts').githubApi>;
 export type Review = { id: number; node_id?: string; body: string | null; user: { login: string }; state: string; commit_id: string };
 
+async function readLockReviews(api: Api, path: string, bot: string): Promise<Review[]> {
+  const own: Review[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const reviews = await api<Review[]>(`${path}/reviews?per_page=100&page=${page}`);
+    own.push(...reviews.filter(review => review.user.login === bot));
+    if (reviews.length < 100) return own;
+  }
+  throw new Error('Pending review lookup incomplete');
+}
+
 export async function acquirePendingReview(api: Api, path: string, head: string, bot: string, webhook = false): Promise<number | null> {
   try {
     const body = '<!-- oddmash-review-lock -->' + (webhook ? `\n<!-- oddmash-webhook-lock:${Date.now()} -->` : '');
@@ -11,8 +21,8 @@ export async function acquirePendingReview(api: Api, path: string, head: string,
     return pending.id;
   } catch (error) {
     if (!(error instanceof Error) || !error.message.includes('(422)')) throw error;
-    const reviews = await api<Review[]>(`${path}/reviews?per_page=100`);
-    if (reviews.some(review => review.user.login === bot && (review.state === 'PENDING' || review.commit_id === head && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED'].includes(review.state)))) return null;
+    const reviews = await readLockReviews(api, path, bot);
+    if (reviews.some(review => review.state === 'PENDING' || review.commit_id === head && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED'].includes(review.state))) return null;
     throw error;
   }
 }
@@ -39,13 +49,13 @@ export async function clearExpiredWebhookLock(api: Api, path: string, review: Re
 
 export async function withPendingReviewLock(api: Api, path: string, head: string, bot: string, action: () => Promise<void>) {
   for (let attempt = 0; attempt < 4; attempt++) {
-    const url = `${path}/reviews?per_page=100`;
-    const pending = (await api<Review[]>(url)).find(review => review.user.login === bot && review.state === 'PENDING');
+    const pending = (await readLockReviews(api, path, bot)).find(review => review.state === 'PENDING');
     const busy = pending && !await clearExpiredWebhookLock(api, path, pending, bot);
     const id = busy ? null : await acquirePendingReview(api, path, head, bot, true);
     if (id !== null) {
       try {
-        if (ownsPendingReview(await api<Review[]>(url), bot, head, id)) {
+        const owned = (await readLockReviews(api, path, bot)).filter(review => review.state === 'PENDING');
+        if (ownsPendingReview(owned, bot, head, id)) {
           await action();
           return;
         }

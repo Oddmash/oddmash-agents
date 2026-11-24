@@ -375,8 +375,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const specialistNotes = [...summaries.values()].map(result => result.section);
       const missingRoles = selectedRoles.filter(role => !summaries.has(role));
       if (missingRoles.length) specialistNotes.push(`- No result for / 검토 결과 없음: ${missingRoles.join(', ')}.`);
+      const specialistHeading = '\n\n### Specialist follow-up / 전문 검토 후속 확인\n\n';
       const specialistSummary = specialistNotes.length
-        ? '\n\n### Specialist follow-up / 전문 검토 후속 확인\n\n' + specialistNotes.join('\n')
+        ? specialistHeading + specialistNotes.join('\n')
         : '';
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
       if (!ownsPendingReview(latest, bot, current.head.sha, pendingId) || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state) && (!approved || review.id > approved.id))))) return;
@@ -425,6 +426,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const advisory = event === 'COMMENT' && !target.recheck ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
       const attachment = event !== 'APPROVE' ? await attachReviewFindingsWithCoverage(api, path, pendingId, result.head, bot, result.comments) : { attached: 0, covered: true };
       if (attachment.covered) body = formatReviewBody(event, finalMarker, result.inlineReport, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote + specialistSummary;
+      let publishedReviewId = pendingId;
       if (advisory && !attachment.attached) {
         if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
       } else {
@@ -432,8 +434,20 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         if (beforeSubmit.head.sha !== result.head || beforeSubmit.base.sha !== current.base.sha || beforeSubmit.merge_commit_sha !== current.merge_commit_sha || beforeSubmit.state !== 'open' || beforeSubmit.draft || !eligibleBase(beforeSubmit)) return;
         const beforePublish = await api<Review[]>(`${path}/reviews?per_page=100`);
         if (!ownsPendingReview(beforePublish, bot, current.head.sha, pendingId) || beforePublish.some(review => review.user.login === bot && review.commit_id === current.head.sha && (review.body?.includes(finalMarker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))))) return;
-        await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) }).catch(error => { throw new Error('Submit review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
-        submitted = true;
+        const priorDecision = beforePublish.filter(review => review.user.login === bot && review.commit_id === current.head.sha &&
+          ['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(review.state)).at(-1);
+        if (event === 'APPROVE' && target.recheck && priorDecision?.state === 'APPROVED' &&
+            priorDecision.body?.includes('<!-- oddmash-app-review:') && priorDecision.body.includes(reviewBaseMarker(current.base.sha))) {
+          const priorRequests = priorDecision.body.match(/<!-- oddmash-recheck:[a-f0-9]{24} -->/g) ?? [];
+          for (const tag of new Set(priorRequests)) if (!body.includes(tag)) body += `\n${tag}`;
+          const priorSummary = priorDecision.body.split(specialistHeading)[1]?.split('\n<!-- oddmash-recheck:')[0];
+          if (!specialistSummary && priorSummary) body += specialistHeading + priorSummary;
+          await api(`${path}/reviews/${priorDecision.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
+          publishedReviewId = priorDecision.id;
+        } else {
+          await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) }).catch(error => { throw new Error('Submit review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
+          submitted = true;
+        }
       }
       requestApproved = event === 'APPROVE';
       progressResult = completedResult;
@@ -446,7 +460,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         await reconcileReviewThreads(api, { ...target, number: current.number }, config, current.head.sha, current.base.sha, fetch, threadReconciliationExclusions(reconciliation));
       }
       await progress?.finish(progressResult.conclusion, progressResult.title);
-      if (event === 'APPROVE' && incrementalFiles === undefined) await attemptMerge(pendingId);
+      if (event === 'APPROVE' && incrementalFiles === undefined) await attemptMerge(publishedReviewId);
       await publishAutomationStatus(api, repository, pr.number, bot, current.head.sha, 'review', 'review completed', true);
       const label = reviewOutcome(event, followUp).label;
       const labels = await api<{ name: string }[]>(`${root}/labels?per_page=100`);
