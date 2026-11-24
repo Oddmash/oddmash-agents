@@ -1,7 +1,7 @@
 import { addedLines, deletedLines, selectFiles, safeText, privateSensitiveText, validateFindings, formatReport, reviewMarker, findingMarker, inlineComment, isBlockingFinding, reviewAssessment, reviewDecision, reviewFollowUp, type ReviewFollowUp, type ChangedFile, type Finding, type ReviewContext, type ReviewDecision } from './core.ts';
 import { privateRepositoryAllowed } from './webhook.ts';
 import { acceptanceSatisfied, type Acceptance } from './auto-merge.ts';
-import { loadCheckEvidence, type CheckEvidence } from './checks.ts';
+import { loadCheckEvidence, publicReviewCheckReader, type CheckEvidence } from './checks.ts';
 import { relatedPaths, reviewFocus, recordUsage, type Usage } from './review-context.ts';
 import { boundedModelBody } from './model-request.ts';
 import { reviewFeedback } from './review-feedback.ts';
@@ -74,7 +74,8 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     selected.omitted.push('Additional files beyond the first page');
     selected.omissionDetails.push({ reason: 'pagination', count: pr.changed_files - (files?.length ?? 0) });
   }
-  const checks = await loadCheckEvidence(pr.head.sha, pr.merge_commit_sha, sha => api<CheckEvidence>(`${path}/commits/${sha}/check-runs?per_page=100`, {}, true));
+  const readChecks = (sha: string) => api<CheckEvidence>(`${path}/commits/${sha}/check-runs?per_page=100`, {}, true);
+  const checks = await loadCheckEvidence(pr.head.sha, pr.merge_commit_sha, privateReview ? readChecks : publicReviewCheckReader(path, c.number, readChecks, request));
   const guidance: Record<string, string> = {};
   let guidanceBudget = 24_000;
   async function readOrganizationGuidance(filename: string) {
@@ -158,7 +159,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   const report = formatReport(context, findings, modelValid, selected.omissionDetails);
   const inlineReport = formatReport(context, findings, modelValid, selected.omissionDetails, true);
   const assessment = reviewAssessment(context, findings, modelValid);
-  const decision = reviewDecision(context, findings, modelValid && (checks?.total_count ?? context.checks.length) <= context.checks.length);
+  const decision = reviewDecision(context, findings, modelValid && !checks?.workflowPending && (checks?.total_count ?? context.checks.length) <= context.checks.length);
   const comments = findings.map(finding => ({ body: inlineComment(context, finding), path: finding.path, line: finding.line, side: finding.side ?? 'RIGHT' as const }));
   const result = { report, inlineReport, assessment, decision, followUp: reviewFollowUp(context, findings, modelValid), head: pr.head.sha, comments, issueVerified };
   if (!c.post) return { ...result, posted: false };

@@ -1,7 +1,7 @@
 import { runReview } from './reviewer.ts';
 import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts';
 import { publicRepositories as repositories, reviewTarget } from './routing.ts';
-import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvidence } from './checks.ts';
+import { finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, type CheckEvidence } from './checks.ts';
 import { acquirePendingReview, attachReviewFindingsWithCoverage, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, type Review } from './webhook-review.ts';
 
 const target = reviewTarget(process.env.REVIEW_REPOSITORY ?? '', process.env.REVIEW_PR_NUMBER ?? '');
@@ -34,7 +34,7 @@ for (const repository of repositories) {
     if (hasOfficialReview(reviews, bot)) continue;
     const own = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha);
     if (own.some(review => review.state === 'APPROVED' || review.state === 'CHANGES_REQUESTED')) continue;
-    const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
+    const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, publicReviewCheckReader(root, item.number, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`)));
     const checks = await readChecks(pr);
     if (!reviewChecksReady(checks, repository)) continue;
     const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks);

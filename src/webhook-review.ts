@@ -7,7 +7,7 @@ import { authorizeCoordinatedAdvisor } from './coordinated-advisory.ts';
 import { runReview } from './reviewer.ts';
 import { startReviewProgress } from './review-progress.ts';
 import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts';
-import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence } from './checks.ts';
+import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, githubApi, commentReceipt, completeCommentReaction, reactToComment, slashRequestContext, type Target } from './webhook.ts';
 import { reconcileReviewThreads, replyToReview } from './review-discussion.ts';
@@ -29,13 +29,18 @@ export function hasOfficialReview(reviews: Review[], bot: string, head?: string)
   return reviews.some(review => review.user.login === bot && (!head || review.commit_id === head) && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state) && review.body?.includes('<!-- oddmash-app-review:'));
 }
 
-export async function acknowledgePendingChecks(api: Api, repository: string, number: number, bot: string, comment: NonNullable<Target['requestComment']>, head: string) {
+export async function acknowledgePendingChecks(api: Api, repository: string, number: number, bot: string, comment: NonNullable<Target['requestComment']>, head: string, state: 'waiting' | 'failed' | 'quota') {
   const path = `/repos/${repository}/${comment.kind === 'issue' ? 'issues' : 'pulls'}/${number}/comments`;
   const marker = `<!-- oddmash-recheck-wait:${comment.id} -->`;
   const existing = await api<{ body: string; user: { login: string } }[]>(`${path}?per_page=100`);
   if (existing.length >= 100 || existing.some(item => item.user.login === bot && item.body.includes(marker))) return;
   if (comment.kind === 'inline' && !comment.root) return;
-  const body = `${marker}\n<!-- oddmash-deferred:${head}:${comment.kind}:${comment.id}:${comment.root ?? 0}${comment.slash ? ':slash' : ''} -->\nReview requested. It will resume when required checks pass for this commit.\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n리뷰 요청을 확인했습니다. 현재 커밋의 필수 검사가 통과하면 재개합니다.\n\n</details>`;
+  const [english, korean] = {
+    waiting: ['Review requested. It will start when the required checks pass for this commit.', '리뷰 요청을 확인했습니다. 현재 커밋의 필수 검사가 통과하면 시작합니다.'],
+    failed: ['Review requested. The required checks did not pass for this commit. Review can start after a successful rerun.', '리뷰 요청을 확인했습니다. 현재 커밋의 필수 검사가 통과하지 못했습니다. CI를 다시 실행해 통과하면 리뷰를 시작할 수 있습니다.'],
+    quota: ['Review requested. GitHub Actions billing or quota is blocking CI for this commit.', '리뷰 요청을 확인했습니다. GitHub Actions 결제 또는 사용량 한도로 현재 커밋의 CI가 차단됐습니다.']
+  }[state];
+  const body = `${marker}\n<!-- oddmash-deferred:${head}:${comment.kind}:${comment.id}:${comment.root ?? 0}${comment.slash ? ':slash' : ''} -->\n${english}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${korean}\n\n</details>`;
   await api(comment.kind === 'inline' ? `${path}/${comment.root}/replies` : path, { method: 'POST', body: JSON.stringify({ body }) });
 }
 
@@ -189,7 +194,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       else await progress?.finish('neutral', 'Review follow-up required');
     };
     const mergeStatus = (reason: string, completed = false) => publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'merge', reason, completed);
-    const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`), Number(appId));
+    const readChecks = (item: Pull) => {
+      const read = (sha: string) => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`);
+      return loadCheckEvidence(item.head.sha, item.merge_commit_sha, target.private ? read : publicReviewCheckReader(root, item.number, read), Number(appId));
+    };
     const retryExistingApproval = async () => {
       if (existingApproval?.state !== 'APPROVED') return;
       let reason = !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
@@ -265,7 +273,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const checks = await readChecks(pr);
     const quota = actionsQuotaEvidence(checks.check_runs);
     if (quota) {
-      if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha);
+      if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha, 'quota');
       await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'Actions billing or quota block', false, actionsWorkflowUrl(quota, repository));
       await publishWaiting('Review blocked by CI quota');
       return;
@@ -274,11 +282,11 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     if (approved && !canRetryApprovedMerge(approved, marker)) return;
     if (own.some(review => review.body?.includes(marker))) return;
     if (!reviewChecksSuccessful(checks, repository)) {
-      if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha);
       const ready = reviewChecksReady(checks, repository);
+      if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha, ready ? 'failed' : 'waiting');
       if (ready) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
       const published = await publishWaiting(ready ? 'Review blocked by failed CI' : undefined, checkWaitingSummary(checks, repository));
-      if (published && reconcileWaiting) {
+      if ((published || target.requestComment) && reconcileWaiting) {
         const current = await api<Pull>(path);
         if (current.head.sha === pr.head.sha && current.state === 'open' && !current.draft && eligibleBase(current) && reviewChecksSuccessful(await readChecks(current), repository)) return reviewOne(current, target, false);
       }
