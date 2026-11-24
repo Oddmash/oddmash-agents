@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { advisoryRoles, advisoryCommand } from '../src/advisory-agents.ts';
 import { route, githubApi } from '../src/webhook.ts';
 import { runAdvisory, validAdvisory } from '../src/advisory.ts';
-import { advisoryConfig } from '../src/runtime-config.ts';
+import { advisoryConfig, advisoryModelConfig } from '../src/runtime-config.ts';
 import { createReviewJob, verifyReviewJob } from '../src/review-job.ts';
 
 const user = { id: 135234546, login: 'qtaghdi', type: 'User' };
@@ -15,7 +15,9 @@ test('all advisory roles are explicit, authenticated maintainer commands with co
   for (const role of advisoryRoles) {
     const payload = event(role, role === 'triage');
     assert.equal(advisoryCommand(payload.comment.body, 'oddmash-reviewer'), role);
-    assert.equal(route('issue_comment', payload, 'oddmash-reviewer')?.advisory, role);
+    const routed = route('issue_comment', payload, 'oddmash-reviewer');
+    assert.equal(routed?.advisory, role);
+    assert.equal(routed?.impact === true, role === 'impact');
     assert.equal(route('issue_comment', event(role, role !== 'triage'), 'oddmash-reviewer'), null);
     assert.equal(route('issue_comment', { ...payload, sender: { ...user, id: 1 } }, 'oddmash-reviewer'), null);
     assert.equal(route('issue_comment', event(role, role === 'triage', `oddmash-${role}`), `oddmash-${role}`)?.advisory, role);
@@ -81,4 +83,24 @@ test('QA receives observed check metadata without publishing a formal review', a
   await runAdvisory(api, target, { bot: 'oddmash-reviewer[bot]', model: 'fixture', openaiKey: 'fixture' }, request);
   assert.equal(writes.length, 1);
   assert.ok(writes[0].endsWith('/issues/7/comments'));
+});
+
+
+test('role model settings can be isolated without changing other roles', () => {
+  const names = ['QA_OPENAI_API_KEY', 'QA_OPENAI_MODEL', 'DOCS_OPENAI_API_KEY', 'DOCS_OPENAI_MODEL'];
+  const before = Object.fromEntries(names.map(name => [name, process.env[name]]));
+  try {
+    process.env.QA_OPENAI_API_KEY = 'qa-fixture';
+    process.env.QA_OPENAI_MODEL = 'qa-model';
+    delete process.env.DOCS_OPENAI_API_KEY;
+    delete process.env.DOCS_OPENAI_MODEL;
+    const fallback = { openaiKey: 'shared-fixture', model: 'shared-model' };
+    assert.deepEqual(advisoryModelConfig('qa', fallback), { openaiKey: 'qa-fixture', model: 'qa-model' });
+    assert.deepEqual(advisoryModelConfig('docs', fallback), fallback);
+  } finally {
+    for (const name of names) {
+      if (before[name] === undefined) delete process.env[name];
+      else process.env[name] = before[name];
+    }
+  }
 });

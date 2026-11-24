@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addedLines, selectFiles, safeText, guidancePaths, validateFindings, formatReport, formatReviewBody, inlineComment, reviewMarker, reviewDecision, checksPassed, type ReviewContext, type Finding } from '../src/core.ts';
+import { addedLines, selectFiles, safeText, guidancePaths, validateFindings, formatReport, formatReviewBody, inlineComment, reviewMarker, reviewDecision, reviewFollowUp, reviewOutcome, checksPassed, type ReviewContext, type Finding } from '../src/core.ts';
 
 const file = { filename: 'src/ui/button.tsx', status: 'modified', patch: '@@ -1,2 +1,3 @@\n const label = "Open";\n-old\n+new\n+other' };
 const finding = { path: file.filename, line: 2, severity: 'medium', confidence: 'high', rule: 'Accessibility', evidence: 'The label is absent.', recommendation: 'Provide a visible label.', verification: 'Inspect the accessible name.' };
@@ -56,6 +56,39 @@ test('formal outcomes fail closed without complete passing checks and validated 
   assert.equal(reviewDecision(context, [{ ...finding, severity: 'low' } as Finding], true), 'COMMENT');
 });
 
+test('separates advisory findings, coverage gaps and approval without weakening review gates', () => {
+  const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: [file], omitted: [], guidance: {}, checks: [{ name: 'CI', status: 'completed', conclusion: 'success' }] };
+  const advisory = finding as Finding;
+  const followUp = reviewFollowUp(context, [advisory], true);
+  assert.equal(reviewDecision(context, [advisory], true), 'COMMENT');
+  assert.equal(reviewOutcome('COMMENT', followUp).label, 'review: follow-up');
+  const body = formatReviewBody('COMMENT', '<!-- marker -->', formatReport(context, [advisory]), undefined, followUp);
+  assert.match(body, /Advisory findings: investigate/);
+  assert.doesNotMatch(body, /Maintainer review required/);
+  assert.match(body, /Consider:/);
+  const incomplete = reviewFollowUp({ ...context, omitted: ['image'] }, [advisory], true);
+  assert.equal(reviewOutcome('COMMENT', incomplete).label, 'review: needs human');
+  assert.match(formatReviewBody('COMMENT', 'marker', 'report', undefined, incomplete), /Manual coverage check required/);
+  assert.equal(reviewOutcome('COMMENT', reviewFollowUp(context, [], false)).label, 'review: needs human');
+  assert.equal(reviewOutcome('COMMENT', reviewFollowUp(context, [], true)).title, 'Review approval pending checks');
+  assert.equal(reviewOutcome('REQUEST_CHANGES', incomplete).label, 'review: changes requested');
+  assert.equal(reviewOutcome('APPROVE', followUp).label, 'review: approved');
+});
+
+test('inline-first reporting preserves code and does not repeat confirmed inline findings', () => {
+  const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: [file], omitted: ['asset'], guidance: {}, checks: [] };
+  const example = { ...finding, evidence: 'Use `items.some(x => x > 0)` and `count < 2`.', verification: 'Run the empty-array test.' } as Finding;
+  const inline = inlineComment(context, example);
+  assert.match(inline, /x => x > 0/);
+  assert.match(inline, /count < 2/);
+  assert.match(inline, /Verify: Run the empty-array test/);
+  const summary = formatReport(context, [example], true, [], true);
+  assert.match(summary, /0 blocking, 1 advisory/);
+  assert.doesNotMatch(summary, /items\.some|Run the empty-array test/);
+  assert.match(summary, /Manual review coverage/);
+  assert.match(formatReport(context, [example]), /items\.some/);
+});
+
 test('skipped conditional jobs require a passing aggregate verify check', () => {
   const skipped = { name: 'quality', status: 'completed', conclusion: 'skipped' };
   const verify = { name: 'verify', status: 'completed', conclusion: 'success' };
@@ -69,7 +102,7 @@ test('review output is concise without CI summaries or typographic dashes', () =
   const example = { ...finding, rule: 'Label — accessibility', evidence: 'Missing — label' } as Finding;
   const report = formatReport(context, [example]);
   assert.doesNotMatch(report, /CI evidence|CI: success|[\u2013\u2014\u2015]/);
-  assert.doesNotMatch(inlineComment(context, example), /[\u2013\u2014\u2015]|Verify:/);
+  assert.doesNotMatch(inlineComment(context, example), /[\u2013\u2014\u2015]/);
   const approved = formatReviewBody('APPROVE', '<!-- marker -->', report);
   assert.match(approved, /@qtaghdi/);
   assert.equal(formatReviewBody('APPROVE', '<!-- marker -->', report, { id: 135234546, login: 'qtaghdi' }), '<!-- marker -->\nApproved.');

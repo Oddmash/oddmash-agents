@@ -6,11 +6,25 @@
       "maxDuration": 300,
       "installCommand": "corepack pnpm install --frozen-lockfile --ignore-scripts"
     },
-    "api/advisory.ts": { "maxDuration": 300 },
     "api/review-jobs.ts": {
       "maxDuration": 300,
       "installCommand": "corepack pnpm install --frozen-lockfile --ignore-scripts",
-      "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "oddmash-review-jobs" }]
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "oddmash-review-jobs"
+        }
+      ]
+    },
+    "api/advisory.ts": {
+      "maxDuration": 300,
+      "installCommand": "corepack pnpm install --frozen-lockfile --ignore-scripts"
+    }
+  },
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true
     }
   }
 }
