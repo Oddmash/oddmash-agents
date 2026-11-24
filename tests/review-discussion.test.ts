@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { reconcileReviewThreads, replyToReview } from '../src/review-discussion.ts';
+import { reconcileReviewThreads, replyToReview, threadReconciliationExclusions, threadReconciliationMarker } from '../src/review-discussion.ts';
 import { githubApi, type Target } from '../src/webhook.ts';
 import { githubContentFixture } from './github-content-fixture.ts';
 
@@ -191,7 +191,9 @@ test('scoped completion retries a failed reaction or resolution without posting 
       }
       if (path.endsWith('/comments/4/replies')) {
         replies++;
-        comments.push({ ...original, id: 6, in_reply_to_id: 4, body: JSON.parse(String(init?.body)).body });
+        const body = JSON.parse(String(init?.body)).body;
+        assert.match(body, /Thread resolution pending/);
+        comments.push({ ...original, id: 6, in_reply_to_id: 4, body });
         return Response.json({ id: 6 });
       }
       assert.equal(path, '/graphql');
@@ -214,6 +216,8 @@ test('scoped completion retries a failed reaction or resolution without posting 
     assert.equal(replies, 1);
     assert.equal(modelCalls, 1);
     assert.equal(resolved, true);
+    assert.match(comments[2].body, /Review thread resolved/);
+    assert.doesNotMatch(comments[2].body, /Thread resolution pending/);
     assert.equal(receipts, 0);
   }
 });
@@ -224,7 +228,8 @@ test('full re-review reconciles each earlier finding from its own correction evi
     root,
     { ...root, id: 8, node_id: 'comment-8', path: 'src/still-open.ts', body: '<!-- oddmash-finding:fixture -->\nStill missing.' },
     { ...root, id: 9, node_id: 'comment-9', path: 'src/outdated.ts', body: '<!-- oddmash-finding:fixture -->\nOutdated.' },
-    { ...root, id: 10, node_id: 'comment-10', user: actor }
+    { ...root, id: 10, node_id: 'comment-10', user: actor },
+    { ...root, id: 11, node_id: 'comment-11', path: 'src/current-finding.ts' }
   ];
   const resolved = new Set<string>();
   let changed = false, modelCalls = 0;
@@ -234,7 +239,7 @@ test('full re-review reconciles each earlier finding from its own correction evi
     if (path === `${base}/comments`) return Response.json(comments);
     if (path.includes('/compare/')) {
       assert.ok(path.endsWith(`${head}...${nextHead}`));
-      return Response.json({ status: 'ahead', merge_base_commit: { sha: head }, files: comments.slice(0, 2).map(item => ({ filename: item.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' })) });
+      return Response.json({ status: 'ahead', merge_base_commit: { sha: head }, files: [comments[0], comments[1], comments[4]].map(item => ({ filename: item.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' })) });
     }
     assert.equal(path, '/graphql');
     const { query, variables } = JSON.parse(String(init?.body));
@@ -250,7 +255,12 @@ test('full re-review reconciles each earlier finding from its own correction evi
     const input = JSON.parse(JSON.parse(String(init?.body)).input);
     return Response.json({ status: 'completed', output_parsed: { verdict: input.finding.includes('pause') ? 'fixed' : 'uncertain', evidence: '+const paused = true;' } });
   };
-  await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, model);
+  const marker = threadReconciliationMarker(['src/current-finding.ts', 'src/current-finding.ts']);
+  assert.equal(marker, threadReconciliationMarker(['src/current-finding.ts']));
+  assert.doesNotMatch(marker, /src\/current-finding/);
+  const exclusions = threadReconciliationExclusions(marker);
+  assert.equal(exclusions?.size, 1);
+  await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, model, exclusions);
   assert.deepEqual([...resolved], ['thread-4']);
   assert.equal(modelCalls, 2);
   changed = true;

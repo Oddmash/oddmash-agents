@@ -195,8 +195,8 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
       }
     }
   };
+  const status = '\n\n**Completion:** ';
   const settleReply = async (verdict: 'fixed' | 'agree', id: number, body: string, eyes: number | undefined) => {
-    const status = '\n\n**Completion:** ';
     const clean = body.split(status, 1)[0];
     try {
       await finish(verdict);
@@ -213,7 +213,10 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
     } finally {
       await clearReceipt(api, target.repository, reaction, eyes);
     }
-    if (await matchesSnapshot()) await markAcknowledged(api, target, reaction.kind, id, clean);
+    if (await matchesSnapshot()) {
+      const resolved = verdict === 'fixed' && !conversation ? status + 'Review thread resolved. 리뷰 스레드를 닫았습니다.' : '';
+      await markAcknowledged(api, target, reaction.kind, id, clean + resolved);
+    }
   };
   if (existing) {
     const verdict = (['fixed', 'agree'] as const).find(value => existing.body.includes(completionMarker(value)));
@@ -251,7 +254,8 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
     const reference = conversation ? `\n${rootMarker}\nIn response to [the original finding](https://github.com/${target.repository}/pull/${target.number}#${target.reply.rootKind === 'review' ? 'pullrequestreview' : 'issuecomment'}-${root}).\n` : '';
     const verdict = parsed.verdict === 'fixed' || parsed.verdict === 'agree' ? parsed.verdict : undefined;
     const completion = verdict ? `\n${completionMarker(verdict)}` : '';
-    const body = `${marker}${completion}${reference}\n${plain(parsed.english)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(parsed.korean)}\n\n</details>`;
+    const resolutionPending = verdict === 'fixed' && !conversation ? status + 'Thread resolution pending. 스레드를 닫는 중입니다.' : '';
+    const body = `${marker}${completion}${reference}\n${plain(parsed.english)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(parsed.korean)}\n\n</details>${resolutionPending}`;
     if (Buffer.byteLength(body, 'utf8') > 12_000) return;
     const posted = await api<{ id: number }>(conversation ? `${commentBase}/comments` : `${base}/comments/${root}/replies`, { method: 'POST', body: JSON.stringify({ body }) });
     if (verdict) {
@@ -261,7 +265,20 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
   } finally { if (!completing) await clearReceipt(api, target.repository, reaction, eyesId); }
 }
 
-export async function reconcileReviewThreads(api: Api, target: Target, config: { slug: string; model: string; openaiKey: string }, head: string, baseSha: string, request: typeof fetch = fetch) {
+const reconciliationPrefix = '<!-- oddmash-verified-thread-reconciliation';
+const pathFingerprint = (path: string) => createHash('sha256').update(path).digest('hex');
+
+export function threadReconciliationMarker(paths: readonly string[]) {
+  return reconciliationPrefix + ':' + [...new Set(paths.map(pathFingerprint))].sort().join(',') + ' -->';
+}
+
+export function threadReconciliationExclusions(body: string): ReadonlySet<string> | undefined {
+  if (body.split('\n').includes(reconciliationPrefix + ' -->')) return new Set();
+  const marker = /^<!-- oddmash-verified-thread-reconciliation:((?:[a-f0-9]{64}(?:,[a-f0-9]{64})*)?) -->$/m.exec(body);
+  if (marker) return new Set(marker[1].split(',').filter(Boolean));
+}
+
+export async function reconcileReviewThreads(api: Api, target: Target, config: { slug: string; model: string; openaiKey: string }, head: string, baseSha: string, request: typeof fetch = fetch, exclusions: ReadonlySet<string> = new Set()) {
   if (!target.number || !sha.test(head) || !sha.test(baseSha)) return;
   const bot = `${config.slug}[bot]`;
   const path = pathFor(target);
@@ -278,7 +295,8 @@ export async function reconcileReviewThreads(api: Api, target: Target, config: {
   if (!comments) return;
   const own = comments.filter(item => item.node_id && open.has(item.node_id) && item.user.login === bot && item.user.type === 'Bot' &&
     !item.in_reply_to_id && item.pull_request_url === `https://api.github.com${path}` &&
-    item.body.startsWith('<!-- oddmash-finding:') && item.path && safe(item.path, Boolean(target.private)) && safe(item.body, Boolean(target.private)) &&
+    item.body.startsWith('<!-- oddmash-finding:') && item.path && !exclusions.has(pathFingerprint(item.path)) &&
+    safe(item.path, Boolean(target.private)) && safe(item.body, Boolean(target.private)) &&
     originalHead(item) !== head);
   if (own.length > 6) console.info('Earlier finding reconciliation reached its review budget.');
   const deadline = AbortSignal.timeout(45_000);
