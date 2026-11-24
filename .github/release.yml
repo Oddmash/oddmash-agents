@@ -1,0 +1,22 @@
+changelog:
+  categories:
+    - title: Features and improvements
+      labels:
+        - 'type: feature'
+        - 'type: improvement'
+    - title: Fixes
+      labels:
+        - 'type: bug'
+        - 'type: fix'
+    - title: Documentation
+      labels:
+        - 'type: docs'
+        - 'type: documentation'
+    - title: Maintenance and tests
+      labels:
+        - 'type: refactor'
+        - 'type: chore'
+        - 'type: test'
+    - title: Other changes
+      labels:
+        - '*'
