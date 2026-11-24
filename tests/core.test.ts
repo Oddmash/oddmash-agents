@@ -138,6 +138,9 @@ test('manual review identifies omitted public files, reasons, and verification a
   const privateReport = formatReport({ ...context, files: [], omitted: privateSelection.omitted }, [], true, privateSelection.omissionDetails);
   assert.doesNotMatch(privateReport, /private-fixture/);
   assert.match(privateReport, /inspect the complete diff/i);
+  assert.match(privateReport, /0 eligible files/);
+  assert.match(privateReport, /not a confirmed security finding/);
+  assert.doesNotMatch(privateReport, /No validated findings|확인된 문제는 없습니다/);
 });
 
 test('manual review summarizes bounded file counts and explains coverage limits', () => {
