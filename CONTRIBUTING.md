@@ -1,8 +1,10 @@
 # Development and local pilot
 
-Requires Node.js 24+. Run `npm install --ignore-scripts` before testing the webhook endpoint or running type checks. CI runs the offline tests on push and pull requests.
+Requires Node.js 24 and the pnpm version pinned in `package.json`. Run `pnpm install --frozen-lockfile --ignore-scripts` before testing the webhook endpoint or running type checks. CI runs the offline tests on push and pull requests.
 
-Run `npm test` for offline verification. To review a public PR, configure `OPENAI_API_KEY`, `OPENAI_MODEL` (a model supporting structured outputs), and `ODDMASH_ALLOWED_REPOSITORIES` (comma-separated exact repository names) in your environment using your normal secret manager. An optional read-only `GITHUB_TOKEN` raises public API rate limits. Do not commit credentials.
+Vercel build and function installation use Corepack to honor the exact package manager pin. Verify the pnpm version and frozen-install behavior in the authorized prebuilt deployment workflow before promoting a new production revision.
+
+Run `pnpm test` for offline verification. To review a public PR, configure `OPENAI_API_KEY`, `OPENAI_MODEL` (a model supporting structured outputs), and `ODDMASH_ALLOWED_REPOSITORIES` (comma-separated exact repository names) in your environment using your normal secret manager. An optional read-only `GITHUB_TOKEN` raises public API rate limits. Do not commit credentials.
 
 For the hosted pilot, add `OPENAI_API_KEY` to repository Actions secrets, then use Actions → Reviewer pilot → Run workflow on main with an open Oddmash UI PR number. The workflow uses GPT-5.4, anonymous public repository API requests, and report-only output in the job log. It never posts or executes PR code.
 
@@ -12,7 +14,7 @@ For event-driven reviews, create a separate fine-grained dispatch token scoped o
 
 Use the API organization linked to the ChatGPT subscription benefit. The initial available promotional balance is USD 97, with no arbitrary USD 10 monthly cap. Prefer review quality while keeping the existing per-request size and output limits. Verify the grant's expiry and disable automatic recharge in API billing before enabling the pilot. Do not add purchased credits or payment methods for this pilot. The application does not read or guarantee the remaining promotional balance; billing controls must be verified separately. Stop on credit exhaustion rather than retrying against another account.
 
-Run `npm run review -- Oddmash/oddmash-ui 24` with an eligible open PR number. The report is printed locally and does not post. Use a read-only GitHub token for this stage. Model calls may incur API charges; only run against an approved public repository.
+Run `pnpm run review Oddmash/oddmash-ui 24` with an eligible open PR number. The report is printed locally and does not post. Use a read-only GitHub token for this stage. Model calls may incur API charges; only run against an approved public repository.
 
 For the inline comment pilot, explicitly enable `ODDMASH_ALLOW_POST=true`, supply a token scoped to the target repository with pull-request write permission, and add `--post`. In Actions, register this token as `REVIEWER_GITHUB_TOKEN` and select `post_inline` when manually dispatching Reviewer pilot. Use a fine-grained token limited to Oddmash UI with pull requests read/write and contents read, no source write access. Public check results and organization guidance are read without a token; no Checks permission is required for this pilot. Each finding is attached to its actual changed line. A high-confidence localized replacement may appear as a GitHub Suggested change. Suggestions are advisory, not tested patches, and never applied automatically. No approvals or blocking status. Serialize runs per repository/PR to prevent concurrent duplicate comments.
 

@@ -1,9 +1,14 @@
 {
   "framework": null,
+  "installCommand": "corepack pnpm install --frozen-lockfile --ignore-scripts",
   "functions": {
-    "api/github.ts": { "maxDuration": 300 },
+    "api/github.ts": {
+      "maxDuration": 300,
+      "installCommand": "corepack pnpm install --frozen-lockfile --ignore-scripts"
+    },
     "api/review-jobs.ts": {
       "maxDuration": 300,
+      "installCommand": "corepack pnpm install --frozen-lockfile --ignore-scripts",
       "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "oddmash-review-jobs" }]
     }
   }
