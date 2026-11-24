@@ -1,12 +1,14 @@
 import { handleCallback, send } from '@vercel/queue';
-import { runtimeConfig } from '../src/runtime-config.ts';
+import { runtimeConfig, advisoryConfig } from '../src/runtime-config.ts';
 import { verifyReviewJob, deadLetterTopic, publishFailureRecord, retryableJobError, retryDelay, type ReviewJob } from '../src/review-job.ts';
 import { reviewWebhook } from '../src/webhook-review.ts';
 
 export const POST = handleCallback(async (message: ReviewJob, metadata) => {
-  const config = runtimeConfig();
+  const identity = message?.target?.advisoryIdentity;
+  const dedicated = identity ? advisoryConfig(identity) : null;
+  const config = identity ? dedicated : runtimeConfig();
   if (!config || process.env.REVIEWER_QUEUE_ENABLED !== 'true') throw new Error('Missing app configuration');
-  if (!verifyReviewJob(message, process.env.REVIEWER_WEBHOOK_SECRET ?? '')) { console.error('Invalid reviewer queue message'); return; }
+  if (!verifyReviewJob(message, identity ? dedicated?.secret ?? '' : process.env.REVIEWER_WEBHOOK_SECRET ?? '') || (identity && message.target.advisory !== identity)) { console.error('Invalid reviewer queue message'); return; }
   const job = message;
   try {
     await reviewWebhook(job.target, config);

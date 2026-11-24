@@ -1,9 +1,10 @@
 import { createHmac, timingSafeEqual, createSign } from 'node:crypto';
+import { advisoryCommand, advisoryProfiles, type AdvisoryRole } from './advisory-agents.ts';
 
 type Repository = { id: number; full_name: string; private: boolean; visibility: string; owner: { login: string }; archived?: boolean };
 type Actor = { id: number; login: string; type?: string };
 type Payload = { action?: string; installation?: { id: number }; repository?: Repository; pull_request?: { number: number; draft: boolean; head?: { sha: string } }; check_suite?: { head_sha: string; app?: { id: number }; pull_requests?: { number: number }[] }; sender?: Actor; requested_reviewer?: Actor; issue?: { number: number; pull_request?: object }; comment?: { id: number; user: Actor; body: string; in_reply_to_id?: number } };
-export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string; expectedHead?: string; impact?: true; private?: boolean; recheck?: string; requestComment?: { kind: 'inline' | 'issue'; id: number; root?: number }; reply?: { comment: number; root: number; kind?: 'conversation'; rootKind?: 'issue' | 'review'; path?: string } };
+export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string; expectedHead?: string; impact?: true; advisory?: AdvisoryRole; advisoryIdentity?: AdvisoryRole; private?: boolean; recheck?: string; requestComment?: { kind: 'inline' | 'issue'; id: number; root?: number }; reply?: { comment: number; root: number; kind?: 'conversation'; rootKind?: 'issue' | 'review'; path?: string } };
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 const shaPattern = /^[a-f0-9]{40}$/i;
 
@@ -79,7 +80,10 @@ export function route(event: string | null, p: Payload, slug = '', delivery = ''
   if (event === 'pull_request' && ['opened', 'reopened', 'synchronize', 'ready_for_review'].includes(p.action ?? '') && p.pull_request?.draft === false && positive(p.pull_request.number)) return { ...target, number: p.pull_request.number, ...(shaPattern.test(p.pull_request.head?.sha ?? '') ? { expectedHead: p.pull_request.head!.sha } : {}) };
   if (event === 'pull_request' && p.action === 'review_requested' && maintainer(p.sender) && p.requested_reviewer?.login === `${slug}[bot]` && p.requested_reviewer.type === 'Bot' && p.pull_request?.draft === false && positive(p.pull_request.number) && /^[a-f0-9-]{36}$/i.test(delivery)) return { ...target, number: p.pull_request.number, ...(shaPattern.test(p.pull_request.head?.sha ?? '') ? { expectedHead: p.pull_request.head!.sha } : {}), recheck: delivery };
   if (p.action === 'created' && maintainer(p.sender) && maintainer(p.comment?.user) && positive(p.comment?.id) && typeof p.comment.body === 'string' && p.comment.body.length <= 2000) {
-    if (event === 'issue_comment' && p.issue?.pull_request && positive(p.issue.number) && impactCommand(p.comment.body, slug)) return { ...target, number: p.issue.number, impact: true, requestComment: { kind: 'issue', id: p.comment.id } };
+    if (event === 'issue_comment' && positive(p.issue?.number)) {
+      const advisory = advisoryCommand(p.comment.body, slug);
+      if (advisory && (advisoryProfiles[advisory].scope === 'issue' ? !p.issue?.pull_request : !!p.issue?.pull_request)) return { ...target, number: p.issue!.number, advisory, ...(advisory === 'impact' ? { impact: true as const } : {}), requestComment: { kind: 'issue', id: p.comment.id } };
+    }
     if (event === 'issue_comment' && p.issue?.pull_request && positive(p.issue.number) && reviewCommand(p.comment.body, slug)) return { ...target, number: p.issue.number, recheck: `comment-${p.comment.id}`, requestComment: { kind: 'issue', id: p.comment.id } };
     if (event === 'issue_comment' && p.issue?.pull_request && positive(p.issue.number)) {
       const reference = conversationFixReference(p.comment.body, slug, repo.full_name, p.issue.number);
@@ -130,7 +134,7 @@ export async function authorize(target: Target, appId: string, key: string, requ
   const jwtApi = githubApi(appJwt(appId, key), request);
   const installation = await jwtApi<{ account: { login: string }; suspended_at: string | null }>('/app/installations/' + target.installation);
   if (installation.account.login.toLowerCase() !== 'oddmash' || installation.suspended_at) throw new Error('Installation not eligible');
-  const permissions = progress ? { checks: 'write' } : { contents: 'read', pull_requests: 'write', checks: 'read', issues: target.requestComment?.kind === 'issue' || target.reply?.kind === 'conversation' ? 'write' : 'read' };
+  const permissions = target.advisory || target.impact ? { contents: 'read', pull_requests: 'read', checks: 'read', issues: 'write' } : progress ? { checks: 'write' } : { contents: 'read', pull_requests: 'write', checks: 'read', issues: target.requestComment?.kind === 'issue' || target.reply?.kind === 'conversation' ? 'write' : 'read' };
   const result = await jwtApi<{ token: string }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [target.repositoryId], permissions }) });
   const api = githubApi(result.token, request);
   const repository = await api<Repository>('/repos/' + target.repository);

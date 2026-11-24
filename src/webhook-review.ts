@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { runImpact } from './impact.ts';
+import { runAdvisory } from './advisory.ts';
 import { runReview } from './reviewer.ts';
 import { startReviewProgress } from './review-progress.ts';
 import { formatReviewBody } from './core.ts';
@@ -112,12 +113,14 @@ export async function attachReviewFindings(api: Api, path: string, pendingId: nu
 const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human'];
 
 export async function reviewWebhook(target: Target, config: { appId: string; key: string; slug: string; openaiKey: string; model: string; autoMerge?: boolean }) {
+  if (target.advisoryIdentity && target.advisory !== target.advisoryIdentity) throw new Error('Invalid advisory identity');
   const { appId, key, slug, openaiKey, model } = config;
   const bot = slug + '[bot]';
   if (!/^[a-z0-9-]+\[bot\]$/i.test(bot) || !openaiKey) throw new Error('Missing app configuration');
   const authorized = await authorize(target, appId, key);
   const { api, token: githubToken } = authorized;
   if (target.impact) { await runImpact(authorized.api, target, { bot, model, openaiKey }); return; }
+  if (target.advisory) { await runAdvisory(authorized.api, target, { bot, model, openaiKey }); return; }
   const repository = target.repository;
   const root = '/repos/' + repository;
   const eligibleBase = (item: Pull) => item.base.repo.full_name === repository && item.base.repo.id === target.repositoryId && item.base.repo.private === Boolean(target.private);
