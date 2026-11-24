@@ -6,7 +6,7 @@ import { relatedPaths, reviewFocus, recordUsage, type Usage } from './review-con
 import { reviewFeedback } from './review-feedback.ts';
 
 type Fetcher = typeof fetch;
-type Config = { repository: string; number: number; githubToken: string; openaiKey: string; model: string; post: boolean; allowedRepositories: string[]; acceptance?: Acceptance; privateRepositoryId?: number; progress?: (title: string, summary: string) => Promise<void> };
+type Config = { repository: string; number: number; githubToken: string; openaiKey: string; model: string; post: boolean; allowedRepositories: string[]; acceptance?: Acceptance; incrementalFiles?: string[]; privateRepositoryId?: number; progress?: (title: string, summary: string) => Promise<void> };
 type Pull = { title: string; state: string; draft: boolean; base: { sha: string; repo: { private: boolean; full_name: string; id?: number } }; head: { sha: string }; changed_files: number; merge_commit_sha?: string | null };
 const shaPattern = /^[a-f0-9]{40}$/i;
 const repoPattern = /^Oddmash\/[a-z0-9_.-]+$/i;
@@ -62,7 +62,11 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   if (!pr || (pr.base.repo.private ? !permittedPrivate : c.privateRepositoryId !== undefined) || pr.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase() || pr.state !== 'open' || pr.draft || !shaPattern.test(pr.base.sha) || !shaPattern.test(pr.head.sha)) throw new Error('Only open, non-draft, public or explicitly enabled private PRs are eligible');
   const files = await api<ChangedFile[]>(`${prPath}/files?per_page=100&page=1`);
   const privateReview = pr.base.repo.private;
-  const selected = selectFiles(files ?? [], 45_000, privateReview);
+  const scoped = c.incrementalFiles === undefined ? files : files.filter(file => c.incrementalFiles!.includes(file.filename));
+  const selected = selectFiles(scoped ?? [], 45_000, privateReview);
+  if (c.incrementalFiles !== undefined && (files?.length !== scoped?.length || scoped.length !== c.incrementalFiles.length)) {
+    selected.omitted.push('Previously reviewed files outside the incremental scope');
+  }
   await c.progress?.('Collecting review context', `${selected.files.length} of ${pr.changed_files} changed files selected for review.`);
   if (pr.changed_files > (files?.length ?? 0)) {
     selected.omitted.push('Additional files beyond the first page');
