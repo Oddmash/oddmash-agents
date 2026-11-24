@@ -31,22 +31,22 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and [the rollout plan](docs/rol
 
 ## Architecture
 
-The runtime separates event intake, evidence collection, advisory decisions and release authorization. Shared skills provide guidance, not execution permissions.
+Use a single modular serverless application, shared queue and independently configured agent roles. Keep advisory execution separate from approval and merge policy. Shared skills provide guidance, not execution permissions.
 
 ```mermaid
 flowchart TD
-    GitHub["GitHub PR and check events"] --> Intake["Webhook intake"]
-    Intake --> Runtime["Review orchestration"]
-    Runtime --> Evidence["Diff and CI evidence"]
-    Evidence --> Review["Advisory reviewer"]
-    Review --> Output["Inline findings and summary"]
-    Runtime --> Impact["Product impact assessment"]
-    Impact --> Output
-    Review --> Gate["Separate merge policy"]
-    Gate --> Merge["Eligible reviewed change"]
+    GitHub["GitHub events and maintainer commands"] --> Intake["Webhook intake"]
+    Intake --> Queue["Shared queue when enabled"]
+    Queue --> Runtime["Role routing and execution"]
+    Intake --> Runtime
+    Runtime --> Review["Reviewer"]
+    Runtime --> Advisory["Impact and advisory roles"]
+    Review --> Output["GitHub review and comments"]
+    Advisory --> Output
+    Review --> Gate["Independent merge policy"]
 ```
 
-Queue-backed delivery is available for configured deployments. The local CLI and organization workflow also use the review engine; neither replaces repository checks or release policy.
+The local CLI and organization workflow also use the review engine. Queue-backed execution is optional; neither path replaces repository checks or release policy.
 
 | Component | Responsibility |
 | --- | --- |
@@ -54,13 +54,19 @@ Queue-backed delivery is available for configured deployments. The local CLI and
 | [Review orchestration](src/webhook-review.ts) | Coordinate evidence, progress and publication. |
 | [Review engine](src/reviewer.ts) and [review model](src/core.ts) | Collect bounded evidence, validate findings and classify outcomes. |
 | [Product context](src/review-context.ts) and [CI evidence](src/checks.ts) | Supply project-specific quality criteria and current check results. |
-| [Discussion](src/review-discussion.ts) and [impact assessment](src/impact.ts) | Support evidence-based follow-up and product decisions. |
+| [Discussion](src/review-discussion.ts), [Impact](src/impact.ts) and [advisory engine](src/advisory.ts) | Support evidence-based follow-up and on-demand role assessments. |
 | [Merge policy](src/auto-merge.ts) | Independently verify eligibility before any authorized merge. |
 | [Evaluation](src/evaluation.ts) and [offline tests](tests/) | Measure finding accuracy and protect behavior with deterministic fixtures. |
 
+### Evolution
+
+Prioritize a small shared execution contract and model adapter ([#63](https://github.com/Oddmash/oddmash-agents/issues/63)), minimal role-aware execution history ([#62](https://github.com/Oddmash/oddmash-agents/issues/62)), and bounded usage with cost monitoring ([#64](https://github.com/Oddmash/oddmash-agents/issues/64)). Start with existing infrastructure and deterministic tests.
+
+Defer a dedicated dashboard until logs prove insufficient. Keep cross-agent collaboration explicit and maintainer-directed. Split servers or queues only when measured load, reliability or isolation needs justify the operational cost.
+
 ### Development and release
 
-Implement changes on focused branches targeting `develop`. Integrate after CI and review, then consolidate tested changes into a release PR to `main`. Production releases are separate from advisory review.
+Implement changes on focused branches targeting `develop`. Integrate after CI and review, then consolidate tested changes into a release PR to `main`. Production releases are separate from advisory review. Guarded auto-merge may target `develop` or the default `main` branch only when the existing repository, maintainer, acceptance, low-risk, exact-head CI and branch-protection requirements are satisfied. Incomplete review coverage does not constitute approval.
 
 See [review quality](docs/review-quality.md), [evaluation baseline](docs/evaluation-baseline.md) and [rollout](docs/rollout.md) for operational details.
 

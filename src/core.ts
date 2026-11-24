@@ -53,6 +53,13 @@ const privateSensitivePath = /(?:^|\/)(?:\.github|\.vercel|\.aws|\.ssh|\.npmrc|\
 const privateSensitiveValue = /(?:\b(?:gh[opsu]_|github_pat_|xox[baprs]-|sk[-_]|AIza|AKIA|ASIA|ya29\.|glpat-)[A-Za-z0-9_-]{12,}|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|\b(?:https?|postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis):\/\/[^/\s:@]+:[^/\s@]+@|["'][A-Za-z0-9+/_=-]{40,}["'])/i;
 export const privateSensitiveText = (value: string) => sensitiveValue.test(value) || privateSensitiveValue.test(value);
 
+const confidentialPath = /(?:^|\/)(?:\.aws|\.ssh|\.vercel|\.kube|\.docker|\.npmrc|\.pypirc|\.netrc|certs?|certificates|data|dumps|uploads|logs|fixtures|credentials?|secrets?|keys?)(?:\/|$)|\.(?:crt|cer|keystore|jks|kdbx|env|tfvars|tfstate|sqlite|sqlite3|csv)$/i;
+const ordinaryManifest = /^(?:\.github\/workflows\/(?:ci|verify|test|build|lint|typecheck|deploy|release|pages)\.ya?ml|(?:package|tsconfig(?:\.[a-z]+)?|vercel)\.json|(?:next|vite|vitest|eslint|prettier|tailwind|postcss)\.config\.[cm]?[jt]s|(?:Dockerfile|docker-compose\.ya?ml|compose\.ya?ml))$/i;
+const confidentialName = /(?:^|\/)[^/]*(?:secret|credential|private[-_]?key|service[-_]?account)[^/]*(?:\/|$)/i;
+const ordinaryAuthSource = /^src\/(?:(?:auth(?:entication|orization)?|security)\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+|(?:auth(?:entication|orization)?|security))\.[cm]?[jt]sx?$/i;
+const qualityPath = (path: string) => ordinaryManifest.test(path) || (ordinaryAuthSource.test(path) && !/(?:^|[-_./])(?:token|webhook|firebase|deploy|vercel)(?:[-_./]|$)/i.test(path));
+const explicitlyConfidential = (path: string) => sensitivePath.test(path) || confidentialPath.test(path) || confidentialName.test(path) || privateSensitiveText(path);
+
 export function patchComplete(file: ChangedFile): boolean {
   if (!file.patch) return false;
   let oldRemaining = 0, newRemaining = 0, additions = 0, deletions = 0;
@@ -77,27 +84,31 @@ export function patchComplete(file: ChangedFile): boolean {
   return sawHunk && oldRemaining === 0 && newRemaining === 0 && (file.additions === undefined || additions === file.additions) && (file.deletions === undefined || deletions === file.deletions);
 }
 
-export type OmissionReason = 'protected' | 'sensitive' | 'image' | 'lockfile' | 'missing-patch' | 'incomplete-patch' | 'budget' | 'file-limit' | 'pagination';
+export type OmissionReason = 'protected' | 'private-policy' | 'sensitive' | 'image' | 'lockfile' | 'missing-patch' | 'incomplete-patch' | 'budget' | 'file-limit' | 'pagination';
 export type OmissionDetail = { reason: OmissionReason; path?: string; count?: number };
 
-export function selectFiles(files: ChangedFile[], budget = 45_000, privateReview = false): { files: ChangedFile[]; omitted: string[]; omissionDetails: OmissionDetail[] } {
+export function selectFiles(files: ChangedFile[], budget = 45_000, privateReview = false, purpose: 'strict' | 'quality' = 'strict'): { files: ChangedFile[]; omitted: string[]; omissionDetails: OmissionDetail[] } {
   const selected: ChangedFile[] = [];
   const omitted: string[] = [];
   const omissionDetails: OmissionDetail[] = [];
   let remaining = budget;
   for (const file of files) {
-    const protectedPath = sensitivePath.test(file.filename) || (file.previous_filename && sensitivePath.test(file.previous_filename)) || (privateReview && (privateSensitivePath.test(file.filename) || (file.previous_filename && privateSensitivePath.test(file.previous_filename)) || privateSensitiveText(file.filename)));
+    const paths = [file.filename, ...(file.previous_filename ? [file.previous_filename] : [])];
+    const protectedPath = paths.some(path => sensitivePath.test(path) || (purpose === 'quality' && explicitlyConfidential(path)));
+    const privateExcluded = privateReview && paths.some(path => privateSensitiveText(path) || (privateSensitivePath.test(path) && !(purpose === 'quality' && qualityPath(path))));
     let reason: OmissionReason | undefined;
     if (protectedPath) reason = 'protected';
-    else if (file.patch && (sensitiveValue.test(file.patch) || (privateReview && privateSensitiveText(file.patch)))) reason = 'sensitive';
+    else if (privateExcluded) reason = 'private-policy';
+    else if (file.patch && (sensitiveValue.test(file.patch) || ((privateReview || purpose === 'quality') && privateSensitiveText(file.patch)))) reason = 'sensitive';
     else if (/(?:^|\/)(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|Cargo\.lock|uv\.lock|poetry\.lock)$/.test(file.filename) && (!file.patch || !patchComplete(file))) reason = 'lockfile';
     else if (!file.patch) reason = /\.(?:png|jpe?g|webp|gif|avif|ico|bmp|tiff?)$/i.test(file.filename) ? 'image' : 'missing-patch';
     else if (!patchComplete(file)) reason = 'incomplete-patch';
     else if (file.patch.length > remaining) reason = 'budget';
     else if (selected.length >= 40) reason = 'file-limit';
     if (reason) {
-      omitted.push(privateReview ? 'Omitted private file' : file.filename);
-      const path = !privateReview && reason !== 'protected' && reason !== 'sensitive' && /^[A-Za-z0-9_./ -]{1,180}$/.test(file.filename) && !privateSensitiveText(file.filename) ? file.filename : undefined;
+      const hidden = privateReview || reason === 'protected' || reason === 'private-policy' || reason === 'sensitive' || privateSensitiveText(file.filename);
+      omitted.push(privateReview ? 'Omitted private file' : hidden ? 'Omitted protected file' : file.filename);
+      const path = !hidden && /^[A-Za-z0-9_./ -]{1,180}$/.test(file.filename) && !privateSensitiveText(file.filename) ? file.filename : undefined;
       omissionDetails.push({ reason, ...(path ? { path } : {}) });
       continue;
     }
@@ -183,7 +194,7 @@ export function validateFindings(value: unknown, files: ChangedFile[], privateRe
     if (unique.has(key)) continue;
     unique.add(key);
     const original = addedLineText(files.find(file => file.filename === f.path)?.patch ?? '', f.line);
-    const suggestion = typeof f.suggestion === 'string' && f.confidence === 'high' && /\.(?:tsx?|jsx?|css|scss)$/.test(f.path) && !/(?:^|\/)(?:\.github|scripts|server|auth|security)(?:\/|$)/i.test(f.path) && !/security|privacy|credential|authorization|authentication/i.test(f.rule) && f.suggestion.trim().length > 0 && f.suggestion.length <= 1000 && f.suggestion.split('\n').length <= 8 && !/```|[\u0000-\u0008\u000b-\u001f\u007f]/.test(f.suggestion) && !sensitiveValue.test(f.suggestion) && (!privateReview || !privateSensitiveText(f.suggestion)) && original !== undefined && f.suggestion !== original ? f.suggestion : undefined;
+    const suggestion = typeof f.suggestion === 'string' && f.confidence === 'high' && /\.(?:tsx?|jsx?|css|scss)$/.test(f.path) && !/(?:^|\/)(?:\.github|scripts|server|auth|security)(?:\/|$)/i.test(f.path) && !ordinaryAuthSource.test(f.path) && !/security|privacy|credential|authorization|authentication/i.test(f.rule) && f.suggestion.trim().length > 0 && f.suggestion.length <= 1000 && f.suggestion.split('\n').length <= 8 && !/```|[\u0000-\u0008\u000b-\u001f\u007f]/.test(f.suggestion) && !sensitiveValue.test(f.suggestion) && (!privateReview || !privateSensitiveText(f.suggestion)) && original !== undefined && f.suggestion !== original ? f.suggestion : undefined;
     const korean = f.korean;
     const translated = korean && typeof korean === 'object' && [korean.rule, korean.evidence, korean.recommendation, korean.verification].every(x => typeof x === 'string' && x.trim().length > 0 && x.length <= 1000 && !sensitiveValue.test(x) && (!privateReview || !privateSensitiveText(x)) && /[가-힣]/.test(x)) ? { rule: korean.rule, evidence: korean.evidence, recommendation: korean.recommendation, verification: korean.verification } : undefined;
     const blockingEvidence = validatedBlockingEvidence(f, files, privateReview);
@@ -221,7 +232,8 @@ export function inlineComment(context: ReviewContext, finding: Finding): string 
 }
 
 const omissionActions: Record<OmissionReason, [string, string]> = {
-  protected: ['Protected path excluded by review policy; inspect the change and permissions locally without sharing sensitive content.', '검토 정책상 보호된 경로입니다. 민감한 내용을 공유하지 말고 로컬에서 변경 사항과 권한을 확인하세요.'],
+  protected: ['Protected path excluded by review policy (confidential file or path); this is a coverage restriction, not a confirmed security finding. Inspect the affected paths in Files changed locally.', '검토 정책상 제외된 경로입니다. 보안 문제가 확인되었다는 뜻은 아닙니다. Files changed에서 해당 변경을 직접 확인하세요.'],
+  'private-policy': ['Protected path excluded by private repository policy; this is a coverage restriction, not a confirmed security finding. Verify the confidential change locally.', '비공개 저장소 정책에 따라 제외된 경로입니다. 보안 문제가 확인되었다는 뜻은 아닙니다. 로컬에서 해당 변경을 검증하세요.'],
   sensitive: ['Potentially sensitive content excluded; inspect locally and confirm that no sensitive values are committed.', '민감할 수 있는 내용이 제외되었습니다. 로컬에서 확인하고 민감한 값이 커밋되지 않았는지 검증하세요.'],
   image: ['Image has no text diff; compare before/after captures for layout, readability, and sensitive information.', '이미지의 텍스트 diff가 없습니다. 이전·이후 캡처의 레이아웃, 가독성, 민감한 정보 노출을 확인하세요.'],
   lockfile: ['Generated dependency lockfile lacks a complete text diff. Check the declared dependency changes, frozen installation and relevant dependency verification; passing CI alone does not establish full diff coverage.', '생성된 의존성 잠금 파일의 전체 텍스트 diff가 없습니다. 선언된 의존성 변경, 고정 설치 및 관련 의존성 검증을 확인하세요. CI 통과만으로 전체 diff 검토가 완료된 것은 아닙니다.'],
@@ -252,20 +264,20 @@ function manualReviewLines(details: OmissionDetail[], language: 0 | 1): string[]
 
 export function formatReport(context: ReviewContext, findings: Finding[], modelValid = true, omissionDetails: OmissionDetail[] = [], inlineCovered = false): string {
   const lines = [reviewMarker(context)];
-  if (!findings.length) lines.push('No validated findings in the reviewed changes. This is not an approval or proof of correctness.');
+  if (!findings.length && context.files.length && modelValid) lines.push(`No validated findings in ${context.files.length} reviewed file(s). This is not an approval or proof of correctness.`);
   const blockingCount = findings.filter(f => isBlockingFinding(context, f)).length;
   if (inlineCovered && findings.length) lines.push(`${blockingCount} blocking, ${findings.length - blockingCount} advisory. See the inline review threads for details.`);
   for (const f of inlineCovered ? [] : findings) {
     lines.push(`- **${isBlockingFinding(context, f) ? 'BLOCKING' : 'ADVISORY'} / ${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.evidence)} ${isBlockingFinding(context, f) ? 'Fix' : 'Consider'}: ${clean(f.recommendation)} Verify: ${clean(f.verification)}`);
   }
   if (context.omitted.length) lines.push('', '**Manual review coverage**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 0) : ['- Some changes require manual review; inspect Files changed for unreviewed entries.']));
-  if (!context.files.length) lines.push('No changed file could be reviewed. Inspect the complete diff before approval.');
+  if (!context.files.length) lines.push('Automated review was not performed: 0 eligible files. No conclusion can be drawn. Inspect the complete diff before approval.');
   else if (!modelValid) lines.push('The review response contained findings that could not be validated against the changed lines. Compare the reported findings with the exact diff or request a fresh review.');
   const translated = (inlineCovered ? [] : findings).filter(f => f.korean).map(f => `- **${isBlockingFinding(context, f) ? '수정 필수' : '참고 의견'} / ${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.evidence)} ${isBlockingFinding(context, f) ? '수정' : '제안'}: ${koreanText(f.korean!.recommendation)} 확인: ${koreanText(f.korean!.verification)}`);
   if (inlineCovered && findings.length) translated.push(`수정 필수 ${blockingCount}건, 참고 의견 ${findings.length - blockingCount}건. 상세 내용은 인라인 리뷰를 확인하세요.`);
-  if (!findings.length) translated.push('검토한 변경 사항에서 확인된 문제는 없습니다. 승인 또는 정확성을 보장하지 않습니다.');
+  if (!findings.length && context.files.length && modelValid) translated.push(`검토한 파일 ${context.files.length}개에서 확인된 문제는 없습니다. 승인 또는 정확성을 보장하지 않습니다.`);
   if (context.omitted.length) translated.push('', '**수동 검토 범위**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 1) : ['- 일부 변경 사항은 수동 검토가 필요합니다. Files changed에서 미검토 항목을 확인하세요.']));
-  if (!context.files.length) translated.push('검토할 수 있는 변경 파일이 없습니다. 승인 전 전체 diff를 확인하세요.');
+  if (!context.files.length) translated.push('자동 검토 대상 파일이 0개여서 리뷰를 수행하지 못했습니다. 코드에 대한 결론을 내릴 수 없습니다. 승인 전 전체 diff를 확인하세요.');
   else if (!modelValid) translated.push('리뷰 응답에 변경된 줄을 기준으로 검증할 수 없는 결과가 포함되었습니다. 결과를 실제 diff와 비교하거나 재리뷰를 요청하세요.');
   if (translated.length) lines.push('', koreanDetails(translated));
   return lines.join('\n');

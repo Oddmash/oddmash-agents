@@ -15,6 +15,7 @@ const candidate: Candidate = { pull: pr, acceptance: acceptanceOf(issue)! };
 test('merge retry proof binds approval to the exact PR, head, base, merge commit and issue', () => {
   const marker = mergeProof(candidate);
   assert.equal(marker, mergeProof({ ...candidate }));
+  assert.notEqual(marker, mergeProof({ ...candidate, pull: { ...pr, base: { ...pr.base, ref: 'develop' } } }));
   assert.notEqual(marker, mergeProof({ ...candidate, pull: { ...pr, number: 11 } }));
   assert.notEqual(marker, mergeProof({ ...candidate, pull: { ...pr, head: { ...pr.head, sha: 'd'.repeat(40) } } }));
   assert.notEqual(marker, mergeProof({ ...candidate, pull: { ...pr, base: { ...pr.base, sha: 'd'.repeat(40) } } }));
@@ -24,6 +25,8 @@ test('merge retry proof binds approval to the exact PR, head, base, merge commit
 
 test('only maintainer-owned same-repository eligible main PRs are candidates', () => {
   assert.equal(eligiblePull(pr, target), true);
+  assert.equal(eligiblePull({ ...pr, base: { ...pr.base, ref: 'develop' } }, target), true);
+  assert.equal(eligiblePull({ ...pr, base: { ...pr.base, ref: 'feature/example' } }, target), false);
   assert.equal(eligiblePull({ ...pr, user: { id: 99, login: user.login } }, target), false);
   assert.equal(eligiblePull({ ...pr, head: { ...pr.head, repo: { id: 99, full_name: 'other/fork' } } }, target), false);
   assert.equal(eligiblePull({ ...pr, base: { ...pr.base, repo: { ...pr.base.repo, private: true } } }, target), false);
@@ -103,7 +106,7 @@ test('mint write token only after exact-head approval and protected current CI',
     if (url.endsWith('/pulls/10')) return Response.json(pull);
     if (url.endsWith('/issues/9')) return Response.json(issue);
     if (url.includes('/files?')) return Response.json(files);
-    if (url.endsWith('/branches/main')) return Response.json(branch);
+    if (url.endsWith('/branches/' + pull.base.ref)) return Response.json(branch);
     if (url.includes('/compare/')) return Response.json({ behind_by: 0, merge_base_commit: { sha: base } });
     if (url.includes('/reviews?')) return Response.json([{ id: 5, user: { login: 'oddmash-reviewer[bot]', id: 100 }, state: 'APPROVED', commit_id: head }]);
     if (url.includes('/check-runs?')) {
@@ -142,4 +145,17 @@ test('mint write token only after exact-head approval and protected current CI',
   assert.equal(await mergeAuthorized(makeApi(true, boundraPull, false, true), boundraTarget, boundraCandidate, 'oddmash-reviewer[bot]', 5, true, mint), true);
   assert.equal(mints, 3);
   assert.equal(writes, 3);
+  const developPull = { ...pr, base: { ...pr.base, ref: 'develop' } };
+  const developCandidate = { ...candidate, pull: developPull };
+  assert.equal(await mergeAuthorized(makeApi(true, developPull), target, candidate, 'oddmash-reviewer[bot]', 5, true, mint), false);
+  assert.equal(await mergeAuthorized(makeApi(true, developPull), target, developCandidate, 'oddmash-reviewer[bot]', 5, true, mint), true);
+  assert.equal(mints, 4);
+  assert.equal(writes, 4);
+});
+
+
+test('configuration and permission changes remain ineligible for automatic merge', () => {
+  for (const filename of ['.github/workflows/ci.yml', 'vercel.json', 'tsconfig.json', 'next.config.ts', 'Dockerfile', 'src/auth/session.ts', 'src/authorization/permissions.ts']) {
+    assert.equal(lowRisk([{ filename, status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }], 1, 'Oddmash/kowrap'), false);
+  }
 });
