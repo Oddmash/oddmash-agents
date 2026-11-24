@@ -12,16 +12,66 @@ export function incrementalPaths(previous: { commit_id: string; state: string; b
   if (evidence.files.some(file => !file.filename || file.status !== 'modified' || !Number.isSafeInteger(file.changes) || file.changes! < 0) || evidence.files.reduce((sum,file)=>sum+file.changes!,0)>150) return;
   return [...new Set(evidence.files.map(file=>file.filename))];
 }
-export function selectAdvisoryRoles(files: readonly ChangeMetadata[]): AdvisoryRole[] {
-  const paths = files.map(file=>file.filename.toLowerCase());
-  const scores = new Map<AdvisoryRole,number>();
-  const score = (role: AdvisoryRole, value: number) => scores.set(role, (scores.get(role) ?? 0) + value);
-  for (const path of paths) {
-    if (/^(package\.json|changelog\.md|\.changeset\/)|(?:^|\/)(?:release|version)\./.test(path)) score('release', 5);
-    if (/^(?:src\/)?(?:api|routes|components|features|packages)\//.test(path) && /\.(?:tsx?|jsx?|vue|astro|svelte)$/.test(path)) score('impact', 2);
-    if (/\.(?:tsx?|jsx?|py|rs|go|java)$/.test(path) && !/(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.(?:test|spec)\./.test(path)) score('qa', 2);
-    if (/(?:^|\/)(?:architecture|domain|modules|packages|contracts)(?:\/|\.)|(?:^|\/)package\.json$/.test(path)) score('architect', 3);
-    if (/(?:^|\/)(?:docs|readme)(?:\/|\.)|(?:^|\/)(?:api|public)\//.test(path)) score('docs', 3);
+const automaticRoles = ['impact', 'qa', 'release', 'docs', 'architect'] as const;
+type AutomaticRole = typeof automaticRoles[number];
+export type AdvisoryBudget = { maxRequests: number; elapsedMs: number };
+const bounded = (value: string | undefined, fallback: number, maximum: number) => {
+  if (value === undefined || !/^\d+$/.test(value)) return fallback;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? Math.min(parsed, maximum) : fallback;
+};
+
+export function automaticAdvisoryBudget(env: Record<string, string | undefined> = process.env, elapsedMs = 0): AdvisoryBudget {
+  return {
+    maxRequests: bounded(env.REVIEWER_AUTO_ADVISORY_MAX_REQUESTS, 5, automaticRoles.length),
+    elapsedMs: Math.min(bounded(env.REVIEWER_AUTO_ADVISORY_MAX_MS, 90_000, 120_000), Math.max(0, 245_000 - elapsedMs))
+  };
+}
+
+export function automaticAdvisoryPaths(files: readonly ChangeMetadata[]): string[] {
+  return [...new Set(files.filter(file => {
+    const path = file.filename.toLowerCase();
+    return path.length > 0 && !/(?:^|\/)(?:\.github|\.git|\.env[^/]*|secrets?|credentials?|security|vulnerabilit(?:y|ies)|exploit(?:s)?|attack(?:s)?|auth(?:entication|orization)?|permissions?|infra(?:structure)?|deploy(?:ment)?|webhook(?:s|-review)?|auto-merge)(?:\/|\.|-|_|$)/.test(path)
+      && !/\.(?:pem|key|p12|lock)$|(?:^|\/)(?:pnpm-lock\.yaml|package-lock\.json|yarn\.lock|vercel\.json)$/.test(path);
+  }).map(file => file.filename))];
+}
+
+export function selectAdvisoryRoles(files: readonly ChangeMetadata[], maxRequests = 5): AdvisoryRole[] {
+  const eligible = new Set(automaticAdvisoryPaths(files));
+  const scores = new Map<AutomaticRole, number>();
+  const score = (role: AutomaticRole, value: number) => scores.set(role, Math.max(scores.get(role) ?? 0, value));
+  for (const file of files) {
+    if (!eligible.has(file.filename)) continue;
+    const path = file.filename.toLowerCase();
+    const tinyDocumentationEdit = file.status === 'modified' && Number.isSafeInteger(file.changes) && file.changes! <= 2 && /\.(?:md|mdx|txt)$/.test(path);
+    if (tinyDocumentationEdit) continue;
+    const code = /\.(?:tsx?|jsx?|py|rs|go|java|vue|astro|svelte)$/.test(path);
+    const testFile = /(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.(?:test|spec)\./.test(path);
+    if (/(?:^|\/)(?:package\.json|changelog\.md|\.changeset\/)|(?:^|\/)(?:release|version)\./.test(path)) score('release', 5);
+    if (code && /(?:^|\/)(?:api|routes|components|features|packages|public|contracts)\//.test(path) && !testFile) score('impact', 4);
+    if (code || /\.(?:css|scss|sass|less)$/.test(path)) score('qa', 4);
+    if (code && !testFile && /(?:^|\/)(?:architecture|domain|modules|packages|contracts)(?:\/|\.)/.test(path)) score('architect', 5);
+    if (/(?:^|\/)(?:docs|readme)(?:\/|\.)/.test(path) || code && !testFile && /(?:^|\/)(?:api|public|contracts)\//.test(path)) score('docs', 4);
   }
-  return [...scores].sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0])).slice(0,2).map(([role])=>role);
+  const limit = Number.isSafeInteger(maxRequests) ? Math.min(automaticRoles.length, Math.max(0, maxRequests)) : 0;
+  return [...scores].sort((a,b) => b[1] - a[1] || automaticRoles.indexOf(a[0]) - automaticRoles.indexOf(b[0])).slice(0, limit).map(([role]) => role);
+}
+
+export async function runCoordinatedAdvisories(roles: readonly AdvisoryRole[], budget: AdvisoryBudget, action: (role: AdvisoryRole, signal: AbortSignal) => Promise<boolean>, clock = Date.now) {
+  if (!Number.isSafeInteger(budget.maxRequests) || budget.maxRequests <= 0 || !Number.isSafeInteger(budget.elapsedMs) || budget.elapsedMs <= 0) return;
+  const elapsedMs = Math.min(budget.elapsedMs, 120_000);
+  const started = clock();
+  const signal = AbortSignal.timeout(elapsedMs);
+  let attempts = 0;
+  for (const role of new Set(roles)) {
+    if (role === 'triage' || !automaticRoles.includes(role)) continue;
+    if (signal.aborted || clock() - started >= elapsedMs || attempts >= Math.min(budget.maxRequests, automaticRoles.length)) break;
+    attempts++;
+    try {
+      if (!await action(role, signal)) break;
+    } catch (error) {
+      console.warn('Coordinated advisory failed');
+      if (signal.aborted || error instanceof Error && error.message === 'Model quota, rate or credit limit reached; stop and check API billing before retrying') break;
+    }
+  }
 }

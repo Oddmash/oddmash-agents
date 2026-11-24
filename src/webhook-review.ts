@@ -8,12 +8,12 @@ import { startReviewProgress } from './review-progress.ts';
 import { formatReviewBody, reviewOutcome } from './core.ts';
 import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
-import { authorize, authorizeMerge, completeCommentReaction, reactToComment, type Target } from './webhook.ts';
+import { authorize, authorizeMerge, githubApi, completeCommentReaction, reactToComment, type Target } from './webhook.ts';
 import { replyToReview } from './review-discussion.ts';
 import { retryableJobError } from './review-job.ts';
 import { publishAutomationStatus } from './review-status.ts';
 import { actionsQuotaEvidence, actionsWorkflowUrl } from './actions-quota.ts';
-import { incrementalPaths, reviewBaseMarker, selectAdvisoryRoles, type ChangeMetadata, type CompareEvidence } from './review-follow-up-policy.ts';
+import { automaticAdvisoryBudget, automaticAdvisoryPaths, incrementalPaths, reviewBaseMarker, runCoordinatedAdvisories, selectAdvisoryRoles, type ChangeMetadata, type CompareEvidence } from './review-follow-up-policy.ts';
 
 type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 export type Review = { id: number; node_id?: string; body: string | null; user: { login: string }; state: string; commit_id: string };
@@ -129,6 +129,7 @@ export async function attachReviewFindings(api: Api, path: string, pendingId: nu
 const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human', 'review: follow-up', 'review: stale'];
 
 export async function reviewWebhook(target: Target, config: { appId: string; key: string; slug: string; openaiKey: string; model: string; autoMerge?: boolean }) {
+  const executionStarted = Date.now();
   if (target.advisoryIdentity && target.advisory !== target.advisoryIdentity) throw new Error('Invalid advisory identity');
   const { appId, key, slug, openaiKey, model } = config;
   const bot = slug + '[bot]';
@@ -355,16 +356,25 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       progressResult = completedResult;
       await progress?.finish(progressResult.conclusion, progressResult.title);
       if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED === 'true') {
-        const metadata = await api<ChangeMetadata[]>(`${path}/files?per_page=100&page=1`).catch(() => []);
-        const scoped = incrementalFiles === undefined ? metadata : metadata.filter(file => incrementalFiles.includes(file.filename));
-        for (const role of selectAdvisoryRoles(scoped)) {
-          try {
-            const latest = await api<Pull>(path);
-            if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) break;
+        const budget = automaticAdvisoryBudget(process.env, Date.now() - executionStarted);
+        if (budget.maxRequests > 0 && budget.elapsedMs > 0) {
+          const planningStarted = Date.now();
+          const planningSignal = AbortSignal.timeout(budget.elapsedMs);
+          const boundedRequest = (signal: AbortSignal): typeof fetch => (input, init) => fetch(input, { ...init, signal: AbortSignal.any([signal, init?.signal ?? signal]) });
+          const metadata = await githubApi(githubToken, boundedRequest(planningSignal))<ChangeMetadata[]>(`${path}/files?per_page=100&page=1`).catch(() => []);
+          const scoped = incrementalFiles === undefined ? metadata : metadata.filter(file => incrementalFiles.includes(file.filename));
+          const advisoryPaths = automaticAdvisoryPaths(scoped);
+          const remaining = { ...budget, elapsedMs: Math.max(0, budget.elapsedMs - (Date.now() - planningStarted)) };
+          await runCoordinatedAdvisories(selectAdvisoryRoles(scoped, remaining.maxRequests), remaining, async (role, signal) => {
+            const request = boundedRequest(signal);
+            const advisoryApi = githubApi(githubToken, request);
+            const latest = await advisoryApi<Pull>(path);
+            if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) return false;
             const advisoryTarget: Target = { installation: target.installation, repository, repositoryId: target.repositoryId, private: target.private, number: current.number, expectedHead: current.head.sha, advisory: role, ...(role === 'impact' ? { impact: true as const } : {}) };
-            const advisoryConfig = { bot, ...advisoryModelConfig(role, { model, openaiKey }), automatic: true, incrementalFiles };
-            await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(api, advisoryTarget, advisoryConfig) : runAdvisory(api, advisoryTarget, advisoryConfig));
-          } catch { console.warn('Coordinated advisory failed'); }
+            const advisoryConfig = { bot, ...advisoryModelConfig(role, { model, openaiKey }), automatic: true, incrementalFiles: advisoryPaths };
+            await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(advisoryApi, advisoryTarget, advisoryConfig, request) : runAdvisory(advisoryApi, advisoryTarget, advisoryConfig, request));
+            return true;
+          });
         }
       }
       if (event === 'APPROVE' && incrementalFiles === undefined) await attemptMerge(pendingId);
