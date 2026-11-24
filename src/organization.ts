@@ -1,5 +1,5 @@
 import { runReview } from './reviewer.ts';
-import { formatReviewBody, reviewOutcome } from './core.ts';
+import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts';
 import { publicRepositories as repositories, reviewTarget } from './routing.ts';
 import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvidence } from './checks.ts';
 import { acquirePendingReview, attachReviewFindingsWithCoverage, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, type Review } from './webhook-review.ts';
@@ -49,13 +49,14 @@ for (const repository of repositories) {
     const current = await api<Pull>(path);
     if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft) continue;
     const finalChecks = await readChecks(current);
-    const event = finalReviewEvent(result.assessment, finalChecks, repository);
+    const event = finalReviewEvent(result.assessment, finalChecks, repository, current.user);
+    const followUp = publicationFollowUp(result.followUp, result.assessment, current.user);
     if (!event) continue;
     const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
     if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))) continue;
     const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks);
     const attachment = event !== 'APPROVE' ? await attachReviewFindingsWithCoverage(api, path, pendingId, result.head, bot, result.comments) : { attached: 0, covered: true };
-    const body = formatReviewBody(event, finalMarker, attachment.covered ? result.inlineReport : result.report, current.user, result.followUp);
+    const body = formatReviewBody(event, finalMarker, attachment.covered ? result.inlineReport : result.report, current.user, followUp);
     const advisory = event === 'COMMENT' ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
     if (advisory && !attachment.attached) {
       if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
@@ -65,7 +66,7 @@ for (const repository of repositories) {
       await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) });
       submitted = true;
     }
-    const label = reviewOutcome(event, result.followUp).label;
+    const label = reviewOutcome(event, followUp).label;
     await api(`${root}/issues/${pr.number}/labels`, { method: 'POST', body: JSON.stringify({ labels: [label] }) });
     for (const attached of current.labels) {
       if (attached.name !== label && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' });

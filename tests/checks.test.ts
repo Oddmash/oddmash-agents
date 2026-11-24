@@ -122,3 +122,18 @@ test('waiting diagnostics distinguish missing, running, failed and incomplete ch
   assert.match(summary, /Checks/);
   assert.doesNotMatch(summary, /labels/);
 });
+
+test('maintainer actionable findings remain neutral without approving, while other authors still get change requests', () => {
+  const owner = { id: 135234546, login: 'qtaghdi' };
+  const verify = { name: 'verify', status: 'completed', conclusion: 'success', app: { id: 15368, slug: 'github-actions' } };
+  const passed = { total_count: 1, check_runs: [verify] };
+  assert.equal(finalReviewEvent('REQUEST_CHANGES', passed, undefined, owner), 'COMMENT');
+  assert.equal(finalReviewEvent('REQUEST_CHANGES', passed, undefined, { ...owner, login: 'other' }), 'REQUEST_CHANGES');
+  assert.equal(finalReviewEvent('REQUEST_CHANGES', passed, undefined, { ...owner, id: 1 }), 'REQUEST_CHANGES');
+  assert.equal(finalReviewEvent('REQUEST_CHANGES', passed), 'REQUEST_CHANGES');
+  assert.equal(finalReviewEvent('APPROVE', passed, undefined, owner), 'APPROVE');
+  const failed = { total_count: 1, check_runs: [{ ...verify, conclusion: 'failure' }] };
+  assert.equal(finalReviewEvent('REQUEST_CHANGES', failed, undefined, owner), 'COMMENT');
+  assert.equal(finalReviewEvent('APPROVE', failed, undefined, owner), null);
+  assert.equal(finalReviewEvent('REQUEST_CHANGES', { total_count: 1, check_runs: [{ ...verify, status: 'in_progress', conclusion: null }] }, undefined, owner), null);
+});

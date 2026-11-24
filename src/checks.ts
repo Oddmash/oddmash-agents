@@ -1,4 +1,4 @@
-import { checksPassed, type ReviewDecision } from './core.ts';
+import { checksPassed, isMaintainerReviewAuthor, type ReviewDecision } from './core.ts';
 import { progressCheckName } from './review-progress.ts';
 export type Check = { id?: number; name: string; status: string; conclusion: string | null; app?: { id: number } };
 export type CheckEvidence = { total_count?: number; check_runs: Check[] };
@@ -48,9 +48,9 @@ export function shouldReconcilePendingChecks(evidence: CheckEvidence, expectedHe
   return queueEnabled && expectedHead === head && /^[a-f0-9]{40}$/i.test(head) && !reviewChecksReady(evidence, repository);
 }
 
-export function finalReviewEvent(assessment: ReviewDecision, evidence: CheckEvidence, repository?: string): ReviewDecision | null {
+export function finalReviewEvent(assessment: ReviewDecision, evidence: CheckEvidence, repository?: string, author?: { id: number; login: string }): ReviewDecision | null {
   if (!reviewChecksReady(evidence, repository)) return null;
-  if (assessment === 'REQUEST_CHANGES') return assessment;
+  if (assessment === 'REQUEST_CHANGES') return isMaintainerReviewAuthor(author) ? 'COMMENT' : assessment;
   return reviewChecksSuccessful(evidence, repository) ? assessment : null;
 }
 
