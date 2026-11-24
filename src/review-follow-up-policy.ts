@@ -1,4 +1,5 @@
 import type { AdvisoryRole } from './advisory-agents.ts';
+import type { Target } from './webhook.ts';
 
 export type ChangeMetadata = { filename: string; status?: string; changes?: number };
 export type CompareEvidence = { status: string; ahead_by: number; total_commits: number; files?: ChangeMetadata[] };
@@ -20,6 +21,10 @@ const bounded = (value: string | undefined, fallback: number, maximum: number) =
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? Math.min(parsed, maximum) : fallback;
 };
+
+export function coordinatedAdvisoriesEnabled(target: Pick<Target, 'recheck' | 'requestComment'>, enabled: string | undefined): boolean {
+  return enabled === 'true' && (!target.recheck || (target.requestComment?.kind === 'issue' && target.requestComment.slash === true));
+}
 
 export function automaticAdvisoryBudget(env: Record<string, string | undefined> = process.env, elapsedMs = 0): AdvisoryBudget {
   return {

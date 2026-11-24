@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { automaticAdvisoryBudget, automaticAdvisoryPaths, incrementalPaths, reviewBaseMarker, runCoordinatedAdvisories, selectAdvisoryRoles } from '../src/review-follow-up-policy.ts';
+import { automaticAdvisoryBudget, automaticAdvisoryPaths, coordinatedAdvisoriesEnabled, incrementalPaths, reviewBaseMarker, runCoordinatedAdvisories, selectAdvisoryRoles } from '../src/review-follow-up-policy.ts';
 
 const base = 'a'.repeat(40), oldHead = 'b'.repeat(40), head = 'c'.repeat(40);
 const approved = { commit_id: oldHead, state: 'APPROVED', body: reviewBaseMarker(base) };
@@ -16,6 +16,16 @@ test('only a verified compatible approved baseline permits bounded follow-up', (
   assert.equal(incrementalPaths(approved, head, base, { ...comparison, files: [{ filename:'src/component.ts', status:'modified', changes:151 }] }), undefined);
   assert.equal(incrementalPaths(approved, head, base, { ...comparison, total_commits:2 }), undefined);
   assert.equal(incrementalPaths(approved, head, base, undefined), undefined);
+});
+test('enabled coordination covers full conversation reviews without enabling scoped rechecks', () => {
+  const fullRequest = { recheck: 'comment-4', requestComment: { kind: 'issue' as const, id: 4, slash: true as const } };
+  assert.equal(coordinatedAdvisoriesEnabled(fullRequest, 'true'), true);
+  assert.equal(coordinatedAdvisoriesEnabled({}, 'true'), true);
+  assert.equal(coordinatedAdvisoriesEnabled(fullRequest, 'false'), false);
+  assert.equal(coordinatedAdvisoriesEnabled(fullRequest, undefined), false);
+  assert.equal(coordinatedAdvisoriesEnabled({ recheck: 'delivery-id' }, 'true'), false);
+  assert.equal(coordinatedAdvisoriesEnabled({ ...fullRequest, requestComment: { ...fullRequest.requestComment, kind: 'inline', root: 3 } }, 'true'), false);
+  assert.equal(coordinatedAdvisoriesEnabled({ ...fullRequest, requestComment: { kind: 'issue', id: 4 } }, 'true'), false);
 });
 test('automatic routing chooses only relevant roles and skips trivial docs', () => {
   assert.deepEqual(selectAdvisoryRoles([]), []);
