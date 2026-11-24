@@ -18,7 +18,7 @@ function configuredCap(value: string | undefined, maximum: number, minimum: numb
   return Number.isSafeInteger(limit) && limit >= minimum ? Math.min(limit, maximum) : maximum;
 }
 
-export function boundedModelBody(phase: ModelPhase, payload: { max_output_tokens: number }, env: Record<string, string | undefined> = process.env) {
+export function boundedModelBody<T extends { max_output_tokens: number }>(phase: ModelPhase, payload: T, env: Record<string, string | undefined> = process.env) {
   const [inputBytes, outputTokens] = caps[phase];
   const prefix = modelRole(phase).toUpperCase();
   const body = JSON.stringify({ ...payload, max_output_tokens: Math.min(payload.max_output_tokens, configuredCap(env[`${prefix}_MAX_OUTPUT_TOKENS`], outputTokens, 16)) });
