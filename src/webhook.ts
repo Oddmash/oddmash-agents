@@ -134,7 +134,7 @@ export async function authorize(target: Target, appId: string, key: string, requ
   const jwtApi = githubApi(appJwt(appId, key), request);
   const installation = await jwtApi<{ account: { login: string }; suspended_at: string | null }>('/app/installations/' + target.installation);
   if (installation.account.login.toLowerCase() !== 'oddmash' || installation.suspended_at) throw new Error('Installation not eligible');
-  const permissions = target.advisory || target.impact ? { contents: 'read', pull_requests: 'read', checks: 'read', issues: 'write' } : progress ? { checks: 'write' } : { contents: 'read', pull_requests: 'write', checks: 'read', issues: target.requestComment?.kind === 'issue' || target.reply?.kind === 'conversation' ? 'write' : 'read' };
+  const permissions = target.advisory || target.impact ? { contents: 'read', pull_requests: target.advisory === 'triage' ? 'read' : 'write', checks: 'read', issues: 'write' } : progress ? { checks: 'write' } : { contents: 'read', pull_requests: 'write', checks: 'read', issues: target.requestComment?.kind === 'issue' || target.reply?.kind === 'conversation' ? 'write' : 'read' };
   const result = await jwtApi<{ token: string }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [target.repositoryId], permissions }) });
   const api = githubApi(result.token, request);
   const repository = await api<Repository>('/repos/' + target.repository);

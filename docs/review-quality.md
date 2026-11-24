@@ -6,6 +6,12 @@ Maintainer comment requests that arrive before passing checks persist a bot-auth
 
 Usage events record only model, phase and numeric input/output/total tokens. Aggregate them by phase and model using the applicable pricing; do not log prompts or source. Missing usage is not recorded as zero cost.
 
+## Review coverage and merge eligibility
+
+Reviewer quality checks may include conventional configuration manifests, explicitly recognized CI/deployment workflow filenames, and authentication or authorization source under the conventional src directories. These checks are defensive and do not authorize executable security-sensitive suggestions. The private-repository allowlist, changed-patch-only boundary, credential-like content checks, confidential names and rename-origin checks remain enforced. Unrecognized sensitive private paths remain excluded. Excluded names are not included in model input or reports.
+
+Coverage explanations distinguish confidential paths, private repository policy exclusions, potential sensitive content, missing or incomplete patches, and budget limits. Automatic merge continues to use its independent strict selection and existing low-risk path checks, exact-head approval, issue acceptance, CI and branch protection. Reviewable configuration and authentication changes do not become merge eligible.
+
 ## Review outcomes
 
 Confirmed actionable defects request changes. Advisory findings remain comments with a developer follow-up, not a demand for maintainer approval. Incomplete coverage or invalid evidence is listed separately and requires manual verification before approval. The review status label and check title reflect these distinct outcomes. Approval still requires zero findings, complete coverage and passing exact-head checks; merge eligibility is unchanged. Browser lifecycle findings must account for both bfcache preservation and restoration before proposing cleanup.

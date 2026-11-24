@@ -177,7 +177,7 @@ test('approved private review uses scoped auth and excludes private sensitive da
       const payload = JSON.parse(String(init?.body));
       const model = JSON.parse(payload.input);
       assert.equal(payload.store, false);
-      assert.deepEqual(model.files.map((file: { filename: string }) => file.filename), ['src/ui.ts']);
+      assert.deepEqual(model.files.map((file: { filename: string }) => file.filename), ['src/ui.ts', '.github/workflows/ci.yml', 'src/auth/session.ts']);
       assert.equal(model.omitted.length, 3);
       assert.ok(model.omitted.every((file: string) => file === 'Omitted private file'));
       assert.equal(model.omissionDetails, undefined);
@@ -189,13 +189,15 @@ test('approved private review uses scoped auth and excludes private sensitive da
     assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer fixture');
     if (url.includes('/files?')) return Response.json([
       { filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' },
+      { filename: '.github/workflows/ci.yml', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' },
+      { filename: 'src/auth/session.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' },
       { filename: '.github/workflows/fixture-hidden-name.yml', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' },
       { filename: 'src/renamed.ts', previous_filename: 'config/fixture-hidden-name.ts', status: 'renamed', patch: '@@ -1 +1 @@\n-old\n+new' },
       { filename: 'src/other.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+password: synthetic-fixture-value' }
     ]);
     if (url.includes('/check-runs?')) return Response.json({ total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] });
     if (url.includes('/contents/')) return Response.json({ encoding: 'base64', content: Buffer.from('password: fixture-sensitive-guidance').toString('base64') });
-    if (url.endsWith('/pulls/1')) return Response.json({ ...pr, changed_files: 4, base: { ...pr.base, repo: { id: privateId, private: true, full_name: repo } } });
+    if (url.endsWith('/pulls/1')) return Response.json({ ...pr, changed_files: 6, base: { ...pr.base, repo: { id: privateId, private: true, full_name: repo } } });
     throw new Error('Unexpected fixture request');
   };
   const result = await runReview(privateConfig, request);

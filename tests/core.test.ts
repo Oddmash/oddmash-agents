@@ -13,7 +13,7 @@ test('tracks added lines and nested guidance', () => {
 test('omits sensitive and oversized files', () => {
   const result = selectFiles([file, { filename: '.env', status: 'added', patch: '+fixture' }, { filename: 'large.txt', status: 'added', patch: 'x'.repeat(1000) }], 500);
   assert.deepEqual(result.files, [file]);
-  assert.deepEqual(result.omitted, ['.env', 'large.txt']);
+  assert.deepEqual(result.omitted, ['Omitted protected file', 'large.txt']);
   assert.equal(safeText('password: synthetic-fixture-value'), '[REDACTED]');
   assert.deepEqual(selectFiles([{ ...file, additions: 100, deletions: 1 }]).omitted, [file.filename]);
   assert.equal(selectFiles([{ ...file, patch: `--- a/file\n+++ b/file\n${file.patch}`, additions: 2, deletions: 1 }]).files.length, 1);
@@ -138,6 +138,9 @@ test('manual review identifies omitted public files, reasons, and verification a
   const privateReport = formatReport({ ...context, files: [], omitted: privateSelection.omitted }, [], true, privateSelection.omissionDetails);
   assert.doesNotMatch(privateReport, /private-fixture/);
   assert.match(privateReport, /inspect the complete diff/i);
+  assert.match(privateReport, /0 eligible files/);
+  assert.match(privateReport, /not a confirmed security finding/);
+  assert.doesNotMatch(privateReport, /No validated findings|확인된 문제는 없습니다/);
 });
 
 test('manual review summarizes bounded file counts and explains coverage limits', () => {
@@ -181,4 +184,35 @@ test('distinguishes unavailable generated lockfile diffs without changing review
   assert.match(report, /passing CI alone does not establish full diff coverage/);
   assert.doesNotMatch(report, /pnpm-lock|package-lock|src\/unknown/);
   assert.equal(reviewDecision(context, [], true), 'COMMENT');
+});
+
+
+test('quality review selects ordinary manifests and auth source independently of strict private coverage', () => {
+  const paths = ['.github/workflows/ci.yml', 'vercel.json', 'tsconfig.json', 'next.config.ts', 'Dockerfile', 'src/auth/session.ts', 'src/authorization/permissions.ts'];
+  const changes = paths.map(filename => ({ ...file, filename }));
+  for (const visibility of [false, true]) {
+    const selection = selectFiles(changes, 45_000, visibility, 'quality');
+    assert.deepEqual(selection.files.map(item => item.filename), paths);
+    assert.deepEqual(selection.omitted, []);
+  }
+  assert.equal(selectFiles(changes, 45_000, true, 'strict').files.some(item => item.filename === '.github/workflows/ci.yml'), false);
+  assert.equal(selectFiles(changes, 45_000, true, 'strict').files.some(item => item.filename === 'src/auth/session.ts'), false);
+});
+
+test('quality review hides confidential names, rename origins and credential-like content', () => {
+  const changes = [
+    { ...file, filename: '.env.local' },
+    { ...file, filename: 'src/auth/secrets/session.ts' },
+    { ...file, filename: '.github/workflows/ci.yml', previous_filename: '.aws/credentials' },
+    { ...file, filename: 'vercel.json', patch: '@@ -1 +1 @@\n-old\n+password: synthetic-fixture-value' },
+  ];
+  for (const visibility of [false, true]) {
+    const selection = selectFiles(changes, 45_000, visibility, 'quality');
+    assert.equal(selection.files.length, 0);
+    assert.deepEqual(selection.omissionDetails.map(item => item.reason), ['protected', 'protected', 'protected', 'sensitive']);
+    assert.ok(selection.omissionDetails.every(item => !item.path));
+    assert.doesNotMatch(JSON.stringify(selection), /env.local|aws\/credentials|synthetic-fixture-value|session.ts|vercel.json/);
+  }
+  const privateSelection = selectFiles([{ ...file, filename: 'config/internal.ts' }], 45_000, true, 'quality');
+  assert.deepEqual(privateSelection.omissionDetails, [{ reason: 'private-policy' }]);
 });

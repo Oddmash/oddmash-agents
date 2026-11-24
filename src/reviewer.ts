@@ -63,7 +63,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   const files = await api<ChangedFile[]>(`${prPath}/files?per_page=100&page=1`);
   const privateReview = pr.base.repo.private;
   const scoped = c.incrementalFiles === undefined ? (files ?? []) : (files ?? []).filter(file => c.incrementalFiles!.includes(file.filename));
-  const selected = selectFiles(scoped ?? [], 45_000, privateReview);
+  const selected = selectFiles(scoped ?? [], 45_000, privateReview, 'quality');
   if (c.incrementalFiles !== undefined && (files?.length !== scoped?.length || scoped.length !== c.incrementalFiles.length)) {
     selected.omitted.push('Previously reviewed files outside the incremental scope');
   }

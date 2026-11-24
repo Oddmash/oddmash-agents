@@ -15,13 +15,13 @@ export type Acceptance = { issue: number; digest: string; body: string; criteria
 export type Candidate = { pull: MergePull; acceptance: Acceptance };
 export function mergeProof(candidate: Candidate): string {
   const { pull, acceptance } = candidate;
-  const digest = createHash('sha256').update(JSON.stringify([pull.base.repo.id, pull.number, pull.head.sha, pull.base.sha, pull.merge_commit_sha, acceptance.digest])).digest('hex');
+  const digest = createHash('sha256').update(JSON.stringify([pull.base.repo.id, pull.number, pull.base.ref, pull.head.sha, pull.base.sha, pull.merge_commit_sha, acceptance.digest])).digest('hex');
   return `<!-- oddmash-merge-proof:${digest} -->`;
 }
 const maintainer = (user: Identity | undefined) => user?.id === ownerId && user?.login === 'qtaghdi';
 
 export function eligiblePull(pr: MergePull, target: Target): boolean {
-  return mergeRepositoryAllowed(target) && maintainer(pr.user) && pr.state === 'open' && !pr.draft && pr.base.repo.private === Boolean(target.private) && !pr.base.repo.archived && pr.base.repo.allow_merge_commit !== false && pr.base.repo.id === target.repositoryId && pr.base.repo.full_name === target.repository && pr.head.repo?.id === target.repositoryId && pr.head.repo.full_name === target.repository && pr.base.ref === pr.base.repo.default_branch && pr.base.ref === 'main' && sha.test(pr.head.sha) && sha.test(pr.base.sha) && sha.test(pr.merge_commit_sha ?? '') && pr.changed_files > 0 && pr.changed_files <= 20 && !pr.labels.some(l => /(?:^|: )(?:no auto.merge|do not merge|manual|blocked|hold|wip)$/i.test(l.name));
+  return mergeRepositoryAllowed(target) && maintainer(pr.user) && pr.state === 'open' && !pr.draft && pr.base.repo.private === Boolean(target.private) && !pr.base.repo.archived && pr.base.repo.allow_merge_commit !== false && pr.base.repo.id === target.repositoryId && pr.base.repo.full_name === target.repository && pr.head.repo?.id === target.repositoryId && pr.head.repo.full_name === target.repository && (pr.base.ref === 'develop' || (pr.base.ref === 'main' && pr.base.repo.default_branch === 'main')) && sha.test(pr.head.sha) && sha.test(pr.base.sha) && sha.test(pr.merge_commit_sha ?? '') && pr.changed_files > 0 && pr.changed_files <= 20 && !pr.labels.some(l => /(?:^|: )(?:no auto.merge|do not merge|manual|blocked|hold|wip)$/i.test(l.name));
 }
 
 export function ineligiblePullReason(pr: MergePull, target: Target): string {
@@ -29,7 +29,7 @@ export function ineligiblePullReason(pr: MergePull, target: Target): string {
   if (!maintainer(pr.user)) return 'PR author is not the authorized maintainer';
   if (pr.base.repo.private !== Boolean(target.private) || pr.base.repo.archived) return 'repository visibility or archive state is ineligible';
   if (pr.head.repo?.id !== target.repositoryId || pr.head.repo.full_name !== target.repository) return 'fork or source repository mismatch';
-  if (pr.base.ref !== 'main' || pr.base.ref !== pr.base.repo.default_branch) return 'target is not the default main branch';
+  if (pr.base.ref !== 'develop' && (pr.base.ref !== 'main' || pr.base.repo.default_branch !== 'main')) return 'target is neither develop nor the default main branch';
   if (pr.changed_files > 20 || pr.changed_files < 1) return 'changed-file count exceeds the auto-merge budget';
   if (!sha.test(pr.merge_commit_sha ?? '')) return 'merge commit evidence is not ready';
   return 'PR state, repository identity, merge method, or manual hold is ineligible';
@@ -114,7 +114,7 @@ export async function mergeCandidate(api: Api, target: Target, number: number, w
   const acceptance = acceptanceOf(issue, Boolean(target.private));
   if (!acceptance || acceptance.issue !== issueNumber) return deny('issue acceptance criteria are ineligible');
   const files = await api<ChangedFile[]>(root + '/pulls/' + number + '/files?per_page=100');
-  if (!lowRisk(files, pr.changed_files, target.repository) || (target.private && selectFiles(files, 45_000, true).omitted.length > 0)) return deny('changed paths or review budget are ineligible');
+  if (!lowRisk(files, pr.changed_files, target.repository) || (target.private && selectFiles(files, 45_000, true, 'strict').omitted.length > 0)) return deny('changed paths or review budget are ineligible');
   return { pull: pr, acceptance };
 }
 
@@ -129,10 +129,10 @@ export async function mergeAuthorized(api: Api, target: Target, candidate: Candi
   const root = '/repos/' + target.repository;
   const number = candidate.pull.number;
   const current = await mergeCandidate(api, target, number);
-  if (!current || current.acceptance.digest !== candidate.acceptance.digest || current.pull.head.sha !== candidate.pull.head.sha || current.pull.base.sha !== candidate.pull.base.sha || current.pull.merge_commit_sha !== candidate.pull.merge_commit_sha) return deny('candidate changed');
+  if (!current || current.acceptance.digest !== candidate.acceptance.digest || current.pull.head.sha !== candidate.pull.head.sha || current.pull.base.ref !== candidate.pull.base.ref || current.pull.base.sha !== candidate.pull.base.sha || current.pull.merge_commit_sha !== candidate.pull.merge_commit_sha) return deny('candidate changed');
   if (current.pull.mergeable === null || current.pull.mergeable_state === 'unknown') throw new Error('Mergeability evidence pending');
   if (current.pull.mergeable !== true || current.pull.mergeable_state !== 'clean') return deny('candidate is not clean');
-  const branch = await api<Branch>(root + '/branches/main');
+  const branch = await api<Branch>(root + '/branches/' + current.pull.base.ref);
   if (!protectedBranch(branch, current.pull.base.sha)) return deny('required branch protection unavailable');
   const compare = await api<{ behind_by: number; merge_base_commit: { sha: string } }>(root + '/compare/' + current.pull.base.sha + '...' + current.pull.head.sha);
   if (compare.behind_by !== 0 || compare.merge_base_commit.sha !== current.pull.base.sha) return deny('branch is not up to date');
@@ -146,7 +146,7 @@ export async function mergeAuthorized(api: Api, target: Target, candidate: Candi
   }
   const final = await api<MergePull>(root + '/pulls/' + number);
   if (final.mergeable === null || final.mergeable_state === 'unknown') throw new Error('Mergeability evidence pending');
-  if (!eligiblePull(final, target) || final.head.sha !== current.pull.head.sha || final.base.sha !== current.pull.base.sha || final.merge_commit_sha !== current.pull.merge_commit_sha || final.mergeable_state !== 'clean' || final.mergeable !== true || linkedIssue(final.body) !== current.acceptance.issue) return deny('final PR state changed');
+  if (!eligiblePull(final, target) || final.head.sha !== current.pull.head.sha || final.base.ref !== current.pull.base.ref || final.base.sha !== current.pull.base.sha || final.merge_commit_sha !== current.pull.merge_commit_sha || final.mergeable_state !== 'clean' || final.mergeable !== true || linkedIssue(final.body) !== current.acceptance.issue) return deny('final PR state changed');
   const finalIssue = acceptanceOf(await api<Issue>(root + '/issues/' + current.acceptance.issue), Boolean(target.private));
   if (!finalIssue || finalIssue.digest !== current.acceptance.digest) return deny('issue changed during review');
   const writer = await mint();
