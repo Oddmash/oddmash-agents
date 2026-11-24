@@ -66,7 +66,8 @@ const confidentialPath = /(?:^|\/)(?:\.aws|\.ssh|\.vercel|\.kube|\.docker|\.npmr
 const ordinaryManifest = /^(?:\.github\/workflows\/(?:ci|verify|test|build|lint|typecheck|deploy|release|prepare-release|pages)\.ya?ml|(?:package|tsconfig(?:\.[a-z]+)?|vercel)\.json|(?:next|vite|vitest|eslint|prettier|tailwind|postcss)\.config\.[cm]?[jt]s|(?:Dockerfile|docker-compose\.ya?ml|compose\.ya?ml))$/i;
 const confidentialName = /(?:^|\/)[^/]*(?:secret|credential|private[-_]?key|service[-_]?account)[^/]*(?:\/|$)/i;
 const ordinaryAuthSource = /^src\/(?:(?:auth(?:entication|orization)?|security)\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+|(?:auth(?:entication|orization)?|security))\.[cm]?[jt]sx?$/i;
-const qualityPath = (path: string) => ordinaryManifest.test(path) || (ordinaryAuthSource.test(path) && !/(?:^|[-_./])(?:token|webhook|firebase|deploy|vercel)(?:[-_./]|$)/i.test(path));
+const ordinaryReviewWebhook = /^(?:src\/webhook-review\.ts|tests\/webhook-review\.test\.ts)$/;
+const qualityPath = (path: string) => ordinaryReviewWebhook.test(path) || ordinaryManifest.test(path) || (ordinaryAuthSource.test(path) && !/(?:^|[-_./])(?:token|webhook|firebase|deploy|vercel)(?:[-_./]|$)/i.test(path));
 const explicitlyConfidential = (path: string) => sensitivePath.test(path) || confidentialPath.test(path) || confidentialName.test(path) || privateSensitiveText(path);
 
 function sensitiveReviewPatch(patch: string, filename: string, privateReview: boolean, quality: boolean): boolean {
@@ -254,8 +255,8 @@ export function inlineComment(context: ReviewContext, finding: Finding): string 
 }
 
 const omissionActions: Record<OmissionReason, [string, string]> = {
-  protected: ['Protected path excluded by review policy (confidential file or path); this is a coverage restriction, not a confirmed security finding. Inspect the affected paths in Files changed locally.', '검토 정책상 제외된 경로입니다. 보안 문제가 확인되었다는 뜻은 아닙니다. Files changed에서 해당 변경을 직접 확인하세요.'],
-  'private-policy': ['Protected path excluded by private repository policy; this is a coverage restriction, not a confirmed security finding. Verify the confidential change locally.', '비공개 저장소 정책에 따라 제외된 경로입니다. 보안 문제가 확인되었다는 뜻은 아닙니다. 로컬에서 해당 변경을 검증하세요.'],
+  protected: ['Confidential path. Inspect the change locally.', '민감 경로입니다. 변경 사항을 로컬에서 확인하세요.'],
+  'private-policy': ['Path requires local review. Inspect the change in Files changed.', '수동 검토 대상 경로입니다. Files changed에서 변경 사항을 확인하세요.'],
   sensitive: ['Potentially sensitive content excluded; inspect locally and confirm that no sensitive values are committed.', '민감할 수 있는 내용이 제외되었습니다. 로컬에서 확인하고 민감한 값이 커밋되지 않았는지 검증하세요.'],
   image: ['Image has no text diff; compare before/after captures for layout, readability, and sensitive information.', '이미지의 텍스트 diff가 없습니다. 이전·이후 캡처의 레이아웃, 가독성, 민감한 정보 노출을 확인하세요.'],
   lockfile: ['Generated dependency lockfile lacks a complete text diff. Check the declared dependency changes, frozen installation and relevant dependency verification; passing CI alone does not establish full diff coverage.', '생성된 의존성 잠금 파일의 전체 텍스트 diff가 없습니다. 선언된 의존성 변경, 고정 설치 및 관련 의존성 검증을 확인하세요. CI 통과만으로 전체 diff 검토가 완료된 것은 아닙니다.'],
