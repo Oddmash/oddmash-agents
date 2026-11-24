@@ -1,10 +1,12 @@
 import { createHmac, timingSafeEqual, createSign } from 'node:crypto';
-import { advisoryCommand, advisoryProfiles, type AdvisoryRole } from './advisory-agents.ts';
+import { advisoryCommand, advisoryProfiles, isAdvisoryRole, type AdvisoryRole } from './advisory-agents.ts';
+
+import { privateSensitiveText, safeText } from './core.ts';
 
 type Repository = { id: number; full_name: string; private: boolean; visibility: string; owner: { login: string }; archived?: boolean };
 type Actor = { id: number; login: string; type?: string };
 type Payload = { action?: string; installation?: { id: number }; repository?: Repository; pull_request?: { number: number; draft: boolean; head?: { sha: string } }; check_suite?: { head_sha: string; app?: { id: number }; pull_requests?: { number: number }[] }; sender?: Actor; requested_reviewer?: Actor; issue?: { number: number; pull_request?: object }; comment?: { id: number; user: Actor; body: string; in_reply_to_id?: number } };
-export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string; expectedHead?: string; impact?: true; advisory?: AdvisoryRole; advisoryIdentity?: AdvisoryRole; private?: boolean; recheck?: string; requestComment?: { kind: 'inline' | 'issue'; id: number; root?: number }; reply?: { comment: number; root: number; kind?: 'conversation'; rootKind?: 'issue' | 'review'; path?: string } };
+export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string; expectedHead?: string; impact?: true; advisory?: AdvisoryRole; advisoryIdentity?: AdvisoryRole; private?: boolean; recheck?: string; requestComment?: { kind: 'inline' | 'issue'; id: number; root?: number; slash?: true }; reply?: { comment: number; root: number; kind?: 'conversation'; rootKind?: 'issue' | 'review'; path?: string } };
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 const shaPattern = /^[a-f0-9]{40}$/i;
 
@@ -45,6 +47,33 @@ export function reviewCommand(body: string, slug: string): boolean {
   return new RegExp(`^${mention}[ \\t]+/(?:re)?review$`, 'i').test(firstLine);
 }
 
+type SlashRole = 'review' | AdvisoryRole;
+
+export function slashCommand(body: string): { role: SlashRole; context: string } | undefined {
+  if (body.length > 2000) return;
+  const lines = body.split(/\r\n|\n|\r/);
+  const firstIndex = lines.findIndex(line => line.trim());
+  if (firstIndex < 0) return;
+  const [first, ...rest] = lines.slice(firstIndex);
+  if (/^(?: {4}| {0,3}\t)/.test(first)) return;
+  const role = /^\/([a-z]+)$/i.exec(first.trim())?.[1].toLowerCase();
+  if (role !== 'review' && !isAdvisoryRole(role)) return;
+  if (rest.some(line => /^\s*(?:@[a-z0-9-]+(?:\[bot\])?[ \t]+)?\/(?:review|rereview|impact|triage|qa|release|docs|architect)(?=\s|$)/i.test(line))) return;
+  return { role, context: rest.join('\n').trim() };
+}
+
+export async function slashRequestContext(api: ReturnType<typeof githubApi>, target: Target, role: SlashRole): Promise<string | undefined> {
+  const comment = target.requestComment;
+  if (!comment?.slash || !target.number) return;
+  const resource = comment.kind === 'inline' ? 'pulls' : 'issues';
+  const item = await api<{ id: number; user: Actor; body: string; issue_url?: string; pull_request_url?: string }>(`/repos/${target.repository}/${resource}/comments/${comment.id}`)
+    .catch(() => undefined);
+  const expected = `https://api.github.com/repos/${target.repository}/${resource}/${target.number}`;
+  if (!item || item.id !== comment.id || !maintainer(item.user) || (item.issue_url ?? item.pull_request_url) !== expected || typeof item.body !== 'string') return;
+  const command = slashCommand(item.body);
+  if (command?.role === role && command.context && !privateSensitiveText(command.context)) return safeText(command.context);
+}
+
 export function impactCommand(body: string, slug: string): boolean {
   if (!/^[a-z0-9-]+$/i.test(slug)) return false;
   const normalized = body.trim().toLowerCase();
@@ -73,13 +102,24 @@ export function ignoredReviewRequest(event: string | null, payload: Payload, slu
   if (!reviewCommand(body, slug) && !conversationFixReference(body, slug, payload.repository!.full_name, payload.issue.number)) return 'Review command not recognized; put an explicit review command on the first line or reference the original finding for scoped verification';
 }
 
-export function route(event: string | null, p: Payload, slug = '', delivery = '', reviewerAppId = Number(process.env.REVIEWER_APP_ID)): Target | null {
+export function route(event: string | null, p: Payload, slug = '', delivery = '', reviewerAppId = Number(process.env.REVIEWER_APP_ID), allowSlash = true): Target | null {
   if (!reviewableOddmash(p.repository) || !positive(p.installation?.id)) return null;
   const repo = p.repository!;
   const target = { installation: p.installation!.id, repository: repo.full_name, repositoryId: repo.id, ...(repo.private ? { private: true } : {}) };
   if (event === 'pull_request' && ['opened', 'reopened', 'synchronize', 'ready_for_review'].includes(p.action ?? '') && p.pull_request?.draft === false && positive(p.pull_request.number)) return { ...target, number: p.pull_request.number, ...(shaPattern.test(p.pull_request.head?.sha ?? '') ? { expectedHead: p.pull_request.head!.sha } : {}) };
   if (event === 'pull_request' && p.action === 'review_requested' && maintainer(p.sender) && p.requested_reviewer?.login === `${slug}[bot]` && p.requested_reviewer.type === 'Bot' && p.pull_request?.draft === false && positive(p.pull_request.number) && /^[a-f0-9-]{36}$/i.test(delivery)) return { ...target, number: p.pull_request.number, ...(shaPattern.test(p.pull_request.head?.sha ?? '') ? { expectedHead: p.pull_request.head!.sha } : {}), recheck: delivery };
   if (p.action === 'created' && maintainer(p.sender) && maintainer(p.comment?.user) && positive(p.comment?.id) && typeof p.comment.body === 'string' && p.comment.body.length <= 2000) {
+    const slash = allowSlash ? slashCommand(p.comment.body) : undefined;
+    if (slash && event === 'issue_comment' && positive(p.issue?.number)) {
+      const requestComment = { kind: 'issue' as const, id: p.comment.id, slash: true as const };
+      const inPull = Boolean(p.issue.pull_request);
+      if (slash.role === 'review') return inPull ? { ...target, number: p.issue.number, recheck: `comment-${p.comment.id}`, requestComment } : null;
+      if (inPull !== (advisoryProfiles[slash.role].scope === 'pull')) return null;
+      return { ...target, number: p.issue.number, advisory: slash.role, ...(slash.role === 'impact' ? { impact: true as const } : {}), requestComment };
+    }
+    if (slash?.role === 'review' && event === 'pull_request_review_comment' && p.pull_request?.draft === false && positive(p.pull_request.number) && positive(p.comment.in_reply_to_id)) {
+      return { ...target, number: p.pull_request.number, recheck: `comment-${p.comment.id}`, requestComment: { kind: 'inline', id: p.comment.id, root: p.comment.in_reply_to_id, slash: true } };
+    }
     if (event === 'issue_comment' && positive(p.issue?.number)) {
       const advisory = advisoryCommand(p.comment.body, slug);
       if (advisory && (advisoryProfiles[advisory].scope === 'issue' ? !p.issue?.pull_request : !!p.issue?.pull_request)) return { ...target, number: p.issue!.number, advisory, ...(advisory === 'impact' ? { impact: true as const } : {}), requestComment: { kind: 'issue', id: p.comment.id } };
@@ -89,7 +129,7 @@ export function route(event: string | null, p: Payload, slug = '', delivery = ''
       const reference = conversationFixReference(p.comment.body, slug, repo.full_name, p.issue.number);
       if (reference) return { ...target, number: p.issue.number, reply: { comment: p.comment.id, kind: 'conversation', ...reference } };
     }
-    if (event === 'pull_request_review_comment' && p.pull_request?.draft === false && positive(p.pull_request.number) && positive(p.comment.in_reply_to_id) && mentioned(p.comment.body, slug)) return { ...target, number: p.pull_request.number, ...(reviewCommand(p.comment.body, slug) ? { recheck: `comment-${p.comment.id}`, requestComment: { kind: 'inline' as const, id: p.comment.id, root: p.comment.in_reply_to_id } } : { reply: { comment: p.comment.id, root: p.comment.in_reply_to_id } }) };
+    if (event === 'pull_request_review_comment' && p.pull_request?.draft === false && positive(p.pull_request.number) && positive(p.comment.in_reply_to_id) && !p.comment.body.trimStart().startsWith('/') && mentioned(p.comment.body, slug)) return { ...target, number: p.pull_request.number, ...(reviewCommand(p.comment.body, slug) ? { recheck: `comment-${p.comment.id}`, requestComment: { kind: 'inline' as const, id: p.comment.id, root: p.comment.in_reply_to_id } } : { reply: { comment: p.comment.id, root: p.comment.in_reply_to_id } }) };
   }
   if (event === 'check_suite' && p.action === 'completed' && shaPattern.test(p.check_suite?.head_sha ?? '')) {
     if (positive(reviewerAppId) && p.check_suite?.app?.id === reviewerAppId) return null;
@@ -100,7 +140,7 @@ export function route(event: string | null, p: Payload, slug = '', delivery = ''
 
 export function dedicatedAdvisoryTarget(event: string | null, payload: Payload, role: AdvisoryRole, slug: string, delivery: string): Target | null {
   if (event !== 'issue_comment' && event !== 'pull_request_review_comment') return null;
-  const target = route(event, payload, slug, delivery);
+  const target = route(event, payload, slug, delivery, undefined, false);
   if (!target) return null;
   if (event === 'issue_comment' && target.advisory === role) return { ...target, advisoryIdentity: role };
   if (event === 'pull_request_review_comment' && role !== 'triage' && target.reply) return { ...target, advisory: role, advisoryIdentity: role };
@@ -130,13 +170,25 @@ export async function reactToComment(api: ReturnType<typeof githubApi>, reposito
   } catch { console.warn('Reviewer comment reaction unavailable.'); }
 }
 
+export async function commentReceipt(api: ReturnType<typeof githubApi>, repository: string, comment: { kind: 'inline' | 'issue'; id: number }, bot: string) {
+  const resource = comment.kind === 'inline' ? 'pulls' : 'issues';
+  const reactions = await api<{ id: number; content: string; user?: { login: string } }[]>(`/repos/${repository}/${resource}/comments/${comment.id}/reactions?content=eyes&per_page=100`);
+  return reactions.find(item => item.content === 'eyes' && item.user?.login === bot)?.id;
+}
+
 export async function completeCommentReaction(api: ReturnType<typeof githubApi>, repository: string, comment: { kind: 'inline' | 'issue'; id: number }, eyesId: number | undefined, agreed: boolean) {
-  if (agreed && !await reactToComment(api, repository, comment, '+1')) return;
-  if (!positive(eyesId)) return;
+  const acknowledged = !agreed || !!await reactToComment(api, repository, comment, '+1');
+  if (!positive(eyesId)) return acknowledged;
   const resource = comment.kind === 'inline' ? 'pulls' : 'issues';
   try {
     await api(`/repos/${repository}/${resource}/comments/${comment.id}/reactions/${eyesId}`, { method: 'DELETE' });
-  } catch { console.warn('Reviewer pending reaction cleanup unavailable.'); }
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'GitHub request failed (404)') {
+      console.warn('Reviewer pending reaction cleanup unavailable.');
+      return false;
+    }
+  }
+  return acknowledged;
 }
 
 export async function authorize(target: Target, appId: string, key: string, request: typeof fetch = fetch, progress = false) {

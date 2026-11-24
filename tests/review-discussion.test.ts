@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { replyToReview } from '../src/review-discussion.ts';
+import { reconcileReviewThreads, replyToReview } from '../src/review-discussion.ts';
 import { githubApi, type Target } from '../src/webhook.ts';
 
 const target: Target = { installation: 1, repository: 'Oddmash/example', repositoryId: 2, number: 3, reply: { root: 4, comment: 5 } };
@@ -38,6 +38,11 @@ test('answers a verified maintainer thread once and does not change review state
       assert.equal(init?.method, 'DELETE');
       reactions.push('remove-eyes');
       return new Response(null, { status: 204 });
+    }
+    if (path === '/repos/Oddmash/example/pulls/comments/6') {
+      assert.equal(init?.method, 'PATCH');
+      comments[2].body = JSON.parse(String(init?.body)).body;
+      return Response.json({ id: 6 });
     }
     assert.equal(path, `${base}/comments/4/replies`);
     assert.equal(init?.method, 'POST');
@@ -86,7 +91,9 @@ test('resolves only the exact bot-owned inline finding after verified current-he
       if (path === '/repos/Oddmash/example') return Response.json(repository);
       if (path === base) return Response.json(currentPull);
       if (path === `${base}/comments`) return Response.json(comments);
-      if (path === `${base}/files`) return Response.json(scenario === 'missing-patch' ? [] : [{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }]);
+      if (path === `${base}/files`) return Response.json([]);
+      if (path.includes('/compare/')) return Response.json({ status: 'ahead', merge_base_commit: { sha: head }, files: scenario === 'missing-patch' ? [] : [{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }] });
+      if (path.endsWith('/comments/6') && init?.method === 'PATCH') return Response.json({ id: 6 });
       if (path.endsWith('/reactions')) return Response.json({ id: 9 });
       if (path.endsWith('/reactions/9')) return new Response(null, { status: 204 });
       if (path === `${base}/comments/4/replies`) {
@@ -106,7 +113,8 @@ test('resolves only the exact bot-owned inline finding after verified current-he
       return Response.json({ data: { resolveReviewThread: { thread: { id: variables.id, isResolved: true } } } });
     });
     const model: typeof fetch = async () => Response.json({ status: 'completed', output_parsed: { verdict: scenario === 'uncertain' ? 'uncertain' : 'fixed', english: 'The patch adds the missing pause control.', korean: '수정 내용에 일시정지 기능이 추가되었습니다.', evidence: scenario === 'invalid-evidence' ? '+unrelated' : '+const paused = true;' } });
-    await replyToReview(api, target, config, model);
+    if (scenario === 'other-author') await assert.rejects(replyToReview(api, target, config, model), /resolution unavailable/);
+    else await replyToReview(api, target, config, model);
     assert.deepEqual(mutations, scenario === 'fixed' ? ['thread-4'] : []);
     assert.equal(replies, 1);
   }
@@ -123,6 +131,8 @@ test('verifies a referenced conversation finding without resolving a thread or s
     const path = new URL(String(url)).pathname;
     if (path === '/repos/Oddmash/example') return Response.json(repository);
     if (path === base) return Response.json({ ...pull, head: { sha: nextHead } });
+    if (path.includes('/compare/')) return Response.json({ status: 'ahead', merge_base_commit: { sha: head }, files: [{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }] });
+    if (path.endsWith('/comments/6') && init?.method === 'PATCH') return Response.json({ id: 6 });
     if (path === `${base}/files`) return Response.json([{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }]);
     if (path.endsWith('/reactions')) return Response.json({ id: 9 });
     if (path.endsWith('/reactions/9')) return new Response(null, { status: 204 });
@@ -138,6 +148,101 @@ test('verifies a referenced conversation finding without resolving a thread or s
   const model: typeof fetch = async () => Response.json({ status: 'completed', output_parsed: { verdict: 'fixed', english: 'The pause control was added.', korean: '일시정지 기능이 추가되었습니다.', evidence: '+const paused = true;' } });
   await replyToReview(api, { ...target, reply: { root: 4, comment: 5, kind: 'conversation', rootKind: 'issue', path: root.path } }, config, model);
   assert.equal(replies, 1);
+});
+
+test('scoped completion retries a failed reaction or resolution without posting another reply', async () => {
+  const nextHead = 'c'.repeat(40);
+  for (const failure of ['reaction', 'resolution']) {
+    const followup = { ...question, body: `@oddmash-reviewer Fixed in ${nextHead}: restored the control.` };
+    const original = { ...root, original_commit_id: head, commit_id: nextHead };
+    const comments = [original, followup];
+    let replies = 0, modelCalls = 0, receipts = 0, resolved = false, failed = false;
+    const api = githubApi('fixture', async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/repos/Oddmash/example') return Response.json(repository);
+      if (path === base) return Response.json({ ...pull, head: { sha: nextHead } });
+      if (path === `${base}/comments`) return Response.json(comments);
+      if (path.includes('/compare/')) {
+        assert.ok(path.endsWith(`${head}...${nextHead}`));
+        return Response.json({ status: 'ahead', merge_base_commit: { sha: head }, files: [{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }] });
+      }
+      if (path.endsWith('/reactions')) {
+        if (init?.method !== 'POST') return Response.json([]);
+        if (JSON.parse(String(init.body)).content === 'eyes') receipts++;
+        else if (failure === 'reaction' && !failed) { failed = true; return Response.json({}, { status: 503 }); }
+        return Response.json({ id: 9 });
+      }
+      if (path.endsWith('/reactions/9')) { receipts--; return new Response(null, { status: 204 }); }
+      if (path.endsWith('/comments/6') && init?.method === 'PATCH') {
+        comments[2].body = JSON.parse(String(init.body)).body;
+        return Response.json({ id: 6 });
+      }
+      if (path.endsWith('/comments/4/replies')) {
+        replies++;
+        comments.push({ ...original, id: 6, in_reply_to_id: 4, body: JSON.parse(String(init?.body)).body });
+        return Response.json({ id: 6 });
+      }
+      assert.equal(path, '/graphql');
+      const { query } = JSON.parse(String(init?.body));
+      if (query.startsWith('query')) return Response.json({ data: { repository: { pullRequest: { headRefOid: nextHead, baseRefOid: pull.base.sha, reviewThreads: { nodes: [{ id: 'thread-4', isResolved: resolved, comments: { nodes: [{ id: 'comment-4', author: { login: bot.login } }] } }], pageInfo: { hasNextPage: false } } } } } });
+      if (failure === 'resolution' && !failed) { failed = true; return Response.json({ errors: [{ type: 'FORBIDDEN' }] }); }
+      resolved = true;
+      return Response.json({ data: { resolveReviewThread: { thread: { id: 'thread-4', isResolved: true } } } });
+    });
+    const model: typeof fetch = async () => {
+      modelCalls++;
+      return Response.json({ status: 'completed', output_parsed: { verdict: 'fixed', english: 'The control is present.', korean: '제어 버튼이 있습니다.', evidence: '+const paused = true;' } });
+    };
+    await assert.rejects(replyToReview(api, target, config, model), failure === 'reaction' ? /reaction unavailable/ : /resolution unavailable/);
+    assert.equal(resolved, false);
+    assert.equal(receipts, 0);
+    assert.match(comments[2].body, failure === 'reaction' ? /did not confirm the acknowledgement/ : /did not confirm the thread resolution/);
+    await replyToReview(api, target, config, model);
+    await replyToReview(api, target, config, model);
+    assert.equal(replies, 1);
+    assert.equal(modelCalls, 1);
+    assert.equal(resolved, true);
+    assert.equal(receipts, 0);
+  }
+});
+
+test('full re-review reconciles each earlier finding from its own correction evidence', async () => {
+  const nextHead = 'c'.repeat(40);
+  const comments = [
+    root,
+    { ...root, id: 8, node_id: 'comment-8', path: 'src/still-open.ts', body: '<!-- oddmash-finding:fixture -->\nStill missing.' },
+    { ...root, id: 9, node_id: 'comment-9', path: 'src/outdated.ts', body: '<!-- oddmash-finding:fixture -->\nOutdated.' },
+    { ...root, id: 10, node_id: 'comment-10', user: actor }
+  ];
+  const resolved = new Set<string>();
+  let changed = false, modelCalls = 0;
+  const api = githubApi('fixture', async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path === base) return Response.json({ ...pull, head: { sha: changed ? 'd'.repeat(40) : nextHead } });
+    if (path === `${base}/comments`) return Response.json(comments);
+    if (path.includes('/compare/')) {
+      assert.ok(path.endsWith(`${head}...${nextHead}`));
+      return Response.json({ status: 'ahead', merge_base_commit: { sha: head }, files: comments.slice(0, 2).map(item => ({ filename: item.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' })) });
+    }
+    assert.equal(path, '/graphql');
+    const { query, variables } = JSON.parse(String(init?.body));
+    if (query.startsWith('query')) {
+      const nodes = comments.map(item => ({ id: `thread-${item.id}`, isResolved: resolved.has(`thread-${item.id}`), comments: { nodes: [{ id: item.node_id, author: { login: item.user.login } }] } }));
+      return Response.json({ data: { repository: { pullRequest: { headRefOid: nextHead, baseRefOid: pull.base.sha, reviewThreads: { nodes, pageInfo: { hasNextPage: false } } } } } });
+    }
+    resolved.add(variables.id);
+    return Response.json({ data: { resolveReviewThread: { thread: { id: variables.id, isResolved: true } } } });
+  });
+  const model: typeof fetch = async (_input, init) => {
+    modelCalls++;
+    const input = JSON.parse(JSON.parse(String(init?.body)).input);
+    return Response.json({ status: 'completed', output_parsed: { verdict: input.finding.includes('pause') ? 'fixed' : 'uncertain', evidence: '+const paused = true;' } });
+  };
+  await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, model);
+  assert.deepEqual([...resolved], ['thread-4']);
+  assert.equal(modelCalls, 2);
+  changed = true;
+  await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, async () => assert.fail('stale request must not call the model'));
 });
 
 test('dedicated discussion ignores another App and findings without its own role marker', async () => {

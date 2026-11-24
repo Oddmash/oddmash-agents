@@ -1,3 +1,4 @@
+import { leadDeliveryKey } from '../src/review-job.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createReviewJob, verifyReviewJob, retryableJobError, retryDelay, publishFailureRecord } from '../src/review-job.ts';
@@ -46,4 +47,11 @@ test('terminal failure record publishing reports a sanitized signal and stops re
 
 test('model input budget excess is permanent and is not retried', () => {
   assert.equal(retryableJobError(new Error('Model input budget exceeded')), false);
+});
+
+test('slash delivery deduplication follows the source comment across redeliveries', () => {
+  const target = { installation: 1, repository: 'Oddmash/example', repositoryId: 2, requestComment: { id: 3, kind: 'issue' as const, slash: true as const } };
+  assert.equal(leadDeliveryKey(target, 'delivery-one'), leadDeliveryKey(target, 'delivery-two'));
+  assert.notEqual(leadDeliveryKey(target, 'delivery-one'), leadDeliveryKey({ ...target, requestComment: { ...target.requestComment, id: 4 } }, 'delivery-one'));
+  assert.equal(leadDeliveryKey({ ...target, requestComment: undefined }, 'delivery-one'), 'delivery-one');
 });

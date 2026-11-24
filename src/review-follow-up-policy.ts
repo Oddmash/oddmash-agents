@@ -45,13 +45,13 @@ export function selectAdvisoryRoles(files: readonly ChangeMetadata[], maxRequest
     const path = file.filename.toLowerCase();
     const tinyDocumentationEdit = file.status === 'modified' && Number.isSafeInteger(file.changes) && file.changes! <= 2 && /\.(?:md|mdx|txt)$/.test(path);
     if (tinyDocumentationEdit) continue;
-    const code = /\.(?:tsx?|jsx?|py|rs|go|java|vue|astro|svelte)$/.test(path);
+    const code = /\.(?:[cm]?[jt]s|tsx|jsx|py|rs|go|java|vue|astro|svelte)$/.test(path);
     const testFile = /(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.(?:test|spec)\./.test(path);
     if (/(?:^|\/)(?:package\.json|changelog\.md|\.changeset\/)|(?:^|\/)(?:release|version)\./.test(path)) score('release', 5);
     if (code && /(?:^|\/)(?:api|routes|components|features|packages|public|contracts)\//.test(path) && !testFile) score('impact', 4);
     if (code || /\.(?:css|scss|sass|less)$/.test(path)) score('qa', 4);
     if (code && !testFile && /(?:^|\/)(?:architecture|domain|modules|packages|contracts)(?:\/|\.)/.test(path)) score('architect', 5);
-    if (/(?:^|\/)(?:docs|readme)(?:\/|\.)/.test(path) || code && !testFile && /(?:^|\/)(?:api|public|contracts)\//.test(path)) score('docs', 4);
+    if (/(?:^|\/)(?:docs|readme|agents|contributing)(?:\/|\.)/.test(path) || code && !testFile && /(?:^|\/)(?:api|public|contracts)\//.test(path)) score('docs', 4);
   }
   const limit = Number.isSafeInteger(maxRequests) ? Math.min(automaticRoles.length, Math.max(0, maxRequests)) : 0;
   return [...scores].sort((a,b) => b[1] - a[1] || automaticRoles.indexOf(a[0]) - automaticRoles.indexOf(b[0])).slice(0, limit).map(([role]) => role);

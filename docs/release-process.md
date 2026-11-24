@@ -11,3 +11,60 @@ Keep feature pull requests targeting `main`. Required CI and review remain the s
 For an urgent fix, merge the reviewed patch and publish the next patch release immediately. To retry the latest release if tag-triggered execution is unavailable under the existing production environment rules, run the deployment workflow manually from `main` with the exact published release tag. Never bypass the environment or publish a tag from an unreviewed branch. Leave rollback to the existing authorized Vercel rollback process.
 
 Choose a release cadence based on completed work, not on every commit. Do not publish a new version for documentation or test-only changes unless those changes are part of a user-visible release.
+
+## Release note format
+
+Write release titles and notes in English. Use the title `vMAJOR.MINOR.PATCH - Short description` and the exact matching stable tag. Use the next patch for compatible fixes, minor for compatible capabilities, and major for breaking changes to established stable contracts; during the initial 0.x lifecycle, explicitly identify breaking changes and their migration requirements, even when the minor version changes.
+
+Start with GitHub-generated notes from the previous published tag (or the reviewed initial history for the first release). Check the actual merged PRs and tagged revision; do not copy generated notes blindly. The categories in `.github/release.yml` are the source for grouping changes.
+
+- Summarize the most meaningful changes in one or two sentences.
+- Describe outcomes, not implementation trivia. Link each material change to its merged PR (for example, `#108`); credit external contributors where applicable.
+- Use the generated category names and omit empty change categories. Avoid listing a change twice.
+- Under Operations, disclose configuration opt-ins, permission or data changes, breaking changes, migration steps and known limitations when applicable. State "No configuration or migration changes" when verified and applicable. Do not include secrets or internal values.
+- Under Verification, distinguish completed checks from deploy-time checks that are pending when publishing. Record the full release commit SHA. After deployment, link the workflow run and record the actual result; never claim success before it is observed.
+- Include a full changelog comparison link when a previous release exists. Do not manufacture a previous tag or version.
+
+### Copyable Markdown template
+
+Replace all placeholders and remove unused change sections before publishing. The title is entered separately.
+
+```markdown
+## Highlights
+
+<One or two sentences describing the release.>
+
+## Features and improvements
+
+- <User-facing or operational improvement> (#PR)
+
+## Fixes
+
+- <Corrected behavior> (#PR)
+
+## Documentation
+
+- <Material documentation change> (#PR)
+
+## Maintenance and tests
+
+- <Maintenance, CI, or test improvement> (#PR)
+
+## Other changes
+
+- <Other material change> (#PR)
+
+## Operations
+
+- <Configuration, compatibility, migration, or known limitation>
+
+## Verification
+
+- Release commit: `<full commit SHA>`
+- CI: <actual result and link>
+- Production deployment: <Pending at publication, then actual result and workflow link>
+
+**Full changelog:** <comparison URL from previous tag to new tag, if available>
+```
+
+The first published release, [v0.2.0](https://github.com/Oddmash/oddmash-agents/releases/tag/v0.2.0), is a historical reference. Apply this format to subsequent releases without rewriting existing release records.

@@ -157,6 +157,43 @@ test('each dedicated PR advisor publishes once with its own identity and bounded
   }
 });
 
+test('a new slash command refreshes the same-head advisory when it removes prior context', async () => {
+  const head = 'a'.repeat(40), base = 'b'.repeat(40);
+  const payload = event('docs');
+  const slug = 'oddmash-docs';
+  const bot = `${slug}[bot]`;
+  const source = [
+    { ...payload.comment, body: '/docs\nCheck the migration example.' },
+    { ...payload.comment, id: 10, body: '/docs' }
+  ];
+  const targets = source.map(comment => route('issue_comment', { ...payload, comment }, 'oddmash-lead')!);
+  const contexts: (string | undefined)[] = [];
+  let stored: { id: number; body: string; user: { login: string } } | undefined;
+  let posts = 0, edits = 0;
+  const api = githubApi('fixture', async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path.includes('/reactions')) return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ id: 1 });
+    if (path.endsWith('/comments/9') || path.endsWith('/comments/10')) return Response.json({ ...source.find(c => path.endsWith('/' + c.id)), issue_url: `https://api.github.com/repos/${repo.full_name}/issues/7` });
+    if (path.endsWith('/files')) return Response.json([]);
+    if (path.endsWith('/issues/7/comments') || path.endsWith('/issues/comments/11')) {
+      if (init?.method === 'POST' || init?.method === 'PATCH') {
+        if (init.method === 'POST') posts++; else edits++;
+        stored = { id: 11, body: JSON.parse(String(init.body)).body, user: { login: bot } };
+      }
+      return Response.json(stored ? [stored] : []);
+    }
+    return Response.json({ number: 7, state: 'open', changed_files: 0, head: { sha: head }, base: { sha: base, repo } });
+  });
+  const request: typeof fetch = async (_input, init) => {
+    contexts.push(JSON.parse(JSON.parse(String(init?.body)).input).requestContext);
+    return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(result) }] }] });
+  };
+  for (const target of [...targets, targets[1]]) await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+  assert.deepEqual(contexts, ['Check the migration example.', undefined]);
+  assert.equal(posts, 1);
+  assert.equal(edits, 1);
+});
+
 test('dedicated inline requests route only maintainer replies to the mentioned PR specialist', () => {
   const payload = {
     ...event('qa'), pull_request: { number: 7, draft: false },

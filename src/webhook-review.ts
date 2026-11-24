@@ -9,8 +9,8 @@ import { startReviewProgress } from './review-progress.ts';
 import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts';
 import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
-import { authorize, authorizeMerge, githubApi, completeCommentReaction, reactToComment, type Target } from './webhook.ts';
-import { replyToReview } from './review-discussion.ts';
+import { authorize, authorizeMerge, githubApi, commentReceipt, completeCommentReaction, reactToComment, slashRequestContext, type Target } from './webhook.ts';
+import { reconcileReviewThreads, replyToReview } from './review-discussion.ts';
 import { retryableJobError } from './review-job.ts';
 import { publishAutomationStatus } from './review-status.ts';
 import { actionsQuotaEvidence, actionsWorkflowUrl } from './actions-quota.ts';
@@ -35,20 +35,20 @@ export async function acknowledgePendingChecks(api: Api, repository: string, num
   const existing = await api<{ body: string; user: { login: string } }[]>(`${path}?per_page=100`);
   if (existing.length >= 100 || existing.some(item => item.user.login === bot && item.body.includes(marker))) return;
   if (comment.kind === 'inline' && !comment.root) return;
-  const body = `${marker}\n<!-- oddmash-deferred:${head}:${comment.kind}:${comment.id}:${comment.root ?? 0} -->\nReview requested. It will resume when required checks pass for this commit.\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n리뷰 요청을 확인했습니다. 현재 커밋의 필수 검사가 통과하면 재개합니다.\n\n</details>`;
+  const body = `${marker}\n<!-- oddmash-deferred:${head}:${comment.kind}:${comment.id}:${comment.root ?? 0}${comment.slash ? ':slash' : ''} -->\nReview requested. It will resume when required checks pass for this commit.\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n리뷰 요청을 확인했습니다. 현재 커밋의 필수 검사가 통과하면 재개합니다.\n\n</details>`;
   await api(comment.kind === 'inline' ? `${path}/${comment.root}/replies` : path, { method: 'POST', body: JSON.stringify({ body }) });
 }
 
 export function deferredRequest(comments: { body: string; user: { login: string } }[], reviews: Review[], bot: string, head: string): Target['requestComment'] {
   for (const item of [...comments].reverse()) {
     if (item.user.login !== bot) continue;
-    const match = /<!-- oddmash-deferred:([a-f0-9]{40}):(issue|inline):(\d+):(\d+) -->/.exec(item.body);
+    const match = /<!-- oddmash-deferred:([a-f0-9]{40}):(issue|inline):(\d+):(\d+)(:slash)? -->/.exec(item.body);
     if (!match || match[1] !== head) continue;
     const id = Number(match[3]), root = Number(match[4]);
     if (!Number.isSafeInteger(id) || id < 1 || !Number.isSafeInteger(root) || (match[2] === 'inline' && root < 1)) continue;
     const tag = `<!-- oddmash-recheck:${createHash('sha256').update(`comment-${id}`).digest('hex').slice(0, 24)} -->`;
     if (reviews.some(review => review.user.login === bot && review.body?.includes(tag))) continue;
-    return { kind: match[2] === 'inline' ? 'inline' : 'issue', id, ...(root ? { root } : {}) };
+    return { kind: match[2] === 'inline' ? 'inline' : 'issue', id, ...(root ? { root } : {}), ...(match[5] ? { slash: true as const } : {}) };
   }
 }
 
@@ -135,6 +135,13 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
   const { appId, key, slug, openaiKey, model } = config;
   const bot = slug + '[bot]';
   if (!/^[a-z0-9-]+\[bot\]$/i.test(bot) || !openaiKey) throw new Error('Missing app configuration');
+  if (target.advisory && target.requestComment?.slash && !target.advisoryIdentity) {
+    const advisor = await authorizeCoordinatedAdvisor(target, target.advisory, appId);
+    if (!advisor) { console.info('Requested dedicated advisory is unavailable'); return; }
+    if (advisor.target.impact) await runImpact(advisor.api, advisor.target, advisor.config);
+    else await runAdvisory(advisor.api, advisor.target, advisor.config);
+    return;
+  }
   const authorized = await authorize(target, appId, key);
   const { api, token: githubToken } = authorized;
   if (target.advisoryIdentity && target.reply) {
@@ -211,12 +218,22 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       return;
     }
     const requestTag = target.recheck ? `<!-- oddmash-recheck:${createHash('sha256').update(target.recheck).digest('hex').slice(0, 24)} -->` : undefined;
+    const reconciliationMarker = '<!-- oddmash-verified-thread-reconciliation -->';
     if (requestTag && reviews.some(review => review.user.login === bot && review.body?.includes(requestTag))) {
-      await reconcileCompletedProgress(reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state) && review.body?.includes(requestTag)).at(-1));
-      if (existingApproval?.body?.includes(requestTag)) await retryExistingApproval();
+      const completed = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state) && review.body?.includes(requestTag)).at(-1);
+      await reconcileCompletedProgress(completed);
+      if (completed && target.requestComment) {
+        const eyes = await commentReceipt(api, repository, target.requestComment, bot);
+        if (!await completeCommentReaction(api, repository, target.requestComment, eyes, completed.state === 'APPROVED')) throw new Error('Review completion reaction unavailable');
+      }
+      if (existingApproval?.body?.includes(requestTag)) {
+        if (existingApproval.body.includes(reconciliationMarker) && existingApproval.body.includes(reviewBaseMarker(pr.base.sha)) && reviewChecksSuccessful(await readChecks(pr), repository)) {
+          await reconcileReviewThreads(api, target, config, pr.head.sha, pr.base.sha);
+        }
+        await retryExistingApproval();
+      }
       return;
     }
-    const eyesId = target.requestComment ? await reactToComment(api, repository, target.requestComment, 'eyes') : undefined;
     const own = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha);
     const decisive = own.filter(review => ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)).at(-1);
     if (!target.recheck && decisive?.state === 'CHANGES_REQUESTED') return;
@@ -276,12 +293,15 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const pendingId = await acquirePendingReview(api, path, pr.head.sha, bot, true).catch(error => { throw new Error('Pending review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
     if (pendingId === null) return;
     let submitted = false;
+    let requestApproved = false;
+    let eyesId: number | undefined;
     let progress: Awaited<ReturnType<typeof progressFor>> = undefined;
     let progressResult: { conclusion: 'success' | 'failure' | 'neutral' | 'cancelled'; title: string } = { conclusion: 'cancelled', title: 'Review not submitted' };
     try {
       const acquired = await api<Review[]>(`${path}/reviews?per_page=100`);
       if (!ownsPendingReview(acquired, bot, pr.head.sha, pendingId)) return;
       if ((!target.recheck && hasOfficialReview(acquired, bot, pr.head.sha)) || (requestTag && acquired.some(review => review.user.login === bot && review.body?.includes(requestTag)))) return;
+      eyesId = target.requestComment ? await reactToComment(api, repository, target.requestComment, 'eyes') : undefined;
       progress = await progressFor();
       await progress?.update('Collecting changes', 'Preparing the current commit review.');
       try {
@@ -300,7 +320,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const previous = reviews.filter(review => review.user.login === bot && review.commit_id !== pr.head.sha && review.body?.includes('<!-- oddmash-app-review:') && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state)).at(-1);
       const comparison = !target.recheck && previous?.state === 'APPROVED' && /^[a-f0-9]{40}$/i.test(previous.commit_id) && previous.body?.includes(reviewBaseMarker(pr.base.sha)) ? await api<CompareEvidence>(`${root}/compare/${previous.commit_id}...${pr.head.sha}?per_page=100`).catch(() => undefined) : undefined;
       const incrementalFiles = !target.recheck ? incrementalPaths(previous, pr.head.sha, pr.base.sha, comparison) : undefined;
-      const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: incrementalFiles === undefined ? candidate?.acceptance : undefined, incrementalFiles, privateRepositoryId: target.private ? target.repositoryId : undefined, progress: progress?.update }).catch(async error => {
+      const requestContext = await slashRequestContext(api, target, 'review');
+      const result = await runReview({ requestContext, repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: incrementalFiles === undefined ? candidate?.acceptance : undefined, incrementalFiles, privateRepositoryId: target.private ? target.repositoryId : undefined, progress: progress?.update }).catch(async error => {
         await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', error instanceof Error ? error.message : 'review processing failed');
         throw error;
       });
@@ -319,7 +340,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       await progress?.update('Publishing review', 'Rechecking the current commit and submitting the result.');
       const completedResult = event === 'APPROVE' ? { conclusion: 'success' as const, title: 'Review approved' } : event === 'REQUEST_CHANGES' ? { conclusion: 'failure' as const, title: 'Changes requested' } : { conclusion: 'neutral' as const, title: reviewOutcome(event, followUp).title };
       const proof = incrementalFiles === undefined && event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === current.head.sha && candidate.pull.base.sha === current.base.sha && candidate.pull.merge_commit_sha === current.merge_commit_sha ? `\n\n${mergeProof(candidate)}` : '';
-      const scopeNote = `\n\n${reviewBaseMarker(current.base.sha)}` + (incrementalFiles !== undefined ? '\n\nIncremental follow-up only. Earlier files were not re-reviewed; request a full review before approval or merge.\n\n증분 검토입니다. 이전 파일은 다시 검토하지 않았으며 승인 또는 머지 전 전체 리뷰가 필요합니다.' : '');
+      const reconcileThreads = Boolean(target.recheck) && incrementalFiles === undefined && event === 'APPROVE';
+      const scopeNote = `\n\n${reviewBaseMarker(current.base.sha)}` + (reconcileThreads ? `\n${reconciliationMarker}` : '') + (incrementalFiles !== undefined ? '\n\nIncremental follow-up only. Earlier files were not re-reviewed; request a full review before approval or merge.\n\n증분 검토입니다. 이전 파일은 다시 검토하지 않았으며 승인 또는 머지 전 전체 리뷰가 필요합니다.' : '');
       let body = formatReviewBody(event, finalMarker, result.report, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote;
       const attemptMerge = async (reviewId: number) => {
         if (!candidate) { await mergeStatus(mergeReason); return; }
@@ -359,8 +381,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) }).catch(error => { throw new Error('Submit review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
         submitted = true;
       }
+      requestApproved = event === 'APPROVE';
       progressResult = completedResult;
       await progress?.finish(progressResult.conclusion, progressResult.title);
+      if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED !== 'true') console.info('Coordinated advisors disabled');
       if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED === 'true') {
         const budget = automaticAdvisoryBudget(process.env, Date.now() - executionStarted);
         if (budget.maxRequests > 0 && budget.elapsedMs > 0) {
@@ -371,7 +395,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           const scoped = incrementalFiles === undefined ? metadata : metadata.filter(file => incrementalFiles.includes(file.filename));
           const advisoryPaths = automaticAdvisoryPaths(scoped);
           const remaining = { ...budget, elapsedMs: Math.max(0, budget.elapsedMs - (Date.now() - planningStarted)) };
-          await runCoordinatedAdvisories(selectAdvisoryRoles(scoped, remaining.maxRequests), remaining, async (role, signal) => {
+          const roles = selectAdvisoryRoles(scoped, remaining.maxRequests);
+          console.info(roles.length ? 'Coordinated advisors selected: ' + roles.join(', ') : 'Coordinated advisors skipped: no eligible roles');
+          await runCoordinatedAdvisories(roles, remaining, async (role, signal) => {
             const request = boundedRequest(signal);
             const advisor = await authorizeCoordinatedAdvisor({ ...target, number: current.number, expectedHead: current.head.sha }, role, appId, request);
             if (!advisor) { console.info('Coordinated advisor unavailable: ' + role); return true; }
@@ -379,10 +405,12 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
             if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) return false;
             const advisoryConfig = { ...advisor.config, automatic: true, incrementalFiles: advisoryPaths };
             await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(advisor.api, advisor.target, advisoryConfig, request) : runAdvisory(advisor.api, advisor.target, advisoryConfig, request));
+            console.info('Coordinated advisor finished: ' + role);
             return true;
           });
-        }
+        } else console.info('Coordinated advisors skipped: budget exhausted');
       }
+      if (reconcileThreads) await reconcileReviewThreads(api, target, config, current.head.sha, current.base.sha);
       if (event === 'APPROVE' && incrementalFiles === undefined) await attemptMerge(pendingId);
       await publishAutomationStatus(api, repository, pr.number, bot, current.head.sha, 'review', 'review completed', true);
       const label = reviewOutcome(event, followUp).label;
@@ -395,7 +423,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       for (const attached of current.labels) {
         if (attached.name !== label && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' });
       }
-      if (target.requestComment) await completeCommentReaction(api, repository, target.requestComment, eyesId, event === 'APPROVE');
+
     } catch (error) {
       if (!submitted && progressResult.conclusion === 'cancelled') progressResult = { conclusion: 'failure', title: 'Review processing failed' };
       throw error;
@@ -406,6 +434,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           const pending = await api<Review>(`${path}/reviews/${pendingId}`);
           if (pending.state === 'PENDING' && pending.user.login === bot && pending.body?.includes('<!-- oddmash-review-lock -->')) await api(`${path}/reviews/${pendingId}`, { method: 'DELETE' });
         } catch { console.error('Pending review cleanup failed'); }
+      }
+      if (target.requestComment && (eyesId || requestApproved) && !await completeCommentReaction(api, repository, target.requestComment, eyesId, requestApproved)) {
+        throw new Error('Review completion reaction unavailable');
       }
     }
   }
