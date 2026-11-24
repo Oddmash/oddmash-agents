@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks } from '../src/checks.ts';
+import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks } from '../src/checks.ts';
 
 test('only final aggregate CI evidence can produce an official review', () => {
   const label = { name: 'labels', status: 'completed', conclusion: 'success' };
@@ -110,4 +110,15 @@ test('default verify gate requires the trusted GitHub Actions app identity', () 
     assert.equal(finalReviewEvent('APPROVE', evidence), null);
   }
   assert.equal(reviewChecksSuccessful({ total_count: 1, check_runs: [{ ...verify, app: { id: 15368 } }] }), true);
+});
+
+test('waiting diagnostics distinguish missing, running, failed and incomplete checks without changing gates', () => {
+  const check = { name: 'labels', status: 'queued', conclusion: null };
+  const summary = checkWaitingSummary({ total_count: 3, check_runs: [check, { ...check, status: 'completed', conclusion: 'failure' }] });
+  assert.match(summary, /evidence is incomplete/);
+  assert.match(summary, /required check group/);
+  assert.match(summary, /still running or queued/);
+  assert.match(summary, /did not pass/);
+  assert.match(summary, /Checks/);
+  assert.doesNotMatch(summary, /labels/);
 });

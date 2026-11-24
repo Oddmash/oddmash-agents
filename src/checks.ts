@@ -19,6 +19,22 @@ function requiredReviewChecks(evidence: CheckEvidence, repository?: string): Che
   return [evidence.check_runs.filter(check => /^(?:CI \/ )?verify$/.test(check.name) && check.app?.id === 15368)];
 }
 
+export function checkWaitingSummary(evidence: CheckEvidence, repository?: string): string {
+  const groups = requiredReviewChecks(evidence, repository);
+  const missing = groups.filter(group => !group.length).length;
+  const pending = evidence.check_runs.filter(check => check.status !== 'completed').length;
+  const failed = evidence.check_runs.filter(check => check.status === 'completed' && !['success', 'skipped'].includes(check.conclusion ?? '')).length;
+  const incomplete = evidence.total_count === undefined || evidence.total_count !== evidence.check_runs.length;
+  const reasons = [
+    incomplete ? 'Check evidence is incomplete.' : '',
+    missing ? `${missing} required check group(s) are missing (including the aggregate verify gate if absent).` : '',
+    pending ? `${pending} check(s) are still running or queued.` : '',
+    failed ? `${failed} completed check(s) did not pass.` : '',
+    !missing && !pending && !failed && !incomplete && !reviewChecksSuccessful(evidence, repository) ? 'A required check did not conclude successfully.' : ''
+  ].filter(Boolean);
+  return `${reasons.join(' ')} Open this PR’s **Checks** tab and inspect the current commit’s required verify job, any unfinished or failed jobs, and the workflow run. Review remains subject to complete successful CI evidence.`;
+}
+
 export function reviewChecksReady(evidence: CheckEvidence, repository?: string): boolean {
   return !!evidence.total_count && evidence.total_count === evidence.check_runs.length && evidence.check_runs.every(check => check.status === 'completed') && requiredReviewChecks(evidence, repository).every(group => group.length > 0);
 }
