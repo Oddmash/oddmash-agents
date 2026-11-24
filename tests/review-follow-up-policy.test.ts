@@ -47,6 +47,7 @@ test('automatic routing excludes sensitive and operational paths', () => {
 
 test('budgets are bounded, tunable, and leave time for the primary review', () => {
   assert.deepEqual(automaticAdvisoryBudget({}), { maxRequests:5, elapsedMs:90_000 });
+  assert.deepEqual(automaticAdvisoryBudget({ REVIEWER_AUTO_ADVISORY_MAX_REQUESTS:'abc', REVIEWER_AUTO_ADVISORY_MAX_MS:'abc' }), { maxRequests:5, elapsedMs:90_000 });
   assert.deepEqual(automaticAdvisoryBudget({ REVIEWER_AUTO_ADVISORY_MAX_REQUESTS:'100', REVIEWER_AUTO_ADVISORY_MAX_MS:'500000' }), { maxRequests:5, elapsedMs:120_000 });
   assert.deepEqual(automaticAdvisoryBudget({ REVIEWER_AUTO_ADVISORY_MAX_REQUESTS:'2', REVIEWER_AUTO_ADVISORY_MAX_MS:'10000' }), { maxRequests:2, elapsedMs:10_000 });
   assert.deepEqual(automaticAdvisoryBudget({}, 240_000), { maxRequests:5, elapsedMs:5_000 });
