@@ -14,6 +14,7 @@ test('automatic QA uses its own app, installation and repository-scoped token', 
   t.after(() => { for (const [name, value] of Object.entries(prior)) if (value === undefined) delete process.env[name]; else process.env[name] = value; });
   const calls: string[] = [];
   let wrongApp = false;
+  let wrongSlug = false;
   let wrongRepo = false;
   const request: typeof fetch = async (input, init) => {
     const path = new URL(String(input)).pathname;
@@ -22,7 +23,7 @@ test('automatic QA uses its own app, installation and repository-scoped token', 
     if (path === '/repos/Oddmash/example/installation') {
       const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
       assert.equal(payload.iss, '1234');
-      return Response.json({ id: 9, app_id: wrongApp ? 42 : 1234, suspended_at: null });
+      return Response.json({ id: 9, app_id: wrongApp ? 42 : 1234, app_slug: wrongSlug ? 'oddmash-impact' : 'oddmash-qa', suspended_at: null });
     }
     if (path === '/app/installations/9') return Response.json({ account: { login: 'Oddmash' }, suspended_at: null });
     if (path === '/app/installations/9/access_tokens') {
@@ -54,6 +55,9 @@ test('automatic QA uses its own app, installation and repository-scoped token', 
   wrongApp = true;
   await assert.rejects(authorizeCoordinatedAdvisor(target, 'qa', '42', request), /Installation not eligible/);
   wrongApp = false;
+  wrongSlug = true;
+  await assert.rejects(authorizeCoordinatedAdvisor(target, 'qa', '42', request), /Installation not eligible/);
+  wrongSlug = false;
   wrongRepo = true;
   await assert.rejects(authorizeCoordinatedAdvisor(target, 'qa', '42', request), /Repository not eligible/);
   wrongRepo = false;
