@@ -30,10 +30,13 @@ test('validation and incomplete evidence prevent a definitive recommendation', (
   assert.match(impactBody(result, head, base, 0), /Advisory only/);
 });
 
-test('impact deduplicates one advisory and refreshes it when base guidance changes', async () => {
+test('impact deduplicates one advisory and refreshes it when the file scope or base guidance changes', async () => {
   const comments: { id: number; body: string; user: { login: string } }[] = [];
   const writes: string[] = [];
   let baseSha = base;
+  const changedFiles = ['src/example.ts', 'src/other.ts'].map(filename => ({
+    filename, status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new',
+  }));
   const api = githubApi('fixture', async (input, init) => {
     const url = String(input);
     if (url.includes('/reactions')) return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ id: 1 });
@@ -45,7 +48,7 @@ test('impact deduplicates one advisory and refreshes it when base guidance chang
         ? Response.json(githubContentFixture('src/AGENTS.md', `Project Impact guidance ${baseSha[0]}`))
         : new Response(null, { status: 404 });
     }
-    if (url.includes('/files?')) return Response.json([{ filename: 'src/example.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
+    if (url.includes('/files?')) return Response.json(changedFiles);
     if (url.includes('/comments')) {
       if (init?.method === 'POST' || init?.method === 'PATCH') {
         writes.push(`${init.method} ${url}`);
@@ -54,7 +57,7 @@ test('impact deduplicates one advisory and refreshes it when base guidance chang
       }
       return Response.json(comments);
     }
-    return Response.json({ title: 'Improve UX', body: 'Improve the example', state: 'open', draft: false, changed_files: 1, head: { sha: head }, base: { sha: baseSha, repo: { id: repo.id, full_name: repo.full_name, private: false } } });
+    return Response.json({ title: 'Improve UX', body: 'Improve the example', state: 'open', draft: false, changed_files: changedFiles.length, head: { sha: head }, base: { sha: baseSha, repo: { id: repo.id, full_name: repo.full_name, private: false } } });
   });
   let modelCalls = 0;
   const request: typeof fetch = async (_input, init) => {
@@ -66,13 +69,18 @@ test('impact deduplicates one advisory and refreshes it when base guidance chang
     assert.deepEqual(Object.values(context.projectGuidance), [`Project Impact guidance ${baseSha[0]}`]);
     return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(result) }] }] });
   };
-  await runImpact(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
-  await runImpact(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+  const config = { bot, model: 'fixture', openaiKey: 'fixture', automatic: true };
+  const firstScope = { ...config, incrementalFiles: ['src/example.ts'] };
+  await runImpact(api, target, firstScope, request);
+  await runImpact(api, target, firstScope, request);
   assert.equal(modelCalls, 1);
   assert.equal(writes.length, 1);
-  baseSha = 'c'.repeat(40);
-  await runImpact(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+  await runImpact(api, target, { ...config, incrementalFiles: ['src/other.ts'] }, request);
   assert.equal(modelCalls, 2);
+  baseSha = 'c'.repeat(40);
+  await runImpact(api, target, { ...config, incrementalFiles: ['src/other.ts'] }, request);
+  assert.equal(modelCalls, 3);
+  assert.equal(writes.length, 3);
   assert.match(writes[0], /^POST .*\/issues\/7\/comments$/);
   assert.match(writes[1], /^PATCH .*\/issues\/comments\/10$/);
   assert.match(comments[0].body, /Oddmash Impact/);

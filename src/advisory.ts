@@ -82,7 +82,7 @@ export async function runAdvisory(api: Api, target: Target, config: { bot: strin
   const requestContext = await slashRequestContext(api, target, role);
   if (requestContext) context.requestContext = requestContext;
   const revisionEvidence = role === 'qa' ? context.observedChecks : role === 'triage' ? context.relatedIssues : null;
-  const revisionInputs = [revisionEvidence, requestContext ?? null, projectRef, sharedSkill.revision, sharedSkill.path, projectGuidance];
+  const revisionInputs = [revisionEvidence, requestContext ?? null, projectRef, sharedSkill.revision, sharedSkill.path, projectGuidance, selectedFiles.map(file => file.filename), context.omittedCount];
   const revisionHash = createHash('sha256').update(JSON.stringify(revisionInputs)).digest('hex');
   const revision = `<!-- oddmash-advisory-revision:${fingerprint(subject)}${inline ? ':inline-v1' : ''}:${revisionHash} -->`;
   const find = async () => {
