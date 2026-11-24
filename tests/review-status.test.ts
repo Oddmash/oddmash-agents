@@ -54,3 +54,34 @@ test('model input budget failures provide actionable guidance without private de
   assert.match(en, /Split the PR/);
   assert.match(ko, /입력 한도/);
 });
+
+
+test('concurrent status publishers retain only one identical bot-owned status comment', async () => {
+  const head = 'a'.repeat(40), bot = 'oddmash-reviewer[bot]';
+  const comments: { id: number; body: string; user: { login: string } }[] = [{ id: 1, body: '<!-- oddmash-automation-status:merge -->', user: { login: 'other' } }];
+  let release!: () => void;
+  const bothPosted = new Promise<void>(resolve => { release = resolve; });
+  let posts = 0;
+  const api = githubApi('fixture', async (input, init) => {
+    const url = String(input);
+    if (url.includes('/pulls/7')) return Response.json({ state: 'open', head: { sha: head } });
+    if (init?.method === 'POST') {
+      const created = { id: ++posts + 10, body: JSON.parse(String(init.body)).body, user: { login: bot } };
+      comments.push(created);
+      if (posts === 2) release();
+      await bothPosted;
+      return Response.json(created);
+    }
+    const id = Number(url.match(/\/issues\/comments\/(\d+)$/)?.[1]);
+    if (init?.method === 'DELETE') {
+      comments.splice(comments.findIndex(comment => comment.id === id), 1);
+      return new Response(null, { status: 204 });
+    }
+    if (id) return Response.json(comments.find(comment => comment.id === id));
+    return Response.json(comments);
+  });
+  const publish = () => publishAutomationStatus(api, 'Oddmash/example', 7, bot, head, 'merge', 'missing single closing issue link');
+  await Promise.all([publish(), publish()]);
+  assert.equal(posts, 2);
+  assert.deepEqual(comments.map(comment => comment.id), [1, 11]);
+});
