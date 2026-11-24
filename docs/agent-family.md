@@ -31,6 +31,8 @@ Maintainers can enter one command on the first non-empty line of an issue or PR 
 
 Lead receives the slash command. Advisory responses use the corresponding dedicated, enabled GitHub App installed on that repository. Explicit App mention commands still work. GitHub does not provide native autocomplete for these commands. For a review request awaiting required CI, the same comment is reused when review resumes.
 
+The release workflow syncs the GitHub Actions repository variable `REVIEWER_AUTO_ADVISORY_ENABLED` to Vercel Production when it is set to `true` or `false`. Leaving the Actions variable unset preserves the current Vercel setting. The setting takes effect with the next production release.
+
 ## Lead identity
 
 Lead is the renamed primary review App. Its verified authenticated account is `oddmash-lead[bot]`. Use the [identity guide](lead-identity.md) for attribution. The App ID, webhook endpoint, existing environment key names and historical attribution remain unchanged.
