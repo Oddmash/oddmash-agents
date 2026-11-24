@@ -103,6 +103,27 @@ test('single Refs supports partial same-repository scope without claiming issue 
   assert.notEqual(mergeProof({ pull: partial, acceptance }), mergeProof(candidate));
 });
 
+test('matches issue form headings and measurable bullet lists without changing closing semantics', () => {
+  const body = '### Acceptance criteria\n\n- Explain the example clearly.\n* [ ] Document the expected output.\n\n### Notes\nOther';
+  assert.deepEqual(acceptanceOf({ ...issue, body })?.criteria, ['Explain the example clearly.', 'Document the expected output.']);
+  assert.equal(acceptanceOf({ ...issue, body: '### Acceptance criteria\n- placeholder' }), null);
+  assert.equal(acceptanceForPull(issue, { ...pr, base: { ...pr.base, ref: 'develop' } }), null);
+  assert.equal(linkedIssue('- Refs #9.'), 9);
+  assert.equal(linkedIssue('Refs #9\nCloses #10'), null);
+});
+
+test('reports a valid multi-issue release separately from an ambiguous topic reference', async () => {
+  const reasons: string[] = [];
+  const release = { ...pr, head: { ...pr.head, ref: 'develop' }, body: 'Closes #9\nRefs #11' };
+  const api = (pull: MergePull) => githubApi('fixture-token', async () => Response.json(pull));
+  assert.equal(await mergeCandidate(api(release), target, pr.number, reason => reasons.push(reason)), null);
+  assert.equal(reasons.pop(), 'multi-issue release requires manual merge');
+  assert.equal(await mergeCandidate(api({ ...release, head: { ...release.head, ref: 'feat/example' } }), target, pr.number, reason => reasons.push(reason)), null);
+  assert.equal(reasons.pop(), 'missing single issue reference');
+  assert.equal(await mergeCandidate(api({ ...pr, base: { ...pr.base, ref: 'develop' } }), target, pr.number, reason => reasons.push(reason)), null);
+  assert.equal(reasons.pop(), 'integration branch requires Refs');
+});
+
 test('requires one linked issue and all explicit criteria', () => {
   assert.equal(linkedIssue('Closes #9'), 9);
   assert.equal(linkedIssue('Closes #9\nFixes #10'), null);
@@ -190,8 +211,8 @@ test('mint write token only after exact-head approval and protected current CI',
   assert.equal(await mergeAuthorized(makeApi(true, boundraPull, false, true), boundraTarget, boundraCandidate, 'oddmash-reviewer[bot]', 5, true, mint), true);
   assert.equal(mints, 3);
   assert.equal(writes, 3);
-  const developPull = { ...pr, base: { ...pr.base, ref: 'develop' } };
-  const developCandidate = { ...candidate, pull: developPull };
+  const developPull = { ...pr, body: 'Refs #9\n\n## Summary\n- Explain the example clearly.', base: { ...pr.base, ref: 'develop' } };
+  const developCandidate = { pull: developPull, acceptance: acceptanceForPull(issue, developPull)! };
   assert.equal(await mergeAuthorized(makeApi(true, developPull), target, candidate, 'oddmash-reviewer[bot]', 5, true, mint), false);
   assert.equal(await mergeAuthorized(makeApi(true, developPull), target, developCandidate, 'oddmash-reviewer[bot]', 5, true, mint), true);
   assert.equal(mints, 4);

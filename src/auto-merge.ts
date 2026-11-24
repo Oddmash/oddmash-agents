@@ -7,7 +7,7 @@ const ownerId = 135234546;
 const sha = /^[a-f0-9]{40}$/i;
 type Api = ReturnType<typeof githubApi>;
 type Identity = { id: number; login: string };
-export type MergePull = { number: number; state: string; draft: boolean; user: Identity; body: string | null; changed_files: number; mergeable: boolean | null; mergeable_state: string; merge_commit_sha?: string | null; head: { sha: string; repo: { id: number; full_name: string } | null }; base: { sha: string; ref: string; repo: { id: number; private: boolean; full_name: string; default_branch: string; archived?: boolean; allow_merge_commit?: boolean } }; labels: { name: string }[] };
+export type MergePull = { number: number; state: string; draft: boolean; user: Identity; body: string | null; changed_files: number; mergeable: boolean | null; mergeable_state: string; merge_commit_sha?: string | null; head: { sha: string; ref?: string; repo: { id: number; full_name: string } | null }; base: { sha: string; ref: string; repo: { id: number; private: boolean; full_name: string; default_branch: string; archived?: boolean; allow_merge_commit?: boolean } }; labels: { name: string }[] };
 type Issue = { number: number; state: string; body: string | null; user: Identity; pull_request?: unknown; updated_at: string };
 type Branch = { protected: boolean; commit: { sha: string }; protection?: { enabled: boolean; required_status_checks?: { enforcement_level: string; checks?: { context: string; app_id: number }[] } } };
 type Review = { id: number; user: Identity; state: string; commit_id: string; body: string | null };
@@ -108,13 +108,18 @@ export function lowRisk(files: ChangedFile[], count: number, repository = ''): b
   return lowRiskReason(files, count, repository) === undefined;
 }
 
+const standaloneReferences = (body: string) => body.split(/\r?\n/).flatMap(line => {
+  const match = /^(?:[-*+]\s+)?(refs|closes)\s+((?:[a-z0-9_.-]+\/[a-z0-9_.-]+)?#([1-9]\d*))\.?$/i.exec(line.trim());
+  return match ? [match] : [];
+});
+
 export function linkedIssueReference(body: string | null): { number: number; mode: 'closing' | 'partial' } | null {
   const text = body ?? '';
   if (text.length > 12000 || /\x60\x60\x60/.test(text)) return null;
-  const links = [...text.matchAll(/^(refs|closes|fixes|resolves)\s+#([1-9]\d*)\s*$/gim)];
+  const links = standaloneReferences(text);
   const references = [...text.matchAll(/\b(?:refs?|references?|close[sd]?|fix(?:es|ed)?|resolve[sd]?)\s+(?:#|[a-z0-9_.-]+\/|https?:\/\/)/gi)];
-  if (links.length !== 1 || references.length !== 1) return null;
-  const number = Number(links[0][2]);
+  if (links.length !== 1 || references.length !== 1 || !links[0][2].startsWith('#')) return null;
+  const number = Number(links[0][3]);
   return Number.isSafeInteger(number) ? { number, mode: links[0][1].toLowerCase() === 'refs' ? 'partial' : 'closing' } : null;
 }
 
@@ -122,15 +127,18 @@ export function linkedIssue(body: string | null): number | null {
   return linkedIssueReference(body)?.number ?? null;
 }
 
+const acceptanceBullet = (line: string) => line.match(/^\s*[-*+]\s+(?:\[[ xX]\]\s+)?(.+)$/)?.[1]?.trim();
+const validCriterion = (value: string | undefined) => Boolean(value && value.length >= 12 && value.length <= 500 && !/^(?:tbd|todo|placeholder|fill me in|none|n\/a|not applicable)[.!]?$/i.test(value));
+
 export function acceptanceOf(issue: Issue, privateReview = false): Acceptance | null {
   if (!maintainer(issue.user) || issue.state !== 'open' || issue.pull_request || !issue.body || issue.body.length > 12000 || safeText(issue.body) !== issue.body || (privateReview && privateSensitiveText(issue.body))) return null;
   const sections = issue.body.split(/\r?\n/);
-  const start = sections.findIndex(line => /^## Acceptance criteria\s*$/i.test(line));
+  const start = sections.findIndex(line => /^#{2,3} Acceptance criteria\s*$/i.test(line));
   if (start < 0) return null;
-  const end = sections.findIndex((line, index) => index > start && /^#{1,2}\s/.test(line));
+  const end = sections.findIndex((line, index) => index > start && /^#{1,3}\s/.test(line));
   const lines = sections.slice(start + 1, end < 0 ? undefined : end).filter(l => l.trim());
-  const criteria = lines.map(l => l.match(/^\s*-\s+\[[ xX]\]\s+(.+)$/)?.[1]?.trim());
-  if (!criteria.length || criteria.length > 8 || criteria.some(c => !c || c.length < 12 || c.length > 500)) return null;
+  const criteria = lines.map(acceptanceBullet);
+  if (!criteria.length || criteria.length > 8 || criteria.some(c => !validCriterion(c))) return null;
   return { issue: issue.number, digest: createHash('sha256').update(JSON.stringify([issue.number, issue.updated_at, issue.body])).digest('hex'), body: issue.body, criteria: criteria as string[] };
 }
 
@@ -138,7 +146,7 @@ export function acceptanceForPull(issue: Issue, pull: MergePull, privateReview =
   const reference = linkedIssueReference(pull.body);
   const full = acceptanceOf(issue, privateReview);
   if (!reference || !full || reference.number !== issue.number) return null;
-  if (reference.mode === 'closing') return full;
+  if (reference.mode === 'closing') return pull.base.ref === pull.base.repo.default_branch ? full : null;
   const body = pull.body ?? '';
   if (safeText(body) !== body || (privateReview && privateSensitiveText(body))) return null;
   const sections = body.split(/\r?\n/);
@@ -147,8 +155,8 @@ export function acceptanceForPull(issue: Issue, pull: MergePull, privateReview =
   if (start < 0) return null;
   const end = sections.findIndex((line, index) => index > start && /^#{1,2}\s/.test(line));
   const lines = sections.slice(start + 1, end < 0 ? undefined : end).filter(line => line.trim());
-  const criteria = lines.map(line => explicit >= 0 ? line.match(/^\s*-\s+\[[ xX]\]\s+(.+)$/)?.[1]?.trim() : line.replace(/^\s*[-*]\s+/, '').trim());
-  if (!criteria.length || criteria.length > 8 || criteria.some(value => !value || value.length < 12 || value.length > 500)) return null;
+  const criteria = lines.map(line => explicit >= 0 ? acceptanceBullet(line) : line.replace(/^\s*[-*+]\s+/, '').trim());
+  if (!criteria.length || criteria.length > 8 || criteria.some(value => !validCriterion(value))) return null;
   return { ...full, mode: 'partial', scope: body, criteria: criteria as string[], digest: createHash('sha256').update(JSON.stringify([full.digest, 'partial', body])).digest('hex') };
 }
 
@@ -173,7 +181,14 @@ export async function mergeCandidate(api: Api, target: Target, number: number, w
   if (optIn === 'disabled') return deny('repository automatic merge opt-in is not enabled');
   if (optIn === 'unavailable') return deny('repository automatic merge opt-in is unavailable');
   const issueNumber = linkedIssue(pr.body);
-  if (!issueNumber || issueNumber === number) return deny('missing single issue reference');
+  if (!issueNumber || issueNumber === number) {
+    const links = standaloneReferences(pr.body ?? '');
+    const distinctLinks = new Set(links.map(link => link[2].toLowerCase()));
+    if (pr.head.ref === 'develop' && pr.base.ref === pr.base.repo.default_branch && links.length > 1 && distinctLinks.size === links.length) return deny('multi-issue release requires manual merge');
+    if (links.length === 1 && !links[0][2].startsWith('#')) return deny('cross-repository issue reference requires manual merge');
+    return deny('missing single issue reference');
+  }
+  if (pr.base.ref !== pr.base.repo.default_branch && linkedIssueReference(pr.body)?.mode === 'closing') return deny('integration branch requires Refs');
   const issue = await api<Issue>(root + '/issues/' + issueNumber);
   const acceptance = acceptanceForPull(issue, pr, Boolean(target.private));
   if (!acceptance || acceptance.issue !== issueNumber) return deny('issue acceptance criteria are ineligible');
