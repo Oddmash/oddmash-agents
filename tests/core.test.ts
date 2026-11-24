@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addedLines, selectFiles, safeText, guidancePaths, validateFindings, formatReport, formatReviewBody, inlineComment, reviewMarker, reviewDecision, reviewFollowUp, reviewOutcome, checksPassed, type ReviewContext, type Finding } from '../src/core.ts';
+import { addedLines, selectFiles, safeText, guidancePaths, validateFindings, formatReport, formatReviewBody, publicationFollowUp, inlineComment, reviewMarker, reviewDecision, reviewFollowUp, reviewOutcome, checksPassed, type ReviewContext, type Finding } from '../src/core.ts';
 
 const file = { filename: 'src/ui/button.tsx', status: 'modified', patch: '@@ -1,2 +1,3 @@\n const label = "Open";\n-old\n+new\n+other' };
 const finding = { path: file.filename, line: 2, severity: 'medium', confidence: 'high', rule: 'Accessibility', evidence: 'The label is absent.', recommendation: 'Provide a visible label.', verification: 'Inspect the accessible name.' };
@@ -233,4 +233,18 @@ test('needs human explains the exact reason and directs maintainers to verificat
   assert.match(invalid, /Conversation/);
   assert.match(invalid, /Checks/);
   assert.doesNotMatch(invalid, /Manual review coverage/);
+});
+
+test('maintainer findings preserve manual disposition and never imply approval', () => {
+  const owner = { id: 135234546, login: 'qtaghdi' };
+  const followUp = { advisory: false, incompleteCoverage: false, invalidEvidence: false };
+  const published = publicationFollowUp(followUp, 'REQUEST_CHANGES', owner);
+  assert.equal(reviewOutcome('COMMENT', published).label, 'review: needs human');
+  const body = formatReviewBody('COMMENT', '<!-- marker -->', 'Actionable finding', owner, published);
+  assert.match(body, /Actionable findings remain/);
+  assert.match(body, /No approval was issued/);
+  assert.match(body, /automatic merge is not available/);
+  assert.match(body, /Actionable finding/);
+  assert.deepEqual(publicationFollowUp(followUp, 'REQUEST_CHANGES', { ...owner, id: 1 }), followUp);
+  assert.deepEqual(publicationFollowUp(followUp, 'APPROVE', owner), followUp);
 });

@@ -7,7 +7,15 @@ export type Finding = { path: string; line: number; side?: 'LEFT' | 'RIGHT'; sev
 export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[]; relatedBaseFiles?: Record<string, string>; changedHeadFiles?: Record<string, string>; focus?: string[]; feedback?: string[] };
 
 export type ReviewDecision = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
-export type ReviewFollowUp = { advisory: boolean; incompleteCoverage: boolean; invalidEvidence: boolean };
+export type ReviewFollowUp = { advisory: boolean; incompleteCoverage: boolean; invalidEvidence: boolean; maintainerFindings?: boolean };
+
+export function isMaintainerReviewAuthor(author?: { id: number; login: string }): boolean {
+  return author?.id === 135234546 && author.login === 'qtaghdi';
+}
+
+export function publicationFollowUp(followUp: ReviewFollowUp, assessment: ReviewDecision, author?: { id: number; login: string }): ReviewFollowUp {
+  return assessment === 'REQUEST_CHANGES' && isMaintainerReviewAuthor(author) ? { ...followUp, maintainerFindings: true } : followUp;
+}
 
 export function reviewFollowUp(context: ReviewContext, findings: Finding[], modelValid: boolean): ReviewFollowUp {
   return { advisory: findings.some(finding => !isBlockingFinding(context, finding)), incompleteCoverage: !context.files.length || context.omitted.length > 0, invalidEvidence: !modelValid };
@@ -16,6 +24,7 @@ export function reviewFollowUp(context: ReviewContext, findings: Finding[], mode
 export function reviewOutcome(event: ReviewDecision, followUp?: ReviewFollowUp): { label: string; title: string } {
   if (event === 'APPROVE') return { label: 'review: approved', title: 'Review approved' };
   if (event === 'REQUEST_CHANGES') return { label: 'review: changes requested', title: 'Changes requested' };
+  if (followUp?.maintainerFindings) return { label: 'review: needs human', title: 'Actionable findings for maintainer decision' };
   if (!followUp || followUp.incompleteCoverage || followUp.invalidEvidence) return { label: 'review: needs human', title: 'Review coverage or evidence incomplete' };
   return { label: 'review: follow-up', title: followUp.advisory ? 'Advisory findings to consider' : 'Review approval pending checks' };
 }
@@ -287,6 +296,7 @@ export function formatReviewBody(event: ReviewDecision, marker: string, report: 
   if (event === 'APPROVE') return author?.id === 135234546 && author.login === 'qtaghdi' ? `${marker}\nApproved.` : `${marker}\nThanks for contributing! @qtaghdi, this PR is ready for your review.`;
   if (event === 'REQUEST_CHANGES') return `${marker}\nPlease address the findings before approval.\n\n${report}`;
   const reasons: string[] = [];
+  if (followUp?.maintainerFindings) reasons.push('Actionable findings remain. For the verified maintainer author, the reviewer reports them without a formal change request or approval. Manual disposition is required; automatic merge is not available.');
   if (followUp?.advisory) reasons.push('Advisory findings are optional recommendations, not confirmed blockers. After verifying the evidence, the maintainer may accept, defer to a separate issue, or decline with rationale. A repeated review is not required solely to dispose of optional advice on the unchanged head.');
   if (followUp?.incompleteCoverage) reasons.push('Manual coverage check required: inspect the unreviewed changes listed below.');
   if (followUp?.invalidEvidence) reasons.push('Review evidence incomplete: validate the findings against the diff or request a fresh review.');
@@ -294,6 +304,10 @@ export function formatReviewBody(event: ReviewDecision, marker: string, report: 
   const manual = reviewOutcome(event, followUp).label === 'review: needs human';
   const actions: string[] = [];
   const korean: string[] = [];
+  if (followUp?.maintainerFindings) {
+    actions.push('Inspect the actionable findings in Files changed and the required CI in Checks. Record the disposition before making a manual merge decision.');
+    korean.push('검증된 유지보수 담당자 PR입니다. 변경 요청 대신 수정 권고를 기록하며 승인하지 않습니다. 자동 머지는 제공되지 않습니다. Files changed와 Checks를 확인하고 수동으로 판단하세요.');
+  }
   if (manual && (!followUp || followUp.incompleteCoverage)) {
     actions.push('Open the **Files changed** tab and the **Manual review coverage** section below. Verify each omitted change, including any unlisted confidential changes locally. Check the relevant tests and behavior before approving.');
     korean.push('Files changed 탭과 아래 수동 검토 범위를 확인하세요. 누락된 변경을 각각 검증하고, 비공개 경로는 로컬에서 확인하세요. 승인 전 관련 테스트와 동작을 확인하세요.');

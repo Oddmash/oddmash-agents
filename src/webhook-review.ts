@@ -6,7 +6,7 @@ import { advisoryModelConfig } from './runtime-config.ts';
 import { authorizeCoordinatedAdvisor } from './coordinated-advisory.ts';
 import { runReview } from './reviewer.ts';
 import { startReviewProgress } from './review-progress.ts';
-import { formatReviewBody, reviewOutcome } from './core.ts';
+import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts';
 import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, githubApi, completeCommentReaction, reactToComment, type Target } from './webhook.ts';
@@ -305,17 +305,18 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
       if (!ownsPendingReview(latest, bot, current.head.sha, pendingId) || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state) && (!approved || review.id > approved.id))))) return;
       const finalChecks = await readChecks(current);
-      const event = finalReviewEvent(incrementalFiles !== undefined && result.assessment === 'APPROVE' ? 'COMMENT' : result.assessment, finalChecks, repository);
+      const event = finalReviewEvent(incrementalFiles !== undefined && result.assessment === 'APPROVE' ? 'COMMENT' : result.assessment, finalChecks, repository, current.user);
+      const followUp = publicationFollowUp(result.followUp, result.assessment, current.user);
       if (!event) {
         if (reviewChecksReady(finalChecks, repository) && !reviewChecksSuccessful(finalChecks, repository)) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
         return;
       }
       const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks, target.recheck);
       await progress?.update('Publishing review', 'Rechecking the current commit and submitting the result.');
-      const completedResult = event === 'APPROVE' ? { conclusion: 'success' as const, title: 'Review approved' } : event === 'REQUEST_CHANGES' ? { conclusion: 'failure' as const, title: 'Changes requested' } : { conclusion: 'neutral' as const, title: reviewOutcome(event, result.followUp).title };
+      const completedResult = event === 'APPROVE' ? { conclusion: 'success' as const, title: 'Review approved' } : event === 'REQUEST_CHANGES' ? { conclusion: 'failure' as const, title: 'Changes requested' } : { conclusion: 'neutral' as const, title: reviewOutcome(event, followUp).title };
       const proof = incrementalFiles === undefined && event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === current.head.sha && candidate.pull.base.sha === current.base.sha && candidate.pull.merge_commit_sha === current.merge_commit_sha ? `\n\n${mergeProof(candidate)}` : '';
       const scopeNote = `\n\n${reviewBaseMarker(current.base.sha)}` + (incrementalFiles !== undefined ? '\n\nIncremental follow-up only. Earlier files were not re-reviewed; request a full review before approval or merge.\n\n증분 검토입니다. 이전 파일은 다시 검토하지 않았으며 승인 또는 머지 전 전체 리뷰가 필요합니다.' : '');
-      let body = formatReviewBody(event, finalMarker, result.report, current.user, result.followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote;
+      let body = formatReviewBody(event, finalMarker, result.report, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote;
       const attemptMerge = async (reviewId: number) => {
         if (!candidate) { await mergeStatus(mergeReason); return; }
         if (candidate.pull.head.sha !== result.head || candidate.pull.base.sha !== current.base.sha) { await mergeStatus('candidate changed'); return; }
@@ -343,7 +344,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
       const advisory = event === 'COMMENT' && !target.recheck ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
       const attachment = event !== 'APPROVE' ? await attachReviewFindingsWithCoverage(api, path, pendingId, result.head, bot, result.comments) : { attached: 0, covered: true };
-      if (attachment.covered) body = formatReviewBody(event, finalMarker, result.inlineReport, current.user, result.followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote;
+      if (attachment.covered) body = formatReviewBody(event, finalMarker, result.inlineReport, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote;
       if (advisory && !attachment.attached) {
         if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
       } else {
@@ -380,7 +381,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
       if (event === 'APPROVE' && incrementalFiles === undefined) await attemptMerge(pendingId);
       await publishAutomationStatus(api, repository, pr.number, bot, current.head.sha, 'review', 'review completed', true);
-      const label = reviewOutcome(event, result.followUp).label;
+      const label = reviewOutcome(event, followUp).label;
       const labels = await api<{ name: string }[]>(`${root}/labels?per_page=100`);
       if (!labels.some(item => item.name === label)) {
         try { await api(`${root}/labels`, { method: 'POST', body: JSON.stringify({ name: label, color: label === 'review: approved' ? '0e8a16' : label === 'review: changes requested' ? 'd73a4a' : 'fbca04' }) }); }
