@@ -384,6 +384,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       requestApproved = event === 'APPROVE';
       progressResult = completedResult;
       await progress?.finish(progressResult.conclusion, progressResult.title);
+      if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED !== 'true') console.info('Coordinated advisors disabled');
       if (coordinatedAdvisoriesEnabled(target, process.env.REVIEWER_AUTO_ADVISORY_ENABLED)) {
         const budget = automaticAdvisoryBudget(process.env, Date.now() - executionStarted);
         if (budget.maxRequests > 0 && budget.elapsedMs > 0) {
@@ -411,7 +412,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
             return true;
           });
         } else console.info('Coordinated advisors skipped: budget exhausted');
-      } else if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED !== 'true') console.info('Coordinated advisors disabled');
+      }
       if (reconcileThreads) await reconcileReviewThreads(api, target, config, current.head.sha, current.base.sha);
       if (event === 'APPROVE' && incrementalFiles === undefined) await attemptMerge(pendingId);
       await publishAutomationStatus(api, repository, pr.number, bot, current.head.sha, 'review', 'review completed', true);
