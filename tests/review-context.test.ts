@@ -43,3 +43,12 @@ test('product-specific guidance and reviewed feedback cover distinct product con
   assert.ok(reviewFeedback.some(rule => rule.includes('some returns false for an empty array')));
   assert.equal([].some(() => true), false);
 });
+
+test('product profiles remain specific and unrecognized products use the common baseline', () => {
+  const fallback = reviewFocus('Oddmash/unrecognized');
+  assert.deepEqual(fallback, ['Correctness, regression, error handling and test coverage']);
+  assert.match(reviewFocus('Oddmash/oddmash-ui').join(' '), /Keyboard interaction/);
+  assert.match(reviewFocus('Oddmash/interaction-inspector').join(' '), /Event lifecycle/);
+  assert.doesNotMatch(reviewFocus('Oddmash/kowrap').join(' '), /map coordinate/);
+  assert.doesNotMatch(reviewFocus('Oddmash/boundra').join(' '), /design tokens/);
+});
