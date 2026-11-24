@@ -114,7 +114,7 @@ export async function mergeCandidate(api: Api, target: Target, number: number, w
   const acceptance = acceptanceOf(issue, Boolean(target.private));
   if (!acceptance || acceptance.issue !== issueNumber) return deny('issue acceptance criteria are ineligible');
   const files = await api<ChangedFile[]>(root + '/pulls/' + number + '/files?per_page=100');
-  if (!lowRisk(files, pr.changed_files, target.repository) || (target.private && selectFiles(files, 45_000, true).omitted.length > 0)) return deny('changed paths or review budget are ineligible');
+  if (!lowRisk(files, pr.changed_files, target.repository) || (target.private && selectFiles(files, 45_000, true, 'strict').omitted.length > 0)) return deny('changed paths or review budget are ineligible');
   return { pull: pr, acceptance };
 }
 
