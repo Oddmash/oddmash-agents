@@ -62,7 +62,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   if (!pr || (pr.base.repo.private ? !permittedPrivate : c.privateRepositoryId !== undefined) || pr.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase() || pr.state !== 'open' || pr.draft || !shaPattern.test(pr.base.sha) || !shaPattern.test(pr.head.sha)) throw new Error('Only open, non-draft, public or explicitly enabled private PRs are eligible');
   const files = await api<ChangedFile[]>(`${prPath}/files?per_page=100&page=1`);
   const privateReview = pr.base.repo.private;
-  const selected = selectFiles(files ?? [], 45_000, privateReview);
+  const selected = selectFiles(files ?? [], 45_000, privateReview, 'quality');
   await c.progress?.('Collecting review context', `${selected.files.length} of ${pr.changed_files} changed files selected for review.`);
   if (pr.changed_files > (files?.length ?? 0)) {
     selected.omitted.push('Additional files beyond the first page');

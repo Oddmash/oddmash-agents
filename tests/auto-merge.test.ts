@@ -152,3 +152,10 @@ test('mint write token only after exact-head approval and protected current CI',
   assert.equal(mints, 4);
   assert.equal(writes, 4);
 });
+
+
+test('configuration and permission changes remain ineligible for automatic merge', () => {
+  for (const filename of ['.github/workflows/ci.yml', 'vercel.json', 'tsconfig.json', 'next.config.ts', 'Dockerfile', 'src/auth/session.ts', 'src/authorization/permissions.ts']) {
+    assert.equal(lowRisk([{ filename, status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }], 1, 'Oddmash/kowrap'), false);
+  }
+});
