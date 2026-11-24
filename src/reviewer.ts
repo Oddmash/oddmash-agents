@@ -165,7 +165,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   if (!fresh.length) {
     const reviews = await api<{ id: number; state: string; body: string | null; commit_id: string; user: { id: number } }[]>(`${prPath}/reviews?per_page=100`);
     const advisory = reviews?.filter(review => review.state === 'COMMENTED' && review.commit_id === pr.head.sha && review.body?.includes(reviewMarker(context))).at(-1);
-    if (!advisory || advisory.body === report) return { ...result, posted: false };
+    if (!advisory || advisory.body === report || advisory.body === inlineReport) return { ...result, posted: false };
     const viewer = await api<{ id: number }>('/user', {}, true).catch(error => {
       if (error instanceof Error && error.message === 'GitHub request failed (403)') return null;
       throw error;
