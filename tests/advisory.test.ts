@@ -4,6 +4,7 @@ import { advisoryRoles, advisoryCommand } from '../src/advisory-agents.ts';
 import { agentSkill } from '../src/agent-guidance.ts';
 import { dedicatedAdvisoryTarget, route, githubApi } from '../src/webhook.ts';
 import { runAdvisory, validAdvisory } from '../src/advisory.ts';
+import { publishSpecialistFindings } from '../src/specialist-findings.ts';
 import { advisoryConfig, advisoryModelConfig } from '../src/runtime-config.ts';
 import { createReviewJob, verifyReviewJob } from '../src/review-job.ts';
 import { githubContentFixture } from './github-content-fixture.ts';
@@ -222,6 +223,13 @@ test('each dedicated PR advisor publishes once with its own identity and bounded
     assert.equal(inline.length, 1);
     assert.equal(comments.length, 1);
     assert.match(comments[0].body, new RegExp(`oddmash-advisory:${role}`));
+    const summaries: string[] = [];
+    const automaticTarget = { ...target, requestComment: undefined };
+    await runAdvisory(api, automaticTarget, { bot, model: 'fixture', openaiKey: 'fixture', automatic: true, collectSummary: text => { summaries.push(text); } }, request);
+    assert.equal(inline.length, 1);
+    assert.equal(comments.length, 1);
+    assert.equal(summaries.length, 1);
+    assert.match(summaries[0], /Four \/ 넷/);
   }
 });
 
@@ -276,4 +284,27 @@ test('dedicated inline requests route only maintainer replies to the mentioned P
   assert.equal(routeReply({ ...payload, comment: { ...payload.comment, body: '@oddmash-qa[bot] /review' } }), null);
   assert.equal(dedicatedAdvisoryTarget('pull_request_review_comment', payload, 'docs', 'oddmash-docs', ''), null);
   assert.equal(dedicatedAdvisoryTarget('pull_request_review_comment', { ...payload, comment: { ...payload.comment, body: '@oddmash-triage Question?' } }, 'triage', 'oddmash-triage', ''), null);
+});
+
+test('coordinated specialists keep one thread for a matching finding and preserve distinct concerns', async () => {
+  const sha = 'c'.repeat(40);
+  const path = 'src/style.css';
+  const previous = {
+    body: '<!-- oddmash-finding:aaaaaaaaaaaaaaaaaaaaaaaa -->\nNegative focus outline offset can draw the visible focus indicator inside the link and reduce keyboard focus clarity.',
+    path, line: 1, commit_id: sha, side: 'RIGHT', user: { login: 'oddmash-release[bot]', type: 'Bot' }
+  };
+  const posts: string[] = [];
+  const api = githubApi('fixture', async (_input, init) => {
+    if (init?.method === 'POST') posts.push(JSON.parse(String(init.body)).body);
+    return Response.json(init?.method === 'POST' ? {} : [previous]);
+  });
+  const target = { installation: 1, repository: repo.full_name, repositoryId: repo.id, number: 7, advisory: 'qa' as const, advisoryIdentity: 'qa' as const };
+  const files = [{ filename: path, patch: '@@ -1 +1 @@\n-old\n+new', status: 'modified' }];
+  const matching = 'Negative focus outline offset can draw the indicator inside or clipped against the link boundary.';
+  const distinct = 'The color property no longer meets contrast requirements on a dark background.';
+  for (const en of [matching, distinct]) await publishSpecialistFindings(api, target, 'oddmash-qa[bot]', sha, {
+    inlineFindings: [{ path, line: 1, evidence: 'new', en, ko: '표시 상태를 확인하세요.' }]
+  }, files, async () => true);
+  assert.equal(posts.length, 1);
+  assert.match(posts[0], /contrast requirements/);
 });

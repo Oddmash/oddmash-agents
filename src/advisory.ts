@@ -38,7 +38,7 @@ async function issueBase(api: Api, target: Target): Promise<string | undefined> 
   if (branch?.name === repository.default_branch && sha.test(branch.commit?.sha ?? '')) return branch.commit!.sha;
 }
 
-export async function runAdvisory(api: Api, target: Target, config: { bot: string; model: string; openaiKey: string; automatic?: boolean; incrementalFiles?: string[] }, request: typeof fetch = fetch) {
+export async function runAdvisory(api: Api, target: Target, config: { bot: string; model: string; openaiKey: string; automatic?: boolean; incrementalFiles?: string[]; collectSummary?: (section: string) => void }, request: typeof fetch = fetch) {
   const role = target.advisory;
   if (!isAdvisoryRole(role) || role === 'impact' || !target.number || (!config.automatic && target.requestComment?.kind !== 'issue')) return;
   const profile = advisoryProfiles[role];
@@ -93,7 +93,7 @@ export async function runAdvisory(api: Api, target: Target, config: { bot: strin
     }
     throw new Error('Advisory comment lookup incomplete');
   };
-  if ((await find())?.body.includes(revision)) return;
+  if (!config.collectSummary && (await find())?.body.includes(revision)) return;
   const eyes = target.requestComment ? await reactToComment(api, target.repository, target.requestComment, 'eyes') : undefined;
   let completed = false;
   try {
@@ -110,11 +110,17 @@ export async function runAdvisory(api: Api, target: Target, config: { bot: strin
       return eligible(latest) && fingerprint(latest) === fingerprint(subject) && (!issue || await issueBase(api, target) === projectRef);
     };
     if (!await current()) return;
-    const existing = await find();
+    const existing = config.collectSummary ? undefined : await find();
     if (existing?.body.includes(revision)) { completed = true; return; }
     if (inline) {
       await publishSpecialistFindings(api, target, config.bot, subject.head!.sha, report, selectedFiles, current);
       if (!await current()) return;
+    }
+    if (config.collectSummary) {
+      const last = report.en.length - 1;
+      config.collectSummary(`- **${profile.name}:** ${render(report.en[last])} / ${render(report.ko[last])}`);
+      completed = true;
+      return;
     }
     const list = (items: string[], headings: readonly string[]) => items.map((item, i) => `- **${headings[i]}:** ${render(item)}`).join('\n');
     const body = `${marker}\n${revision}\n## Oddmash ${profile.name}\n\n${list(report.en, labels[role][0])}\n\n${partial ? 'Evidence is incomplete. Treat this assessment as provisional.\n\n' : ''}Advisory only. No approval, CI result, release or merge authorization.\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${list(report.ko, labels[role][1])}\n\n${partial ? '검토 근거가 일부 누락되었습니다.\n\n' : ''}자문 의견이며 승인 또는 실행 권한이 아닙니다.\n\n</details>`;

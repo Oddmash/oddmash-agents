@@ -49,6 +49,20 @@ export function specialistRole(target: Target, bot: string): Role | undefined {
   if (role && role !== 'triage' && target.advisory === role && bot === `oddmash-${role}[bot]`) return role;
 }
 
+export const verifiedReviewer = /^oddmash-(?:lead|impact|qa|release|docs|architect)\[bot\]$/;
+
+function findingWords(text: string) {
+  const english = text.split('\n<details>', 1)[0].replace(/^<!--.*-->$/gm, '');
+  return new Set(english.toLowerCase().match(/[a-z][a-z-]{3,}/g) ?? []);
+}
+
+export function sameFindingText(left: string, right: string): boolean {
+  const a = findingWords(left);
+  const b = findingWords(right);
+  const common = [...a].filter(word => b.has(word)).length;
+  return common >= 4 && common * 2 >= Math.min(a.size, b.size);
+}
+
 export async function publishSpecialistFindings(api: Api, target: Target, bot: string, head: string, report: object, files: ChangedFile[], current: () => Promise<boolean>) {
   const role = specialistRole(target, bot);
   if (!role || !target.number || !/^[a-f0-9]{40}$/i.test(head)) return;
@@ -56,20 +70,23 @@ export async function publishSpecialistFindings(api: Api, target: Target, bot: s
   if (!findings.length) return;
   const path = `/repos/${target.repository}/pulls/${target.number}/comments`;
   const existing = new Set<string>();
+  const currentFindings: { path: string; line: number; body: string }[] = [];
   for (let page = 1; page <= 10; page++) {
-    const batch = await api<{ body: string; user: { login: string; type: string } }[]>(`${path}?per_page=100&page=${page}`);
+    const batch = await api<{ body: string; user: { login: string; type: string }; path: string; line: number; side?: string; commit_id: string; in_reply_to_id?: number }[]>(`${path}?per_page=100&page=${page}`);
     for (const item of batch) {
-      if (item.user.login === bot && item.user.type === 'Bot') {
-        const marker = /^<!-- oddmash-finding:([a-f0-9]{24}) -->/.exec(item.body);
-        if (marker) existing.add(marker[1]);
-      }
+      if (item.user.type !== 'Bot' || !verifiedReviewer.test(item.user.login) || item.in_reply_to_id) continue;
+      const marker = /^<!-- oddmash-finding:([a-f0-9]{24}) -->/.exec(item.body);
+      if (!marker) continue;
+      if (item.user.login === bot) existing.add(marker[1]);
+      if (item.commit_id === head && item.side !== 'LEFT' && Number.isSafeInteger(item.line)) currentFindings.push(item);
     }
     if (batch.length < 100) break;
     if (page === 10) { console.warn('Specialist inline comment lookup incomplete'); return; }
   }
   for (const finding of findings) {
     const id = createHash('sha256').update(JSON.stringify([role, head, finding.path, finding.line])).digest('hex').slice(0, 24);
-    if (existing.has(id)) continue;
+    if (existing.has(id) || currentFindings.some(item =>
+      item.path === finding.path && item.line === finding.line && sameFindingText(item.body, finding.en))) continue;
     if (!await current()) return;
     const body = `<!-- oddmash-finding:${id} -->\n<!-- oddmash-specialist:${role} -->\n${plain(finding.en)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(finding.ko)}\n\n</details>`;
     try {

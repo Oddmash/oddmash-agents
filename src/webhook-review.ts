@@ -2,6 +2,7 @@ import { executionContext, runAgentExecution } from './agent-execution.ts';
 import { createHash } from 'node:crypto';
 import { runImpact } from './impact.ts';
 import { runAdvisory } from './advisory.ts';
+import { sameFindingText, verifiedReviewer } from './specialist-findings.ts';
 import { advisoryModelConfig } from './runtime-config.ts';
 import { authorizeCoordinatedAdvisor } from './coordinated-advisory.ts';
 import { runReview } from './reviewer.ts';
@@ -104,7 +105,7 @@ type InlineFinding = { body: string; path: string; line: number; side: 'LEFT' | 
 
 export async function attachReviewFindingsWithCoverage(api: Api, path: string, pendingId: number, head: string, bot: string, findings: InlineFinding[]): Promise<{ attached: number; covered: boolean }> {
   if (!findings.length) return { attached: 0, covered: true };
-  const existing: { body: string; user: { login: string } }[] = [];
+  const existing: (Partial<InlineFinding> & { body: string; user: { login: string; type?: string }; commit_id?: string; in_reply_to_id?: number })[] = [];
   for (let page = 1; page <= 10; page++) {
     const batch = await api<typeof existing>(`${path}/comments?per_page=100&page=${page}`);
     existing.push(...batch);
@@ -114,7 +115,12 @@ export async function attachReviewFindingsWithCoverage(api: Api, path: string, p
   const valid = findings.every(comment => /<!-- oddmash-finding:[a-f0-9]{24} -->/.test(comment.body));
   const comments = findings.filter(comment => {
     const marker = comment.body.match(/<!-- oddmash-finding:[a-f0-9]{24} -->/)?.[0];
-    return marker && !existing.some(item => item.user.login === bot && item.body.includes(marker));
+    return marker && !existing.some(item =>
+      (item.user.login === bot && item.body.includes(marker)) ||
+      (item.user.type === 'Bot' && verifiedReviewer.test(item.user.login) && !item.in_reply_to_id &&
+        item.body.startsWith('<!-- oddmash-finding:') && item.commit_id === head &&
+        item.path === comment.path && item.line === comment.line && comment.side === (item.side ?? 'RIGHT') &&
+        sameFindingText(item.body, comment.body)));
   });
   if (!valid || comments.length > 12) return { attached: 0, covered: false };
   if (!comments.length) return { attached: 0, covered: true };
@@ -386,6 +392,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const advisory = event === 'COMMENT' && !target.recheck ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
       const attachment = event !== 'APPROVE' ? await attachReviewFindingsWithCoverage(api, path, pendingId, result.head, bot, result.comments) : { attached: 0, covered: true };
       if (attachment.covered) body = formatReviewBody(event, finalMarker, result.inlineReport, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote;
+      const publishedReviewId = advisory && !attachment.attached ? advisory.id : pendingId;
       if (advisory && !attachment.attached) {
         if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
       } else {
@@ -411,7 +418,12 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           const advisoryPaths = automaticAdvisoryPaths(scoped);
           const remaining = { ...budget, elapsedMs: Math.max(0, budget.elapsedMs - (Date.now() - planningStarted)) };
           const roles = selectAdvisoryRoles(scoped, remaining.maxRequests);
+          if (roles.includes('qa')) {
+            roles.splice(roles.indexOf('qa'), 1);
+            roles.unshift('qa');
+          }
           console.info(roles.length ? 'Coordinated advisors selected: ' + roles.join(', ') : 'Coordinated advisors skipped: no eligible roles');
+          const summaries: string[] = [];
           await runCoordinatedAdvisories(roles, remaining, async (role, signal) => {
             const request = boundedRequest(signal);
             const advisor = await authorizeCoordinatedAdvisor({
@@ -421,11 +433,23 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
             if (!advisor) { console.info('Coordinated advisor unavailable: ' + role); return true; }
             const latest = await advisor.api<Pull>(path);
             if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) return false;
-            const advisoryConfig = { ...advisor.config, automatic: true, incrementalFiles: advisoryPaths };
+            const advisoryConfig = { ...advisor.config, automatic: true, incrementalFiles: advisoryPaths, collectSummary: (section: string) => { summaries.push(section); } };
             await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(advisor.api, advisor.target, advisoryConfig, request) : runAdvisory(advisor.api, advisor.target, advisoryConfig, request));
             console.info('Coordinated advisor finished: ' + role);
             return true;
           });
+          if (summaries.length) try {
+            const latestPull = await api<Pull>(path);
+            const review = await api<Review>(`${path}/reviews/${publishedReviewId}`);
+            if (latestPull.head.sha === current.head.sha && latestPull.base.sha === current.base.sha &&
+                latestPull.state === 'open' && !latestPull.draft && review.user.login === bot &&
+                review.commit_id === current.head.sha && review.body === body) {
+              const summary = body + '\n\n### Specialist follow-up / 전문 검토 후속 확인\n\n' + summaries.join('\n');
+              await api(`${path}/reviews/${publishedReviewId}`, { method: 'PUT', body: JSON.stringify({ body: summary }) });
+            }
+          } catch {
+            console.warn('Coordinated review summary update failed');
+          }
         } else console.info('Coordinated advisors skipped: budget exhausted');
       }
       if (reconciliation) await reconcileReviewThreads(api, { ...target, number: current.number }, config, current.head.sha, current.base.sha, fetch, threadReconciliationExclusions(reconciliation));

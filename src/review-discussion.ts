@@ -171,7 +171,6 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
   const marker = replyMarker(comment);
   const thread = comments.filter(item => (conversation ? item.body.includes(rootMarker) : item.in_reply_to_id === root) && item.user.login === bot && item.body.includes('<!-- oddmash-discussion:'));
   const existing = thread.find(item => item.body.includes(marker));
-  if (!existing && thread.length >= 10) return;
   const privateReview = Boolean(target.private);
   if (!safe(original.body, privateReview) || !safe(question.body, privateReview) || !safe(filePath, privateReview)) return;
   const reaction = { kind: conversation ? 'issue' as const : 'inline' as const, id: comment };
@@ -179,6 +178,9 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
     const current = await api<Pull>(base);
     return eligible(current) && current.head.sha === pr.head.sha && current.base.sha === pr.base.sha;
   };
+  const requested = scopedFixHead(question.body, slug) === pr.head.sha.toLowerCase();
+  const fixKey = createHash('sha256').update(JSON.stringify([root, original.node_id, originalHead(original), original.body, pr.head.sha, pr.base.sha])).digest('hex');
+  const fixMarker = `<!-- oddmash-discussion-verified-fix:${fixKey} -->`;
   const completionKey = createHash('sha256').update(JSON.stringify([root, original.node_id, originalHead(original), original.body, question.body, pr.head.sha, pr.base.sha])).digest('hex');
   const completionMarker = (verdict: 'fixed' | 'agree') => `<!-- oddmash-discussion-completion:${verdict}:${completionKey} -->`;
   const finish = async (verdict: 'fixed' | 'agree') => {
@@ -224,6 +226,15 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
       await markAcknowledged(api, target, reaction.kind, id, clean + resolved);
     }
   };
+  const verifiedFix = requested ? thread.find(item => item.body.split('\n').includes(fixMarker)) : undefined;
+  if (!existing && verifiedFix) {
+    if (verifiedFix.body.includes('<!-- oddmash-discussion-acknowledged -->')) {
+      if (await matchesSnapshot()) await reactToComment(api, target.repository, reaction, '+1');
+    } else {
+      await settleReply('fixed', verifiedFix.id, verifiedFix.body, undefined);
+    }
+    return;
+  }
   if (existing) {
     const verdict = (['fixed', 'agree'] as const).find(value => existing.body.includes(completionMarker(value)));
     if (existing.body.includes('<!-- oddmash-discussion-acknowledged -->')) return;
@@ -235,10 +246,10 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
     await settleReply(verdict, existing.id, existing.body, eyes);
     return;
   }
+  if (thread.length >= 10) return;
   const eyesId = await reactToComment(api, target.repository, reaction, 'eyes');
   let completing = false;
   try {
-    const requested = scopedFixHead(question.body, slug) === pr.head.sha.toLowerCase();
     const correction = requested ? await correctionPatch(api, target, original, filePath, pr.head.sha) : undefined;
     const selected = correction ? [correction] : selectFiles(await matchingFile(api, base, filePath), 12_000, privateReview).files;
     const projectGuidance = await loadProjectGuidance(path => api<unknown>(path), target.repository, pr.base.sha, selected, privateReview, 6_000);
@@ -259,7 +270,7 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
     if (!latestOriginal || latestOriginal.id !== original.id || latestOriginal.user.login !== bot || latestOriginal.body !== original.body || originalHead(latestOriginal) !== originalHead(original) || latestOriginal.node_id !== original.node_id) return;
     const reference = conversation ? `\n${rootMarker}\nIn response to [the original finding](https://github.com/${target.repository}/pull/${target.number}#${target.reply.rootKind === 'review' ? 'pullrequestreview' : 'issuecomment'}-${root}).\n` : '';
     const verdict = parsed.verdict === 'fixed' || parsed.verdict === 'agree' ? parsed.verdict : undefined;
-    const completion = verdict ? `\n${completionMarker(verdict)}` : '';
+    const completion = verdict ? `\n${completionMarker(verdict)}${verdict === 'fixed' ? '\n' + fixMarker : ''}` : '';
     const resolutionPending = verdict === 'fixed' && !conversation ? status + 'Thread resolution pending. 스레드를 닫는 중입니다.' : '';
     const body = `${marker}${completion}${reference}\n${plain(parsed.english)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(parsed.korean)}\n\n</details>${resolutionPending}`;
     if (Buffer.byteLength(body, 'utf8') > 12_000) return;
