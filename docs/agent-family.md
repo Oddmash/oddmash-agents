@@ -20,6 +20,10 @@ For coordinated automatic requests, Lead resolves the selected role's own enable
 
 Lead is the renamed primary review App. Its verified authenticated account is `oddmash-lead[bot]`. Use the [identity guide](lead-identity.md) for attribution. The App ID, webhook endpoint, existing environment key names and historical attribution remain unchanged.
 
+## Release preparation
+
+For a new production release, run the [release preparation workflow](release-preparation.md). It uses Release for the exact candidate and conditionally QA, separately from individual PR advisory requests.
+
 ## Separate GitHub identities
 
 Register each `oddmash-<role>` GitHub App under Oddmash and install it only in authorized repositories. Subscribe only to issue comment events. Use Contents read, Checks read and Issues write repository permissions. PR-scoped advisory roles require Pull requests write for PR comment publication; Triage retains Pull requests read. No Contents write or Checks write. Advisory agents do not submit formal reviews or authorize merges. Restrict permissions to the existing approved repository identities. The app webhook URL is the existing production origin plus `/api/advisory?agent=<role>`.
