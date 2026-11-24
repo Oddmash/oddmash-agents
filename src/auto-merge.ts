@@ -21,11 +21,13 @@ export function mergeProof(candidate: Candidate): string {
 const maintainer = (user: Identity | undefined) => user?.id === ownerId && user?.login === 'qtaghdi';
 
 export function eligiblePull(pr: MergePull, target: Target): boolean {
+  if (target.repository === 'Oddmash/.github' && pr.base.ref !== 'main') return false;
   return mergeRepositoryAllowed(target) && maintainer(pr.user) && pr.state === 'open' && !pr.draft && pr.base.repo.private === Boolean(target.private) && !pr.base.repo.archived && pr.base.repo.allow_merge_commit !== false && pr.base.repo.id === target.repositoryId && pr.base.repo.full_name === target.repository && pr.head.repo?.id === target.repositoryId && pr.head.repo.full_name === target.repository && (pr.base.ref === 'develop' || (pr.base.ref === 'main' && pr.base.repo.default_branch === 'main')) && sha.test(pr.head.sha) && sha.test(pr.base.sha) && sha.test(pr.merge_commit_sha ?? '') && pr.changed_files > 0 && pr.changed_files <= 20 && !pr.labels.some(l => /(?:^|: )(?:no auto.merge|do not merge|manual|blocked|hold|wip)$/i.test(l.name));
 }
 
 export function ineligiblePullReason(pr: MergePull, target: Target): string {
   if (!mergeRepositoryAllowed(target)) return 'repository is outside the auto-merge allowlist';
+  if (target.repository === 'Oddmash/.github' && pr.base.ref !== 'main') return 'organization documentation PR must target main';
   if (!maintainer(pr.user)) return 'PR author is not the authorized maintainer';
   if (pr.state !== 'open' || pr.draft) return 'pull request is not open and ready';
   if (pr.base.repo.private !== Boolean(target.private) || pr.base.repo.archived) return 'repository visibility or archive state is ineligible';
