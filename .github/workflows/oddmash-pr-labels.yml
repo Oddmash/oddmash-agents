@@ -65,9 +65,10 @@ jobs:
               const reviews = reset ? await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: number, per_page: 100 }) : [];
               const official = reviews.filter(review => review.user?.login === 'oddmash-reviewer[bot]' && review.body?.includes('<!-- oddmash-app-review:') && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state));
               const currentReview = official.some(review => review.commit_id === pr.head.sha);
-              const resetReview = reset && !currentReview;
+              const activeReview = reviews.some(review => review.user?.login === 'oddmash-reviewer[bot]' && review.commit_id === pr.head.sha && review.state === 'PENDING');
+              const resetReview = reset && !currentReview && !activeReview;
               const reviewLabels = [...attached].filter(name => name.startsWith('review: ') && Object.hasOwn(catalog, name));
-              if (resetReview || !reviewLabels.length) wanted.push(official.length && !currentReview ? 'review: stale' : 'review: pending');
+              if (resetReview || !reviewLabels.length) wanted.push(official.length && !currentReview && !activeReview ? 'review: stale' : 'review: pending');
               for (const name of attached) {
                 const managed = Object.hasOwn(catalog, name);
                 if (managed && !wanted.includes(name) && (name.startsWith('type: ') || name.startsWith('size: ') || (resetReview && name.startsWith('review: ')))) {
