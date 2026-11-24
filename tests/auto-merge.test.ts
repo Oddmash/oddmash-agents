@@ -58,6 +58,27 @@ test('all current public product repositories are eligible while organization go
   assert.equal(mergeRepositoryAllowed({ installation: 1, repository: 'Oddmash/unknown', repositoryId: 42 }), false);
 });
 
+test('organization documentation requires exact public identity, main and maintainer authorship', () => {
+  const repository = 'Oddmash/.github';
+  const repositoryId = 1455305553;
+  const target = { installation: 1, repository, repositoryId };
+  const identity = { id: repositoryId, full_name: repository };
+  const pull = { ...pr, head: { sha: head, repo: identity }, base: { ...pr.base, repo: { ...identity, default_branch: 'main', private: false } } };
+  assert.equal(mergeRepositoryAllowed(target), true);
+  assert.equal(mergeRepositoryAllowed({ ...target, repositoryId: 42 }), false);
+  assert.equal(mergeRepositoryAllowed({ ...target, private: true }), false);
+  assert.equal(eligiblePull(pull, target), true);
+  assert.equal(eligiblePull({ ...pull, base: { ...pull.base, ref: 'develop' } }, target), false);
+  assert.equal(eligiblePull({ ...pull, user: { id: 99, login: user.login } }, target), false);
+  for (const filename of ['AGENTS.md', 'CONTRIBUTING.md', 'PULL_REQUEST_TEMPLATE.md', 'profile/README.md', 'docs/ko/README.md', 'docs/ja/README.md', 'docs/zh-CN/README.md', 'docs/ko/CONTRIBUTING.md', '.github/ISSUE_TEMPLATE/bug_report_en.md', '.github/ISSUE_TEMPLATE/feature.md']) {
+    assert.equal(lowRiskReason([{ ...files[0], filename }], 1, repository), 'repository automatic merge opt-in is not enabled');
+    assert.equal(lowRiskReason([{ ...files[0], filename }], 1, repository, 'documentation'), undefined);
+  }
+  for (const filename of ['SECURITY.md', 'CODEOWNERS', '.github/CODEOWNERS', 'docs/AI-CODE-REVIEW.md', '.github/workflows/ci.yml', '.github/ISSUE_TEMPLATE/config.yml', 'docs/example.md', 'assets/agent-family.svg']) {
+    assert.equal(lowRiskReason([{ ...files[0], filename }], 1, repository, 'documentation'), 'protected changed path requires manual merge');
+  }
+});
+
 test('requires one linked issue and all explicit criteria', () => {
   assert.equal(linkedIssue('Closes #9'), 9);
   assert.equal(linkedIssue('Closes #9\nFixes #10'), null);
