@@ -25,7 +25,7 @@ test('enabled coordination covers full conversation reviews without enabling sco
   assert.equal(coordinatedAdvisoriesEnabled(fullRequest, undefined), false);
   assert.equal(coordinatedAdvisoriesEnabled({ recheck: 'delivery-id' }, 'true'), false);
   assert.equal(coordinatedAdvisoriesEnabled({ ...fullRequest, requestComment: { ...fullRequest.requestComment, kind: 'inline', root: 3 } }, 'true'), false);
-  assert.equal(coordinatedAdvisoriesEnabled({ ...fullRequest, requestComment: { kind: 'issue', id: 4 } }, 'true'), false);
+  assert.equal(coordinatedAdvisoriesEnabled({ ...fullRequest, requestComment: { kind: 'issue', id: 4 } }, 'true'), true);
 });
 test('automatic routing chooses only relevant roles and skips trivial docs', () => {
   assert.deepEqual(selectAdvisoryRoles([]), []);

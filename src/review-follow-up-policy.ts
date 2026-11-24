@@ -23,7 +23,7 @@ const bounded = (value: string | undefined, fallback: number, maximum: number) =
 };
 
 export function coordinatedAdvisoriesEnabled(target: Pick<Target, 'recheck' | 'requestComment'>, enabled: string | undefined): boolean {
-  return enabled === 'true' && (!target.recheck || (target.requestComment?.kind === 'issue' && target.requestComment.slash === true));
+  return enabled === 'true' && (!target.recheck || target.requestComment?.kind === 'issue');
 }
 
 export function automaticAdvisoryBudget(env: Record<string, string | undefined> = process.env, elapsedMs = 0): AdvisoryBudget {
