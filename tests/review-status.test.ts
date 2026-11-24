@@ -99,3 +99,15 @@ test('full pagination without a marker does not create a duplicate status', asyn
   assert.equal(reads, 10);
   assert.equal(writes, 0);
 });
+
+
+test('auto-merge diagnostics provide bilingual next actions without confidential filenames', () => {
+  const [en, ko] = statusText('merge', 'repository requires root README-only changes');
+  assert.match(en, /root README/);
+  assert.match(en, /merge manually/);
+  assert.match(ko, /루트 README/);
+  assert.match(ko, /수동 머지/);
+  assert.match(statusText('merge', 'changed diff exceeds the auto-merge budget')[0], /45,000/);
+  assert.match(statusText('merge', 'private strict review coverage is incomplete')[1], /로컬/);
+  assert.doesNotMatch(statusText('merge', 'arbitrary confidential path example')[0], /confidential path example/);
+});
