@@ -148,7 +148,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         return;
       }
     }
-    const resolve = scopedLeadThreadResolution(target, appId, key, slug, process.env.REVIEWER_UI_THREAD_RESOLVE_ENABLED);
+    const resolve = scopedLeadThreadResolution(target, appId, key, slug, {
+      ui: process.env.REVIEWER_UI_THREAD_RESOLVE_ENABLED,
+      skills: process.env.REVIEWER_SKILLS_THREAD_RESOLVE_ENABLED
+    });
     await replyToReview(api, target, { slug, openaiKey, model, resolve });
     return;
   }

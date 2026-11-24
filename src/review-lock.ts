@@ -47,7 +47,7 @@ export async function clearExpiredWebhookLock(api: Api, path: string, review: Re
   return true;
 }
 
-export async function withPendingReviewLock(api: Api, path: string, head: string, bot: string, action: () => Promise<void>) {
+export async function withPendingReviewLock(api: Api, path: string, head: string, bot: string, action: (pendingId: number) => Promise<void>) {
   for (let attempt = 0; attempt < 4; attempt++) {
     const pending = (await readLockReviews(api, path, bot)).find(review => review.state === 'PENDING');
     const busy = pending && !await clearExpiredWebhookLock(api, path, pending, bot);
@@ -56,7 +56,7 @@ export async function withPendingReviewLock(api: Api, path: string, head: string
       try {
         const owned = (await readLockReviews(api, path, bot)).filter(review => review.state === 'PENDING');
         if (ownsPendingReview(owned, bot, head, id)) {
-          await action();
+          await action(id);
           return;
         }
       } finally {

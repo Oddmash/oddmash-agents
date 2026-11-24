@@ -18,6 +18,7 @@ const entries = [
   { key: 'REVIEWER_QUEUE_ENABLED', value: process.env.REVIEWER_QUEUE_ENABLED === 'true' ? 'true' : 'false', type: 'plain' },
   ...(coordinatedAdvisory ? [{ key: 'REVIEWER_AUTO_ADVISORY_ENABLED', value: coordinatedAdvisory, type: 'plain' }] : []),
   { key: 'REVIEWER_UI_THREAD_RESOLVE_ENABLED', value: process.env.REVIEWER_UI_THREAD_RESOLVE_ENABLED === 'true' ? 'true' : 'false', type: 'plain' },
+  { key: 'REVIEWER_SKILLS_THREAD_RESOLVE_ENABLED', value: process.env.REVIEWER_SKILLS_THREAD_RESOLVE_ENABLED === 'true' ? 'true' : 'false', type: 'plain' },
   { key: 'REVIEWER_AUTO_MERGE_ENABLED', value: process.env.REVIEWER_AUTO_MERGE_ENABLED === 'true' ? 'true' : 'false', type: 'plain' },
   { key: 'REVIEWER_APP_ENABLED', value: webhook && process.env.REVIEWER_APP_ENABLED === 'true' ? 'true' : 'false', type: 'plain' }
 ];
