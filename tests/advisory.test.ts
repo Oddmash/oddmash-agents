@@ -6,6 +6,7 @@ import { dedicatedAdvisoryTarget, route, githubApi } from '../src/webhook.ts';
 import { runAdvisory, validAdvisory } from '../src/advisory.ts';
 import { advisoryConfig, advisoryModelConfig } from '../src/runtime-config.ts';
 import { createReviewJob, verifyReviewJob } from '../src/review-job.ts';
+import { githubContentFixture } from './github-content-fixture.ts';
 
 const user = { id: 135234546, login: 'qtaghdi', type: 'User' };
 const repo = { id: 71, full_name: 'Oddmash/example', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
@@ -61,7 +62,7 @@ test('triage uses the verified default branch and refreshes one advisory when it
     if (url.pathname.startsWith(`${root}/contents/`)) {
       assert.equal(url.pathname, `${root}/contents/AGENTS.md`);
       assert.equal(url.searchParams.get('ref'), base);
-      return Response.json({ encoding: 'base64', content: Buffer.from(`Project issue guidance ${base[0]}`).toString('base64') });
+      return Response.json(githubContentFixture('AGENTS.md', `Project issue guidance ${base[0]}`));
     }
     if (url.pathname.includes('/reactions')) return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ id: 1 });
     if (url.pathname.endsWith('/comments') || url.pathname.endsWith('/comments/12')) {
@@ -178,7 +179,10 @@ test('each dedicated PR advisor publishes once with its own identity and bounded
         const guidanceUrl = new URL(url);
         assert.equal(guidanceUrl.searchParams.get('ref'), base);
         assert.match(guidanceUrl.pathname, /\/contents\/(?:src\/)?AGENTS\.md$/);
-        return Response.json({ encoding: 'base64', content: Buffer.from(guidanceUrl.pathname.endsWith('/src/AGENTS.md') ? 'Scoped source guidance' : 'Root project guidance').toString('base64') });
+        const guidance = guidanceUrl.pathname.endsWith('/src/AGENTS.md')
+          ? githubContentFixture('src/AGENTS.md', 'Scoped source guidance')
+          : githubContentFixture('AGENTS.md', 'Root project guidance');
+        return Response.json(guidance);
       }
       if (url.includes('/pulls/7/comments')) {
         if (init?.method === 'POST') {

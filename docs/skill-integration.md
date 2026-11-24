@@ -16,7 +16,7 @@ Each assessment uses the compact runtime advisory section of an Oddmash skill. T
 | Architect | `oddmash-technical-architecture` |
 | Release | `oddmash-release-management` |
 
-Lead also reads the organization agreements and review policy. For PR work, each role reads the project root `AGENTS.md` and eligible guidance along the directories of its selected changed files at the exact PR base SHA. Triage uses the root guide at the verified default-branch commit. QA and Release preparation use the root guide at the verified main candidate. Model requests use the existing privacy filters and byte limits. Project guidance reads prioritize the root guide and are limited to forty files for Lead and twelve per specialist assessment. A missing project guide leaves the remaining approved guidance available. Lead stops when GitHub reports an error other than a missing guide.
+Lead also reads the organization agreements and review policy. For PR work, each role reads the project root `AGENTS.md` and eligible guidance along the directories of its selected changed files at the exact PR base SHA. Triage uses the root guide at the verified default-branch commit. QA and Release preparation use the root guide at the verified main candidate. Project guidance must match the returned Git blob hash. Model requests use the existing privacy filters and byte limits. Project guidance reads prioritize the root guide and are limited to forty files for Lead and twelve per specialist assessment. A missing project guide leaves the remaining approved guidance available. Lead stops when GitHub reports an error other than a missing guide.
 
 ## Upgrade procedure
 

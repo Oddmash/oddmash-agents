@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { collectPreparation, generatePreparation, needsReleaseQA, preparationTitle, reusablePreparation } from '../src/release-preparation.ts';
+import { githubContentFixture } from './github-content-fixture.ts';
 
 const base = 'a'.repeat(40);
 const head = 'b'.repeat(40);
@@ -34,7 +35,7 @@ test('preparation verifies current main CI, filters metadata and rejects stale c
     if (path.includes('/actions/workflows/')) return { workflow_runs: [{ head_sha: head, event: 'push', status: 'completed', conclusion: result }] } as T;
     if (path.endsWith('/commits/' + previous)) return { sha: base } as T;
     if (path.includes('/compare/')) return { status: 'ahead', behind_by: 0, total_commits: 2, merge_base_commit: { sha: base }, files, commits: [{ commit: { message: 'docs: clarify release\nDo not send this body' } }, { commit: { message: 'token: synthetic-sensitive-value' } }] } as T;
-    if (path === '/repos/Oddmash/oddmash-agents/contents/AGENTS.md?ref=' + head) return { encoding: 'base64', content: Buffer.from('Keep the verification offline.').toString('base64') } as T;
+    if (path === '/repos/Oddmash/oddmash-agents/contents/AGENTS.md?ref=' + head) return githubContentFixture('AGENTS.md', 'Keep the verification offline.') as T;
     throw new Error('Unexpected request');
   };
   const prepared = await collectPreparation(api, previous, head);

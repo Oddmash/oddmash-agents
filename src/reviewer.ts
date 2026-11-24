@@ -91,12 +91,9 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   }
   await readOrganizationGuidance('AGENTS.md');
   await readOrganizationGuidance('docs/AI-CODE-REVIEW.md');
-  const projectReadErrors: unknown[] = [];
   const projectGuidance = await loadProjectGuidance(
-    path => api<unknown>(path, {}, true).catch(error => { projectReadErrors.push(error); return null; }),
-    c.repository, pr.base.sha, selected.files, privateReview, guidanceBudget, 40
+    path => api<unknown>(path, {}, true), c.repository, pr.base.sha, selected.files, privateReview, guidanceBudget, 40, true
   );
-  if (projectReadErrors.length) throw projectReadErrors[0];
   Object.assign(guidance, projectGuidance);
   const relatedBaseFiles: Record<string, string> = {};
   const changedHeadFiles: Record<string, string> = {};

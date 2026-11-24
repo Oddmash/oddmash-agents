@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reconcileReviewThreads, replyToReview } from '../src/review-discussion.ts';
 import { githubApi, type Target } from '../src/webhook.ts';
+import { githubContentFixture } from './github-content-fixture.ts';
 
 const target: Target = { installation: 1, repository: 'Oddmash/example', repositoryId: 2, number: 3, reply: { root: 4, comment: 5 } };
 const base = '/repos/Oddmash/example/pulls/3';
@@ -25,7 +26,7 @@ test('answers a verified maintainer thread once and does not change review state
     if (path.includes('/contents/')) {
       assert.equal(new URL(String(url)).searchParams.get('ref'), pull.base.sha);
       const text = path.endsWith('/src/AGENTS.md') ? 'Verify a visible pause control.' : 'Use product terminology.';
-      return Response.json({ encoding: 'base64', content: Buffer.from(text).toString('base64') });
+      return Response.json(githubContentFixture(path.split('/contents/')[1], text));
     }
     if (path === `${base}/comments`) {
       const page = new URL(String(url)).searchParams.get('page');
@@ -273,7 +274,7 @@ test('scoped specialist discussion loads only root guidance when the file is exc
     if (url.pathname === `${pullPath}/files`) return Response.json([{ filename: original.path, status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
     if (url.pathname.includes('/contents/')) {
       guidanceReads.push(url.pathname + url.search);
-      return Response.json({ encoding: 'base64', content: Buffer.from('Use product terminology.').toString('base64') });
+      return Response.json(githubContentFixture(url.pathname.split('/contents/')[1], 'Use product terminology.'));
     }
     if (url.pathname.endsWith('/reactions')) return Response.json({ id: 9 });
     if (url.pathname.endsWith('/reactions/9')) return new Response(null, { status: 204 });

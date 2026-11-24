@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { agentSkill } from '../src/agent-guidance.ts';
 import { githubApi, route, impactCommand } from '../src/webhook.ts';
 import { runImpact, validImpact, impactBody } from '../src/impact.ts';
+import { githubContentFixture } from './github-content-fixture.ts';
 
 const bot = 'oddmash-reviewer[bot]';
 const head = 'a'.repeat(40), base = 'b'.repeat(40);
@@ -41,7 +42,7 @@ test('impact deduplicates one advisory and refreshes it when base guidance chang
       assert.equal(guidance.searchParams.get('ref'), baseSha);
       assert.match(guidance.pathname, /\/contents\/(?:src\/)?AGENTS\.md$/);
       return guidance.pathname.endsWith('/src/AGENTS.md')
-        ? Response.json({ encoding: 'base64', content: Buffer.from(`Project Impact guidance ${baseSha[0]}`).toString('base64') })
+        ? Response.json(githubContentFixture('src/AGENTS.md', `Project Impact guidance ${baseSha[0]}`))
         : new Response(null, { status: 404 });
     }
     if (url.includes('/files?')) return Response.json([{ filename: 'src/example.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
@@ -116,8 +117,10 @@ test('dedicated Impact emits one exact-head finding and omits private or unsuppo
     if (path.includes('/contents/')) {
       assert.equal(url.searchParams.get('ref'), base);
       assert.match(path, /\/contents\/(?:src\/)?AGENTS\.md$/);
-      const guidance = path.endsWith('/src/AGENTS.md') ? 'Safe scoped guidance' : 'password: fixture-confidential';
-      return Response.json({ encoding: 'base64', content: Buffer.from(guidance).toString('base64') });
+      const guidance = path.endsWith('/src/AGENTS.md')
+        ? githubContentFixture('src/AGENTS.md', 'Safe scoped guidance')
+        : githubContentFixture('AGENTS.md', 'password: fixture-confidential');
+      return Response.json(guidance);
     }
     if (path.endsWith('/comments')) {
       if (init?.method === 'POST') {

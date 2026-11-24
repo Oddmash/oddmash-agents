@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { confirmBlockingFindings, runReview } from '../src/reviewer.ts';
 import { reviewAssessment, type Finding, type ReviewContext } from '../src/core.ts';
+import { githubContentFixture } from './github-content-fixture.ts';
 
 const config = { repository: 'Oddmash/example', number: 1, githubToken: 'fixture', openaiKey: 'fixture', model: 'fixture', post: false, allowedRepositories: ['Oddmash/example'] };
 const pr = { title: 'UI change', state: 'open', draft: false, base: { sha: 'a'.repeat(40), repo: { private: false, full_name: config.repository } }, head: { sha: 'b'.repeat(40) }, changed_files: 1 };
@@ -77,7 +78,7 @@ test('Lead uses related project guidance from the PR base alongside the organiza
       assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer fixture');
       projectReads.push(url.pathname);
       const text = url.pathname.includes('/contents/src/') ? 'Source rules.' : 'Project rules.';
-      return Response.json({ encoding: 'base64', content: Buffer.from(text).toString('base64') });
+      return Response.json(githubContentFixture(url.pathname.split('/contents/')[1], text));
     }
     return request(input, init);
   });
@@ -244,7 +245,7 @@ test('approved private review uses scoped auth and excludes private sensitive da
       { filename: 'docs/diagram.png', status: 'modified' }
     ]);
     if (url.includes('/check-runs?')) return Response.json({ total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] });
-    if (url.includes('/contents/')) return Response.json({ encoding: 'base64', content: Buffer.from('password: fixture-sensitive-guidance').toString('base64') });
+    if (url.includes('/contents/')) return Response.json(githubContentFixture(new URL(url).pathname.split('/contents/')[1], 'password: fixture-sensitive-guidance'));
     if (url.endsWith('/pulls/1')) return Response.json({ ...pr, changed_files: 8, base: { ...pr.base, repo: { id: privateId, private: true, full_name: repo } } });
     throw new Error('Unexpected fixture request');
   };

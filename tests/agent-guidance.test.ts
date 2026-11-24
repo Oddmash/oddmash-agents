@@ -3,13 +3,10 @@ import { test } from 'node:test';
 import { advisoryRoles } from '../src/advisory-agents.ts';
 import { agentSkill, loadProjectGuidance } from '../src/agent-guidance.ts';
 import { privateSensitiveText } from '../src/core.ts';
+import { githubContentFixture as contents } from './github-content-fixture.ts';
 
 const repository = 'Oddmash/sample';
 const sha = 'a'.repeat(40);
-const contents = (filename: string, text: string) => ({
-  type: 'file', encoding: 'base64', path: filename, size: Buffer.byteLength(text, 'utf8'), content: Buffer.from(text).toString('base64')
-});
-
 test('all roles use bounded, pinned catalog guidance with distinct Impact and Triage criteria', () => {
   const roles = ['reviewer', ...advisoryRoles] as const;
   const skills = roles.map(agentSkill);
@@ -35,8 +32,13 @@ test('project guidance comes only from exact base paths and omits unsafe or unav
     if (filename === 'src/missing/AGENTS.md') throw new Error('GitHub request failed (404)');
     if (filename === 'src/ui/AGENTS.md') return contents(filename, 'Preserve focus order.');
     if (filename === 'linked/AGENTS.md') return { ...contents(filename, 'unavailable'), type: 'symlink' };
+    if (filename === 'alias/AGENTS.md') return { ...contents(filename, 'Unrelated private document'), sha: contents(filename, '../notes/internal.md').sha };
+    if (filename === 'oversized/AGENTS.md') {
+      const { size, ...file } = contents(filename, 'x'.repeat(12_001));
+      return file;
+    }
     return { type: 'file', encoding: 'base64', content: '/w==' };
-  }, repository, sha, ['src/missing/file.ts', 'src/ui/button.ts', 'linked/file.ts', 'malformed/file.ts', 'outside/../never.ts'].map(filename => ({ filename })), true);
+  }, repository, sha, ['src/missing/file.ts', 'src/ui/button.ts', 'linked/file.ts', 'alias/file.ts', 'oversized/file.ts', 'malformed/file.ts', 'outside/../never.ts'].map(filename => ({ filename })), true);
   assert.deepEqual(result, {
     'Oddmash/sample/AGENTS.md': 'Use the stable API contract.',
     'Oddmash/sample/src/ui/AGENTS.md': 'Preserve focus order.'
