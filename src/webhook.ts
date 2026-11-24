@@ -161,13 +161,25 @@ export async function reactToComment(api: ReturnType<typeof githubApi>, reposito
   } catch { console.warn('Reviewer comment reaction unavailable.'); }
 }
 
+export async function commentReceipt(api: ReturnType<typeof githubApi>, repository: string, comment: { kind: 'inline' | 'issue'; id: number }, bot: string) {
+  const resource = comment.kind === 'inline' ? 'pulls' : 'issues';
+  const reactions = await api<{ id: number; content: string; user?: { login: string } }[]>(`/repos/${repository}/${resource}/comments/${comment.id}/reactions?content=eyes&per_page=100`);
+  return reactions.find(item => item.content === 'eyes' && item.user?.login === bot)?.id;
+}
+
 export async function completeCommentReaction(api: ReturnType<typeof githubApi>, repository: string, comment: { kind: 'inline' | 'issue'; id: number }, eyesId: number | undefined, agreed: boolean) {
-  if (agreed && !await reactToComment(api, repository, comment, '+1')) return;
-  if (!positive(eyesId)) return;
+  const acknowledged = !agreed || !!await reactToComment(api, repository, comment, '+1');
+  if (!positive(eyesId)) return acknowledged;
   const resource = comment.kind === 'inline' ? 'pulls' : 'issues';
   try {
     await api(`/repos/${repository}/${resource}/comments/${comment.id}/reactions/${eyesId}`, { method: 'DELETE' });
-  } catch { console.warn('Reviewer pending reaction cleanup unavailable.'); }
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'GitHub request failed (404)') {
+      console.warn('Reviewer pending reaction cleanup unavailable.');
+      return false;
+    }
+  }
+  return acknowledged;
 }
 
 export async function authorize(target: Target, appId: string, key: string, request: typeof fetch = fetch, progress = false) {
