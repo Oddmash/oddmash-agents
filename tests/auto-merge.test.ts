@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eligiblePull, linkedIssue, acceptanceOf, lowRisk, acceptanceSatisfied, protectedBranch, mergeAuthorized, mergeProof, type MergePull, type Candidate } from '../src/auto-merge.ts';
+import { eligiblePull, linkedIssue, acceptanceOf, lowRisk, lowRiskReason, acceptanceSatisfied, protectedBranch, mergeAuthorized, mergeProof, type MergePull, type Candidate } from '../src/auto-merge.ts';
 import { githubApi, mergeRepositoryAllowed } from '../src/webhook.ts';
 
 const target = { installation: 1, repository: 'Oddmash/kowrap', repositoryId: 42 };
@@ -178,4 +178,18 @@ test('configuration and permission changes remain ineligible for automatic merge
   for (const filename of ['.github/workflows/ci.yml', 'vercel.json', 'tsconfig.json', 'next.config.ts', 'Dockerfile', 'src/auth/session.ts', 'src/authorization/permissions.ts']) {
     assert.equal(lowRisk([{ filename, status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }], 1, 'Oddmash/kowrap'), false);
   }
+});
+
+
+test('automatic merge diagnostics distinguish repository scope, budget, evidence and operations', () => {
+  const file = { filename: 'src/core.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' };
+  const agent = 'Oddmash/oddmash-agents';
+  assert.equal(lowRiskReason([file], 1, agent), 'repository requires root README-only changes');
+  assert.equal(lowRiskReason([{ ...file, filename: 'README.md' }], 1, agent), undefined);
+  assert.equal(lowRiskReason([file], 2, target.repository), 'changed-file list is incomplete');
+  assert.equal(lowRiskReason([{ ...file, patch: 'x'.repeat(45_001) }], 1, target.repository), 'changed diff exceeds the auto-merge budget');
+  assert.equal(lowRiskReason([{ ...file, patch: undefined }], 1, target.repository), 'changed diff evidence is incomplete');
+  assert.equal(lowRiskReason([{ ...file, status: 'renamed', previous_filename: 'src/old.ts' }], 1, target.repository), 'changed file operation requires manual merge');
+  assert.equal(lowRiskReason([{ ...file, filename: 'src/auth/session.ts' }], 1, target.repository), 'protected changed path requires manual merge');
+  assert.equal(lowRiskReason([{ ...file, filename: 'tests/a.test.ts' }], 1, target.repository), 'changed test path is outside automatic merge scope');
 });

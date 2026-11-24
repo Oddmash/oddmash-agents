@@ -29,11 +29,16 @@ export function ineligiblePullReason(pr: MergePull, target: Target): string {
   if (!mergeRepositoryAllowed(target)) return 'repository is outside the auto-merge allowlist';
   if (target.repository === 'Oddmash/.github' && pr.base.ref !== 'main') return 'organization documentation PR must target main';
   if (!maintainer(pr.user)) return 'PR author is not the authorized maintainer';
+  if (pr.state !== 'open' || pr.draft) return 'pull request is not open and ready';
   if (pr.base.repo.private !== Boolean(target.private) || pr.base.repo.archived) return 'repository visibility or archive state is ineligible';
+  if (pr.base.repo.id !== target.repositoryId || pr.base.repo.full_name !== target.repository) return 'base repository identity is ineligible';
+  if (pr.base.repo.allow_merge_commit === false) return 'normal merge commits are disabled';
   if (pr.head.repo?.id !== target.repositoryId || pr.head.repo.full_name !== target.repository) return 'fork or source repository mismatch';
   if (pr.base.ref !== 'develop' && (pr.base.ref !== 'main' || pr.base.repo.default_branch !== 'main')) return 'target is neither develop nor the default main branch';
   if (pr.changed_files > 20 || pr.changed_files < 1) return 'changed-file count exceeds the auto-merge budget';
+  if (!sha.test(pr.head.sha) || !sha.test(pr.base.sha)) return 'current head or base commit evidence is incomplete';
   if (!sha.test(pr.merge_commit_sha ?? '')) return 'merge commit evidence is not ready';
+  if (pr.labels.some(l => /(?:^|: )(?:no auto.merge|do not merge|manual|blocked|hold|wip)$/i.test(l.name))) return 'pull request has manual hold label';
   return 'PR state, repository identity, merge method, or manual hold is ineligible';
 }
 
@@ -53,24 +58,32 @@ const testRoots: Record<string, RegExp> = {
   'Oddmash/boundra': /^packages\/(?:runtime|ui)\/tests\//,
 };
 
-export function lowRisk(files: ChangedFile[], count: number, repository = ''): boolean {
-  if (!files.length || files.length !== count || count > 20) return false;
-  if (files.reduce((size, file) => size + (file.patch?.length ?? 0), 0) > 45_000) return false;
-  return files.every(f => {
+export function lowRiskReason(files: ChangedFile[], count: number, repository = ''): string | undefined {
+  if (count < 1 || count > 20) return 'changed-file count exceeds the auto-merge budget';
+  if (!files.length || files.length !== count) return 'changed-file list is incomplete';
+  if (files.reduce((size, file) => size + (file.patch?.length ?? 0), 0) > 45_000) return 'changed diff exceeds the auto-merge budget';
+  if (['Oddmash/oddmash-agents', 'Oddmash/oddmash-skills'].includes(repository) && files.some(file => !/^README(?:\.[a-z-]+)?\.md$/i.test(file.filename))) return 'repository requires root README-only changes';
+  for (const f of files) {
     const path = f.filename;
-    if (!f.patch || !patchComplete(f) || !['added', 'modified'].includes(f.status) || f.previous_filename || safeText(f.patch) !== f.patch) return false;
-    if (repository === 'Oddmash/.github') return /^(?:AGENTS\.md|CONTRIBUTING\.md|PULL_REQUEST_TEMPLATE\.md|profile\/README\.md|docs\/(?:ko|ja|zh-CN)\/(?:README|CONTRIBUTING)\.md|\.github\/ISSUE_TEMPLATE\/(?:bug_report_en|chore|documentation|feature|fix|improvement|refactor|test)\.md)$/.test(path);
-    if (/(?:policy|release|deploy|security|auth|architecture|credential|instructions|review|config|permission|secret|token|generated|background|service.worker|storage|migration)/i.test(path) || /(?:^|\/)(?:AGENTS\.md|CONTRIBUTING\.md|SECURITY\.md|CODEOWNERS|PROMPT\.md|SPEC\.md|CHANGELOG\.md|\.github|scripts)(?:\/|$)/i.test(path)) return false;
-    if (['Oddmash/oddmash-agents', 'Oddmash/oddmash-skills'].includes(repository) && !/^README(?:\.[a-z-]+)?\.md$/i.test(path)) return false;
-    if (/^(?:README(?:\.[a-z-]+)?\.md|docs\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.md)$/i.test(path)) return true;
+    if (!f.patch || !patchComplete(f)) return 'changed diff evidence is incomplete';
+    if (!['added', 'modified'].includes(f.status) || f.previous_filename) return 'changed file operation requires manual merge';
+    if (safeText(f.patch) !== f.patch) return 'changed content requires confidential manual review';
+    if (/(?:policy|release|deploy|security|auth|architecture|credential|instructions|review|config|permission|secret|token|generated|background|service.worker|storage|migration)/i.test(path) || /(?:^|\/)(?:AGENTS\.md|CONTRIBUTING\.md|SECURITY\.md|CODEOWNERS|PROMPT\.md|SPEC\.md|CHANGELOG\.md|\.github|scripts)(?:\/|$)/i.test(path)) return 'protected changed path requires manual merge';
+    if (/^(?:README(?:\.[a-z-]+)?\.md|docs\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.md)$/i.test(path)) continue;
     const isTest = testRoots[repository]?.test(path) || /(?:\.test\.|\.spec\.|(?:^|\/)(?:tests?|__tests__)\/)/.test(path);
     const ext = /\.(?:[cm]?[jt]sx?|css|scss)$/i;
-    if (!ext.test(path)) return false;
+    if (!ext.test(path)) return 'changed file type is outside automatic merge scope';
     if (isTest) {
-      return !!(testRoots[repository]?.test(path) || sourceRoots[repository]?.test(path)) && !/^-/m.test(f.patch) && !/^\+(?!\+).*(?:\b(?:test|it|describe)\.(?:skip|only|todo)|\b(?:skip|todo)\s*:\s*true)/m.test(f.patch);
+      if (!(testRoots[repository]?.test(path) || sourceRoots[repository]?.test(path))) return 'changed test path is outside automatic merge scope';
+      if (/^-/m.test(f.patch) || /^\+(?!\+).*(?:\b(?:test|it|describe)\.(?:skip|only|todo)|\b(?:skip|todo)\s*:\s*true)/m.test(f.patch)) return 'test changes are not additive and enabled';
+      continue;
     }
-    return !!sourceRoots[repository]?.test(path);
-  });
+    if (!sourceRoots[repository]?.test(path)) return 'changed source path is outside automatic merge scope';
+  }
+}
+
+export function lowRisk(files: ChangedFile[], count: number, repository = ''): boolean {
+  return lowRiskReason(files, count, repository) === undefined;
 }
 
 export function linkedIssue(body: string | null): number | null {
@@ -118,7 +131,9 @@ export async function mergeCandidate(api: Api, target: Target, number: number, w
   const acceptance = acceptanceOf(issue, Boolean(target.private));
   if (!acceptance || acceptance.issue !== issueNumber) return deny('issue acceptance criteria are ineligible');
   const files = await api<ChangedFile[]>(root + '/pulls/' + number + '/files?per_page=100');
-  if (!lowRisk(files, pr.changed_files, target.repository) || (target.private && selectFiles(files, 45_000, true, 'strict').omitted.length > 0)) return deny('changed paths or review budget are ineligible');
+  const risk = lowRiskReason(files, pr.changed_files, target.repository);
+  if (risk) return deny(risk);
+  if (target.private && selectFiles(files, 45_000, true, 'strict').omitted.length > 0) return deny('private strict review coverage is incomplete');
   return { pull: pr, acceptance };
 }
 
@@ -132,8 +147,9 @@ export async function mergeAuthorized(api: Api, target: Target, candidate: Candi
   if (!issueVerified) return deny('issue evidence not verified');
   const root = '/repos/' + target.repository;
   const number = candidate.pull.number;
-  const current = await mergeCandidate(api, target, number);
-  if (!current || current.acceptance.digest !== candidate.acceptance.digest || current.pull.head.sha !== candidate.pull.head.sha || current.pull.base.ref !== candidate.pull.base.ref || current.pull.base.sha !== candidate.pull.base.sha || current.pull.merge_commit_sha !== candidate.pull.merge_commit_sha) return deny('candidate changed');
+  const current = await mergeCandidate(api, target, number, withheld);
+  if (!current) return false;
+  if (current.acceptance.digest !== candidate.acceptance.digest || current.pull.head.sha !== candidate.pull.head.sha || current.pull.base.ref !== candidate.pull.base.ref || current.pull.base.sha !== candidate.pull.base.sha || current.pull.merge_commit_sha !== candidate.pull.merge_commit_sha) return deny('candidate changed');
   if (current.pull.mergeable === null || current.pull.mergeable_state === 'unknown') throw new Error('Mergeability evidence pending');
   if (current.pull.mergeable !== true || current.pull.mergeable_state !== 'clean') return deny('candidate is not clean');
   const branch = await api<Branch>(root + '/branches/' + current.pull.base.ref);
