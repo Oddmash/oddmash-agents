@@ -62,7 +62,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   if (!pr || (pr.base.repo.private ? !permittedPrivate : c.privateRepositoryId !== undefined) || pr.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase() || pr.state !== 'open' || pr.draft || !shaPattern.test(pr.base.sha) || !shaPattern.test(pr.head.sha)) throw new Error('Only open, non-draft, public or explicitly enabled private PRs are eligible');
   const files = await api<ChangedFile[]>(`${prPath}/files?per_page=100&page=1`);
   const privateReview = pr.base.repo.private;
-  const scoped = c.incrementalFiles === undefined ? files : files.filter(file => c.incrementalFiles!.includes(file.filename));
+  const scoped = c.incrementalFiles === undefined ? (files ?? []) : (files ?? []).filter(file => c.incrementalFiles!.includes(file.filename));
   const selected = selectFiles(scoped ?? [], 45_000, privateReview);
   if (c.incrementalFiles !== undefined && (files?.length !== scoped?.length || scoped.length !== c.incrementalFiles.length)) {
     selected.omitted.push('Previously reviewed files outside the incremental scope');
