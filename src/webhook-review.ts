@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { runReview } from './reviewer.ts';
 import { startReviewProgress } from './review-progress.ts';
-import { formatReviewBody } from './core.ts';
+import { formatReviewBody, reviewOutcome } from './core.ts';
 import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, completeCommentReaction, reactToComment, type Target } from './webhook.ts';
@@ -108,7 +108,7 @@ export async function attachReviewFindings(api: Api, path: string, pendingId: nu
   return comments.length;
 }
 
-const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human'];
+const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human', 'review: follow-up'];
 
 export async function reviewWebhook(target: Target, config: { appId: string; key: string; slug: string; openaiKey: string; model: string; autoMerge?: boolean }) {
   const { appId, key, slug, openaiKey, model } = config;
@@ -276,9 +276,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
       const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks, target.recheck);
       await progress?.update('Publishing review', 'Rechecking the current commit and submitting the result.');
-      const completedResult = event === 'APPROVE' ? { conclusion: 'success' as const, title: 'Review approved' } : event === 'REQUEST_CHANGES' ? { conclusion: 'failure' as const, title: 'Changes requested' } : { conclusion: 'neutral' as const, title: 'Maintainer review needed' };
+      const completedResult = event === 'APPROVE' ? { conclusion: 'success' as const, title: 'Review approved' } : event === 'REQUEST_CHANGES' ? { conclusion: 'failure' as const, title: 'Changes requested' } : { conclusion: 'neutral' as const, title: reviewOutcome(event, result.followUp).title };
       const proof = event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === current.head.sha && candidate.pull.base.sha === current.base.sha && candidate.pull.merge_commit_sha === current.merge_commit_sha ? `\n\n${mergeProof(candidate)}` : '';
-      const body = formatReviewBody(event, finalMarker, result.report, current.user) + (requestTag ? `\n\n${requestTag}` : '') + proof;
+      const body = formatReviewBody(event, finalMarker, result.report, current.user, result.followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof;
       const attemptMerge = async (reviewId: number) => {
         if (!candidate) { await mergeStatus(mergeReason); return; }
         if (candidate.pull.head.sha !== result.head || candidate.pull.base.sha !== current.base.sha) { await mergeStatus('candidate changed'); return; }
@@ -316,7 +316,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       await progress?.finish(progressResult.conclusion, progressResult.title);
       if (event === 'APPROVE') await attemptMerge(pendingId);
       await publishAutomationStatus(api, repository, pr.number, bot, current.head.sha, 'review', 'review completed', true);
-      const label = event === 'APPROVE' ? 'review: approved' : event === 'REQUEST_CHANGES' ? 'review: changes requested' : 'review: needs human';
+      const label = reviewOutcome(event, result.followUp).label;
       const labels = await api<{ name: string }[]>(`${root}/labels?per_page=100`);
       if (!labels.some(item => item.name === label)) {
         try { await api(`${root}/labels`, { method: 'POST', body: JSON.stringify({ name: label, color: label === 'review: approved' ? '0e8a16' : label === 'review: changes requested' ? 'd73a4a' : 'fbca04' }) }); }

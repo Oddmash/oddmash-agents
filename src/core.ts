@@ -7,6 +7,18 @@ export type Finding = { path: string; line: number; side?: 'LEFT' | 'RIGHT'; sev
 export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[]; relatedBaseFiles?: Record<string, string>; changedHeadFiles?: Record<string, string>; focus?: string[]; feedback?: string[] };
 
 export type ReviewDecision = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
+export type ReviewFollowUp = { advisory: boolean; incompleteCoverage: boolean; invalidEvidence: boolean };
+
+export function reviewFollowUp(context: ReviewContext, findings: Finding[], modelValid: boolean): ReviewFollowUp {
+  return { advisory: findings.some(finding => !isBlockingFinding(context, finding)), incompleteCoverage: !context.files.length || context.omitted.length > 0, invalidEvidence: !modelValid };
+}
+
+export function reviewOutcome(event: ReviewDecision, followUp?: ReviewFollowUp): { label: string; title: string } {
+  if (event === 'APPROVE') return { label: 'review: approved', title: 'Review approved' };
+  if (event === 'REQUEST_CHANGES') return { label: 'review: changes requested', title: 'Changes requested' };
+  if (!followUp || followUp.incompleteCoverage || followUp.invalidEvidence) return { label: 'review: needs human', title: 'Review coverage or evidence incomplete' };
+  return { label: 'review: follow-up', title: followUp.advisory ? 'Advisory findings to consider' : 'Review approval pending checks' };
+}
 
 export function checksPassed(checks: ReviewContext['checks']): boolean {
   if (!checks.length || checks.some(check => check.status !== 'completed' || !['success', 'skipped'].includes(check.conclusion ?? ''))) return false;
@@ -196,12 +208,12 @@ const koreanDetails = (lines: string[]) => ['<details>', '<summary>한국어 (Ko
 export function inlineComment(context: ReviewContext, finding: Finding): string {
   const blocking = isBlockingFinding(context, finding);
   const lines = [findingMarker(context, finding), `**${blocking ? 'BLOCKING' : 'ADVISORY'} / ${finding.severity.toUpperCase()}: ${clean(finding.rule)}**`, '', clean(finding.evidence), '', `${blocking ? 'Fix' : 'Consider'}: ${clean(finding.recommendation)}`];
-  if (finding.severity === 'high') lines.push('', `Verify: ${clean(finding.verification)}`);
+  if (blocking || finding.severity === 'high') lines.push('', `Verify: ${clean(finding.verification)}`);
   if (finding.suggestion) lines.push('', '```suggestion', finding.suggestion, '```');
   if (finding.korean) {
     const ko = finding.korean;
     const translated = [koreanText(ko.rule), '', koreanText(ko.evidence), '', `${blocking ? '수정' : '제안'}: ${koreanText(ko.recommendation)}`];
-    if (finding.severity === 'high') translated.push('', `확인: ${koreanText(ko.verification)}`);
+    if (blocking || finding.severity === 'high') translated.push('', `확인: ${koreanText(ko.verification)}`);
     lines.push('', koreanDetails(translated));
   }
   return lines.join('\n');
@@ -240,12 +252,12 @@ export function formatReport(context: ReviewContext, findings: Finding[], modelV
   const lines = [reviewMarker(context)];
   if (!findings.length) lines.push('No validated findings in the reviewed changes. This is not an approval or proof of correctness.');
   for (const f of findings) {
-    lines.push(`- **${isBlockingFinding(context, f) ? 'BLOCKING' : 'ADVISORY'} / ${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.evidence)} Action: ${clean(f.recommendation)} Verify: ${clean(f.verification)}`);
+    lines.push(`- **${isBlockingFinding(context, f) ? 'BLOCKING' : 'ADVISORY'} / ${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.evidence)} ${isBlockingFinding(context, f) ? 'Fix' : 'Consider'}: ${clean(f.recommendation)} Verify: ${clean(f.verification)}`);
   }
   if (context.omitted.length) lines.push('', '**Manual review coverage**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 0) : ['- Some changes require manual review; inspect Files changed for unreviewed entries.']));
   if (!context.files.length) lines.push('No changed file could be reviewed. Inspect the complete diff before approval.');
   else if (!modelValid) lines.push('The review response contained findings that could not be validated against the changed lines. Compare the reported findings with the exact diff or request a fresh review.');
-  const translated = findings.filter(f => f.korean).map(f => `- **${isBlockingFinding(context, f) ? '수정 필수' : '참고 의견'} / ${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.evidence)} 조치: ${koreanText(f.korean!.recommendation)} 확인: ${koreanText(f.korean!.verification)}`);
+  const translated = findings.filter(f => f.korean).map(f => `- **${isBlockingFinding(context, f) ? '수정 필수' : '참고 의견'} / ${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.evidence)} ${isBlockingFinding(context, f) ? '수정' : '제안'}: ${koreanText(f.korean!.recommendation)} 확인: ${koreanText(f.korean!.verification)}`);
   if (!findings.length) translated.push('검토한 변경 사항에서 확인된 문제는 없습니다. 승인 또는 정확성을 보장하지 않습니다.');
   if (context.omitted.length) translated.push('', '**수동 검토 범위**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 1) : ['- 일부 변경 사항은 수동 검토가 필요합니다. Files changed에서 미검토 항목을 확인하세요.']));
   if (!context.files.length) translated.push('검토할 수 있는 변경 파일이 없습니다. 승인 전 전체 diff를 확인하세요.');
@@ -254,8 +266,13 @@ export function formatReport(context: ReviewContext, findings: Finding[], modelV
   return lines.join('\n');
 }
 
-export function formatReviewBody(event: ReviewDecision, marker: string, report: string, author?: { id: number; login: string }): string {
+export function formatReviewBody(event: ReviewDecision, marker: string, report: string, author?: { id: number; login: string }, followUp?: ReviewFollowUp): string {
   if (event === 'APPROVE') return author?.id === 135234546 && author.login === 'qtaghdi' ? `${marker}\nApproved.` : `${marker}\nThanks for contributing! @qtaghdi, this PR is ready for your review.`;
   if (event === 'REQUEST_CHANGES') return `${marker}\nPlease address the findings before approval.\n\n${report}`;
-  return `${marker}\nMaintainer review required.\n\n${report}`;
+  const reasons: string[] = [];
+  if (followUp?.advisory) reasons.push('Advisory findings: investigate and address or explain them before requesting another review. They are not confirmed blockers.');
+  if (followUp?.incompleteCoverage) reasons.push('Manual coverage check required: inspect the unreviewed changes listed below.');
+  if (followUp?.invalidEvidence) reasons.push('Review evidence incomplete: validate the findings against the diff or request a fresh review.');
+  if (!reasons.length) reasons.push(followUp ? 'Approval pending complete passing checks.' : 'Review follow-up required; inspect the report below.');
+  return `${marker}\nReview follow-up required. No approval was issued.\n\n${reasons.map(reason => `- ${reason}`).join('\n')}\n\n${report}`;
 }
