@@ -1,6 +1,6 @@
 # Oddmash agent family
 
-One repository, Vercel project and queue serve the agents. Each role has individual usage attribution and optionally independent model configuration. Reviewer retains its existing automatic review policy. Other agents respond only to explicit maintainer commands and publish advice, not approval or operational actions.
+One repository, Vercel project and queue serve the agents. Each role has individual usage attribution and optionally independent model configuration. Reviewer retains its existing automatic review policy. Other agents primarily respond to explicit maintainer commands and publish advice, not approval or operational actions. The optional coordinated review mode selects at most two PR advisors; Triage remains issue-only.
 
 | Role | Target | Command | Output |
 | --- | --- | --- | --- |
@@ -18,7 +18,7 @@ Impact is dispatched to its existing impact-specific implementation, while the o
 
 ## Separate GitHub identities
 
-Register each `oddmash-<role>` GitHub App under Oddmash and install it only in authorized repositories. Subscribe only to issue comment events. Use Contents read, Pull requests read, Checks read and Issues write repository permissions; no Contents write, Checks write, or Pull requests write. Restrict permissions to the existing approved repository identities. The app webhook URL is the existing production origin plus `/api/advisory?agent=<role>`.
+Register each `oddmash-<role>` GitHub App under Oddmash and install it only in authorized repositories. Subscribe only to issue comment events. Use Contents read, Checks read and Issues write repository permissions. PR-scoped advisory roles require Pull requests write for PR comment publication; Triage retains Pull requests read. No Contents write or Checks write. Advisory agents do not submit formal reviews or authorize merges. Restrict permissions to the existing approved repository identities. The app webhook URL is the existing production origin plus `/api/advisory?agent=<role>`.
 
 Configure `<ROLE>_APP_ID`, `<ROLE>_APP_PRIVATE_KEY`, `<ROLE>_WEBHOOK_SECRET`, and `<ROLE>_APP_ENABLED=true` in the existing protected production environment. Use a distinct App ID and independently generated secrets per role. Usage is logged by role. Optionally configure `<ROLE>_OPENAI_API_KEY` and `<ROLE>_OPENAI_MODEL` for individual OpenAI project billing and model selection; absent role-specific settings, usage is attributed by role in logs but billed to the shared project. Reviewer retains its existing model configuration. The service rejects missing or duplicate app identities and verifies the dedicated signature before routing; dedicated queue jobs retain the authenticated role and cannot enter review/merge paths. Start each app disabled until its installation, webhook and handling of an explicit command have been verified. Never paste keys in comments, issues, or documentation.
 

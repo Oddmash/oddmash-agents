@@ -43,3 +43,7 @@ test('terminal failure record publishing reports a sanitized signal and stops re
   assert.deepEqual(reports, ['Reviewer failure record unavailable after two publish attempts']);
   assert.equal(retryableJobError(new Error('Reviewer failure record unavailable')), false);
 });
+
+test('model input budget excess is permanent and is not retried', () => {
+  assert.equal(retryableJobError(new Error('Model input budget exceeded')), false);
+});

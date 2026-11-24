@@ -64,7 +64,7 @@ The local CLI and organization workflow also use the review engine. Queue-backed
 
 ### Evolution
 
-Prioritize a small shared execution contract and model adapter ([#63](https://github.com/Oddmash/oddmash-agents/issues/63)), minimal role-aware execution history ([#62](https://github.com/Oddmash/oddmash-agents/issues/62)), and bounded usage with cost monitoring ([#64](https://github.com/Oddmash/oddmash-agents/issues/64)). Start with existing infrastructure and deterministic tests.
+Role-aware execution events and per-role model budgets use the existing runtime logs and a small shared serialization and usage module. See [agent operations](docs/agent-operations.md) for monitoring, limits and cost estimation. Each role retains its own evidence and output validation contract rather than sharing a generalized execution framework.
 
 Defer a dedicated dashboard until logs prove insufficient. Keep cross-agent collaboration explicit and maintainer-directed. Split servers or queues only when measured load, reliability or isolation needs justify the operational cost.
 
