@@ -211,8 +211,8 @@ test('mint write token only after exact-head approval and protected current CI',
   assert.equal(await mergeAuthorized(makeApi(true, boundraPull, false, true), boundraTarget, boundraCandidate, 'oddmash-reviewer[bot]', 5, true, mint), true);
   assert.equal(mints, 3);
   assert.equal(writes, 3);
-  const developPull = { ...pr, base: { ...pr.base, ref: 'develop' } };
-  const developCandidate = { ...candidate, pull: developPull };
+  const developPull = { ...pr, body: 'Refs #9\n\n## Summary\n- Explain the example clearly.', base: { ...pr.base, ref: 'develop' } };
+  const developCandidate = { pull: developPull, acceptance: acceptanceForPull(issue, developPull)! };
   assert.equal(await mergeAuthorized(makeApi(true, developPull), target, candidate, 'oddmash-reviewer[bot]', 5, true, mint), false);
   assert.equal(await mergeAuthorized(makeApi(true, developPull), target, developCandidate, 'oddmash-reviewer[bot]', 5, true, mint), true);
   assert.equal(mints, 4);
