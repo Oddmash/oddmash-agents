@@ -82,9 +82,10 @@ export async function attachReviewFindingsWithCoverage(api: Api, path: string, p
   const valid = findings.every(comment => /<!-- oddmash-finding:[a-f0-9]{24} -->/.test(comment.body));
   const comments = findings.filter(comment => {
     const marker = comment.body.match(/<!-- oddmash-finding:[a-f0-9]{24} -->/)?.[0];
+    const blocking = comment.body.startsWith(marker + '\n**BLOCKING / ');
     return marker && !existing.some(item =>
-      (item.user.login === bot && item.body.includes(marker)) ||
-      (item.user.type === 'Bot' && verifiedReviewer.test(item.user.login) && !item.in_reply_to_id &&
+      (item.user.login === bot && item.body.includes(marker) && (!blocking || item.body.startsWith(marker + '\n**BLOCKING / '))) ||
+      (!blocking && item.user.type === 'Bot' && verifiedReviewer.test(item.user.login) && !item.in_reply_to_id &&
         item.body.startsWith('<!-- oddmash-finding:') && item.commit_id === head &&
         item.path === comment.path && item.line === comment.line && comment.side === (item.side ?? 'RIGHT') &&
         sameFindingText(item.body, comment.body)));

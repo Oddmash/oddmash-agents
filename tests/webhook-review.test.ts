@@ -456,6 +456,30 @@ test('only suppresses the summary when existing bot threads cover every finding'
 });
 
 
+test('existing advice cannot suppress a blocking Lead finding on the same line', async () => {
+  const text = 'Keyboard focus disappears when opening the dialog.';
+  const anchor = { path: 'src/ui.ts', line: 1, side: 'RIGHT' as const };
+  const marker = `<!-- oddmash-finding:${'a'.repeat(24)} -->`;
+  const blocking = { ...anchor, body: `${marker}\n**BLOCKING / MEDIUM: ${text}**` };
+  const advisory = { ...blocking, body: blocking.body.replace('BLOCKING', 'ADVISORY') };
+  let priorLeadAdvisory = false;
+  const api = githubApi('fixture-token', async (url, init) => {
+    const endpoint = new URL(String(url)).pathname;
+    if (endpoint === path + '/comments') return Response.json([
+      { ...anchor, commit_id: head, user: { login: 'oddmash-qa[bot]', type: 'Bot' }, body: `<!-- oddmash-finding:${'b'.repeat(24)} -->\n${text}` },
+      ...(priorLeadAdvisory ? [{ ...advisory, commit_id: head, user: { login: bot, type: 'Bot' } }] : [])
+    ]);
+    if (endpoint === path + '/reviews/42') return Response.json({ id: 42, node_id: 'PRR_fixture', state: 'PENDING', user: { login: bot }, commit_id: head, body: '<!-- oddmash-review-lock -->' });
+    assert.equal(endpoint, '/graphql');
+    assert.equal(JSON.parse(String(init?.body)).variables.finding0.body, blocking.body);
+    return Response.json({ data: { finding0: { thread: { id: 'fixture' } } } });
+  });
+  assert.deepEqual(await attachReviewFindingsWithCoverage(api, path, 42, head, bot, [advisory]), { attached: 0, covered: true });
+  assert.deepEqual(await attachReviewFindingsWithCoverage(api, path, 42, head, bot, [blocking]), { attached: 1, covered: true });
+  priorLeadAdvisory = true;
+  assert.deepEqual(await attachReviewFindingsWithCoverage(api, path, 42, head, bot, [blocking]), { attached: 1, covered: true });
+});
+
 test('simultaneous pending reviews elect only the oldest owned lock and fail closed on incomplete evidence', () => {
   const lock = (id: number) => ({ id, state: 'PENDING', user: { login: bot }, commit_id: head, body: '<!-- oddmash-review-lock -->' });
   const concurrent = [lock(44), lock(42)];
