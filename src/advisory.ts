@@ -38,7 +38,7 @@ async function issueBase(api: Api, target: Target): Promise<string | undefined> 
   if (branch?.name === repository.default_branch && sha.test(branch.commit?.sha ?? '')) return branch.commit!.sha;
 }
 
-export async function runAdvisory(api: Api, target: Target, config: { bot: string; model: string; openaiKey: string; automatic?: boolean; incrementalFiles?: string[] }, request: typeof fetch = fetch) {
+export async function runAdvisory(api: Api, target: Target, config: { bot: string; model: string; openaiKey: string; automatic?: boolean; incrementalFiles?: string[]; collectSummary?: (section: string, publishFindings?: (publicationApi: Api) => Promise<void>) => void }, request: typeof fetch = fetch) {
   const role = target.advisory;
   if (!isAdvisoryRole(role) || role === 'impact' || !target.number || (!config.automatic && target.requestComment?.kind !== 'issue')) return;
   const profile = advisoryProfiles[role];
@@ -93,7 +93,7 @@ export async function runAdvisory(api: Api, target: Target, config: { bot: strin
     }
     throw new Error('Advisory comment lookup incomplete');
   };
-  if ((await find())?.body.includes(revision)) return;
+  if (!config.collectSummary && (await find())?.body.includes(revision)) return;
   const eyes = target.requestComment ? await reactToComment(api, target.repository, target.requestComment, 'eyes') : undefined;
   let completed = false;
   try {
@@ -105,13 +105,21 @@ export async function runAdvisory(api: Api, target: Target, config: { bot: strin
     if (data.status !== 'completed' || !raw) throw new Error('Incomplete advisory response');
     const report: unknown = JSON.parse(raw);
     if (!validAdvisory(report)) throw new Error('Invalid advisory response');
-    const current = async () => {
-      const latest = await api<Subject>(path);
-      return eligible(latest) && fingerprint(latest) === fingerprint(subject) && (!issue || await issueBase(api, target) === projectRef);
+    const current = async (reviewApi = api) => {
+      const latest = await reviewApi<Subject>(path);
+      return eligible(latest) && fingerprint(latest) === fingerprint(subject) && (!issue || await issueBase(reviewApi, target) === projectRef);
     };
     if (!await current()) return;
-    const existing = await find();
+    const existing = config.collectSummary ? undefined : await find();
     if (existing?.body.includes(revision)) { completed = true; return; }
+    if (config.collectSummary) {
+      const last = report.en.length - 1;
+      config.collectSummary(`- **${profile.name}:** ${render(report.en[last])} / ${render(report.ko[last])}`, inline ? publicationApi => publishSpecialistFindings(
+        publicationApi, target, config.bot, subject.head!.sha, report, selectedFiles, () => current(publicationApi)
+      ) : undefined);
+      completed = true;
+      return;
+    }
     if (inline) {
       await publishSpecialistFindings(api, target, config.bot, subject.head!.sha, report, selectedFiles, current);
       if (!await current()) return;

@@ -16,6 +16,24 @@ const pull = { state: 'open', draft: false, head: { sha: head }, base: { sha: 'b
 const repository = { id: 2, full_name: target.repository, private: false, visibility: 'public', owner: { login: 'Oddmash' } };
 const config = { slug: 'oddmash-reviewer', openaiKey: 'fixture', model: 'fixture' };
 
+function pendingReviewFixture() {
+  let pending: { body: string; commit_id: string; id: number; state: string; user: typeof bot } | undefined;
+  let nextId = 40;
+  return (path: string, init?: RequestInit) => {
+    if (path === `${base}/reviews`) {
+      if (init?.method !== 'POST') return Response.json(pending ? [pending] : []);
+      if (pending) return Response.json({}, { status: 422 });
+      pending = { ...JSON.parse(String(init.body)), id: nextId++, state: 'PENDING', user: bot };
+      return Response.json(pending);
+    }
+    if (path === `${base}/reviews/${pending?.id}`) {
+      if (init?.method !== 'DELETE') return Response.json(pending);
+      pending = undefined;
+      return new Response(null, { status: 204 });
+    }
+  };
+}
+
 test('answers a verified maintainer thread once and does not change review state', async () => {
   const comments: (typeof root & { in_reply_to_id?: number })[] = [root, question];
   let modelCalls = 0;
@@ -99,8 +117,11 @@ test('resolves only the exact bot-owned inline finding after verified current-he
     const comments = [root, followup];
     const mutations: string[] = [];
     let replies = 0;
+    const pendingReview = pendingReviewFixture();
     const api = githubApi('fixture', async (url, init) => {
       const path = new URL(String(url)).pathname;
+      const lock = pendingReview(path, init);
+      if (lock) return lock;
       if (path === '/repos/Oddmash/example') return Response.json(repository);
       if (path === base) return Response.json(currentPull);
       if (path === `${base}/comments`) return Response.json(comments);
@@ -133,15 +154,18 @@ test('resolves only the exact bot-owned inline finding after verified current-he
   }
 });
 
-test('verifies a referenced conversation finding without resolving a thread or starting a PR review', async () => {
+test('verifies a referenced conversation finding without resolving a thread or submitting a PR review', async () => {
   const nextHead = 'c'.repeat(40);
   const issuePath = '/repos/Oddmash/example/issues/3';
   const original = { ...root, issue_url: `https://api.github.com${issuePath}` };
   const followup = { ...question, issue_url: original.issue_url, body: `@oddmash-reviewer Fixed in ${nextHead}: added pause.\nOriginal: https://github.com/Oddmash/example/pull/3#issuecomment-4\nFile: src/demo.ts` };
   const comments = [original, followup];
   let replies = 0;
+  const pendingReview = pendingReviewFixture();
   const api = githubApi('fixture', async (url, init) => {
     const path = new URL(String(url)).pathname;
+    const lock = pendingReview(path, init);
+    if (lock) return lock;
     if (path === '/repos/Oddmash/example') return Response.json(repository);
     if (path === base) return Response.json({ ...pull, head: { sha: nextHead } });
     if (path.includes('/compare/')) return Response.json({ status: 'ahead', merge_base_commit: { sha: head }, files: [{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }] });
@@ -170,8 +194,11 @@ test('scoped completion retries a failed reaction or resolution without posting 
     const original = { ...root, original_commit_id: head, commit_id: nextHead };
     const comments = [original, followup];
     let replies = 0, modelCalls = 0, receipts = 0, resolved = false, failed = false;
+    const pendingReview = pendingReviewFixture();
     const api = githubApi('fixture', async (input, init) => {
       const path = new URL(String(input)).pathname;
+      const lock = pendingReview(path, init);
+      if (lock) return lock;
       if (path === '/repos/Oddmash/example') return Response.json(repository);
       if (path === base) return Response.json({ ...pull, head: { sha: nextHead } });
       if (path === `${base}/comments`) return Response.json(comments);
@@ -212,7 +239,11 @@ test('scoped completion retries a failed reaction or resolution without posting 
     assert.equal(resolved, false);
     assert.equal(receipts, 0);
     assert.match(comments[2].body, failure === 'reaction' ? /did not confirm the acknowledgement/ : /did not confirm the thread resolution/);
-    await replyToReview(api, target, config, model);
+    const anotherRequest = { ...followup, id: 7, body: `Fixed in ${nextHead}: verified the restored control.` };
+    comments.push(anotherRequest);
+    await replyToReview(api, { ...target, reply: { root: 4, comment: 7, byThread: true } }, config, model);
+    comments.push({ ...anotherRequest, id: 8 });
+    await replyToReview(api, { ...target, reply: { root: 4, comment: 8, byThread: true } }, config, model);
     await replyToReview(api, target, config, model);
     assert.equal(replies, 1);
     assert.equal(modelCalls, 1);
@@ -221,6 +252,50 @@ test('scoped completion retries a failed reaction or resolution without posting 
     assert.doesNotMatch(comments[2].body, /Thread resolution pending/);
     assert.equal(receipts, 0);
   }
+});
+
+test('concurrent requests for the same verified correction post one confirmation', async () => {
+  const nextHead = 'c'.repeat(40);
+  const responses = [
+    { ...question, body: `Fixed in ${nextHead}: added pause.` },
+    { ...question, id: 7, body: `Fixed in ${nextHead}: verified the pause control.` }
+  ];
+  const comments: (typeof root & { in_reply_to_id?: number })[] = [root, ...responses];
+  const pendingReview = pendingReviewFixture();
+  let releaseModels: () => void;
+  const bothModelsStarted = new Promise<void>(resolve => { releaseModels = resolve; });
+  let replies = 0, modelCalls = 0;
+  const api = githubApi('fixture', async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    const lock = pendingReview(path, init);
+    if (lock) return lock;
+    if (path === '/repos/Oddmash/example') return Response.json(repository);
+    if (path === base) return Response.json({ ...pull, head: { sha: nextHead } });
+    if (path === `${base}/comments`) return Response.json(comments);
+    if (path.includes('/compare/')) return Response.json({ status: 'ahead', merge_base_commit: { sha: head }, files: [{ filename: root.path, status: 'modified', patch: '@@ -0,0 +1 @@\n+const paused = true;' }] });
+    if (path.endsWith('/reactions')) return Response.json({ id: 9 });
+    if (path.endsWith('/reactions/9')) return new Response(null, { status: 204 });
+    if (path.endsWith('/comments/10') && init?.method === 'PATCH') {
+      comments[3].body = JSON.parse(String(init.body)).body;
+      return Response.json({ id: 10 });
+    }
+    if (path.endsWith('/comments/4/replies')) {
+      replies++;
+      comments.push({ ...root, id: 10, in_reply_to_id: root.id, body: JSON.parse(String(init?.body)).body });
+      return Response.json({ id: 10 });
+    }
+    assert.equal(path, '/graphql');
+    return Response.json({ data: { repository: { pullRequest: { headRefOid: nextHead, baseRefOid: pull.base.sha, reviewThreads: { nodes: [{ id: 'thread-4', isResolved: true, comments: { nodes: [{ id: 'comment-4', author: { __typename: 'Bot', login: config.slug } }] } }], pageInfo: { hasNextPage: false } } } } } });
+  });
+  const model: typeof fetch = async () => {
+    if (++modelCalls === 2) releaseModels();
+    await bothModelsStarted;
+    return Response.json({ status: 'completed', output_parsed: { verdict: 'fixed', english: 'The control is present.', korean: '제어 버튼이 있습니다.', evidence: '+const paused = true;' } });
+  };
+  await Promise.all(responses.map(comment => replyToReview(api, { ...target, reply: { comment: comment.id, root: root.id, byThread: true } }, config, model)));
+  assert.equal(modelCalls, 2);
+  assert.equal(replies, 1);
+  assert.match(comments[3].body, /Review thread resolved/);
 });
 
 test('full re-review reconciles each earlier finding from its own correction evidence', async () => {

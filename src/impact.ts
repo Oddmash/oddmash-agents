@@ -41,7 +41,7 @@ export function impactBody(result: Assessment, head: string, base: string, omitt
   return `${marker}\n<!-- oddmash-impact-revision:${head}:${base}${inline ? ':inline-v1' : ''} -->\n## Oddmash Impact\n\n**Recommendation:** ${label(recommendation)} (${certainty} confidence)\n\n${render(result.en, ['User benefit', 'Product fit', 'Maintenance cost', 'Trade-offs and risks', 'Evidence and next steps'])}\n\n${partial ? `Partial evidence: ${omitted} changed file(s) excluded. No definitive recommendation.\n\n` : ''}Advisory only. This is not code approval, a CI result, or permission to merge.\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n**추천:** ${koreanLabel(recommendation)} (${certainty})\n\n${render(result.ko, ['사용자 가치', '제품 적합성', '유지보수 비용', '트레이드오프 및 위험', '근거 및 다음 단계'])}\n\n${partial ? `검토에서 제외된 변경 파일 ${omitted}개로 판단 근거가 부족합니다.\n\n` : ''}자문 의견이며 코드 승인, CI 통과 또는 머지 권한이 아닙니다.\n\n</details>`;
 }
 
-export async function runImpact(api: Api, target: Target, config: { bot: string; model: string; openaiKey: string; automatic?: boolean; incrementalFiles?: string[] }, request: typeof fetch = fetch) {
+export async function runImpact(api: Api, target: Target, config: { bot: string; model: string; openaiKey: string; automatic?: boolean; incrementalFiles?: string[]; collectSummary?: (section: string, publishFindings?: (publicationApi: Api) => Promise<void>) => void }, request: typeof fetch = fetch) {
   if (!target.impact || !target.number || (!config.automatic && target.requestComment?.kind !== 'issue')) return;
   const path = `/repos/${target.repository}/pulls/${target.number}`;
   const commentsPath = `/repos/${target.repository}/issues/${target.number}/comments`;
@@ -69,7 +69,7 @@ export async function runImpact(api: Api, target: Target, config: { bot: string;
     }
     throw new Error('Impact comment lookup incomplete');
   };
-  const existing = await findExisting();
+  const existing = config.collectSummary ? undefined : await findExisting();
   if (existing?.body.includes(revision + '\n##')) return;
   const eyes = target.requestComment ? await reactToComment(api, target.repository, target.requestComment, 'eyes') : undefined;
   try {
@@ -82,13 +82,19 @@ export async function runImpact(api: Api, target: Target, config: { bot: string;
     if (data.status !== 'completed' || !content) throw new Error('Incomplete impact response');
     const result: unknown = JSON.parse(content);
     if (!validImpact(result)) throw new Error('Invalid impact response');
-    const current = async () => {
-      const latest = await api<Pull>(path);
+    const current = async (reviewApi = api) => {
+      const latest = await reviewApi<Pull>(path);
       return eligible(latest) && latest.head.sha === pr.head.sha && latest.base.sha === pr.base.sha;
     };
     if (!await current()) { if (target.requestComment) await completeCommentReaction(api, target.repository, target.requestComment, eyes, false); return; }
-    const latest = await findExisting();
+    const latest = config.collectSummary ? undefined : await findExisting();
     if (latest?.body.includes(revision + '\n##')) { if (target.requestComment) await completeCommentReaction(api, target.repository, target.requestComment, eyes, true); return; }
+    if (config.collectSummary) {
+      config.collectSummary(`- **Impact:** ${plain(result.en.evidence)} / ${plain(result.ko.evidence)}`, inline ? publicationApi => publishSpecialistFindings(
+        publicationApi, target, config.bot, pr.head.sha, result, selected.files, () => current(publicationApi)
+      ) : undefined);
+      return;
+    }
     if (inline) {
       await publishSpecialistFindings(api, target, config.bot, pr.head.sha, result, selected.files, current);
       if (!await current()) {

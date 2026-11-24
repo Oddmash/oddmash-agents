@@ -6,7 +6,7 @@ import { privateSensitiveText, safeText } from './core.ts';
 type Repository = { id: number; full_name: string; private: boolean; visibility: string; owner: { login: string }; archived?: boolean };
 type Actor = { id: number; login: string; type?: string };
 type Payload = { action?: string; installation?: { id: number }; repository?: Repository; pull_request?: { number: number; draft: boolean; head?: { sha: string } }; check_suite?: { head_sha: string; app?: { id: number }; pull_requests?: { number: number }[] }; sender?: Actor; requested_reviewer?: Actor; issue?: { number: number; pull_request?: object }; comment?: { id: number; user: Actor; body: string; in_reply_to_id?: number } };
-export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string; expectedHead?: string; impact?: true; advisory?: AdvisoryRole; advisoryIdentity?: AdvisoryRole; private?: boolean; recheck?: string; requestComment?: { kind: 'inline' | 'issue'; id: number; root?: number; slash?: true }; reply?: { comment: number; root: number; kind?: 'conversation'; rootKind?: 'issue' | 'review'; path?: string } };
+export type Target = { installation: number; repository: string; repositoryId: number; number?: number; sha?: string; expectedHead?: string; impact?: true; advisory?: AdvisoryRole; advisoryIdentity?: AdvisoryRole; private?: boolean; recheck?: string; requestComment?: { kind: 'inline' | 'issue'; id: number; root?: number; slash?: true }; reply?: { comment: number; root: number; byThread?: true; kind?: 'conversation'; rootKind?: 'issue' | 'review'; path?: string } };
 const positive = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 const shaPattern = /^[a-f0-9]{40}$/i;
 
@@ -130,6 +130,13 @@ export function route(event: string | null, p: Payload, slug = '', delivery = ''
       if (reference) return { ...target, number: p.issue.number, reply: { comment: p.comment.id, kind: 'conversation', ...reference } };
     }
     if (event === 'pull_request_review_comment' && p.pull_request?.draft === false && positive(p.pull_request.number) && positive(p.comment.in_reply_to_id) && !p.comment.body.trimStart().startsWith('/') && mentioned(p.comment.body, slug)) return { ...target, number: p.pull_request.number, ...(reviewCommand(p.comment.body, slug) ? { recheck: `comment-${p.comment.id}`, requestComment: { kind: 'inline' as const, id: p.comment.id, root: p.comment.in_reply_to_id } } : { reply: { comment: p.comment.id, root: p.comment.in_reply_to_id } }) };
+    if (allowSlash && event === 'pull_request_review_comment' && p.pull_request?.draft === false &&
+        positive(p.pull_request.number) && positive(p.comment.in_reply_to_id) && p.comment.body.trim() &&
+        !p.comment.body.trimStart().startsWith('/') && !/(?:^|\s)@[a-z0-9-]+/i.test(p.comment.body)) {
+      const expectedHead = p.pull_request.head?.sha;
+      return { ...target, number: p.pull_request.number, ...(shaPattern.test(expectedHead ?? '') ? { expectedHead } : {}),
+        reply: { comment: p.comment.id, root: p.comment.in_reply_to_id, byThread: true } };
+    }
   }
   if (event === 'check_suite' && p.action === 'completed' && shaPattern.test(p.check_suite?.head_sha ?? '')) {
     if (positive(reviewerAppId) && p.check_suite?.app?.id === reviewerAppId) return null;
