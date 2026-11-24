@@ -1,6 +1,80 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks } from '../src/checks.ts';
+import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks } from '../src/checks.ts';
+
+test('superseded cancellation, including failed aggregate and retired jobs, does not block current public PR checks', async () => {
+  const head = 'a'.repeat(40);
+  const oldRun = { head_sha: head, workflow_id: 1, check_suite_id: 10, run_number: 125, event: 'pull_request', status: 'completed', conclusion: 'cancelled', pull_requests: [{ number: 51 }] };
+  const current = { ...oldRun, check_suite_id: 11, run_number: 126, conclusion: 'success' };
+  const job = (suite: number, name: string, conclusion: string, app = 15368) => ({ name, status: 'completed', conclusion, app: { id: app }, check_suite: { id: suite } });
+  const oldJobs = [job(10, 'verify', 'failure'), job(10, 'retired matrix job', 'cancelled')];
+  const currentJobs = [job(11, 'verify', 'success'), job(11, 'new matrix job', 'success')];
+  const evaluate = (check_runs: ReturnType<typeof job>[], workflow_runs: typeof oldRun[], total_count = workflow_runs.length) => {
+    const read = publicReviewCheckReader('/repos/Oddmash/example', 51, async () => ({ check_runs, total_count: check_runs.length }), async (url, init) => {
+      assert.equal(new URL(String(url)).searchParams.get('head_sha'), head);
+      assert.equal(new Headers(init?.headers).has('Authorization'), false);
+      return Response.json({ workflow_runs, total_count });
+    });
+    return loadCheckEvidence(head, null, read, 42);
+  };
+  const passing = await evaluate([...oldJobs, ...currentJobs], [oldRun, current]);
+  assert.deepEqual(passing.check_runs, currentJobs);
+  assert.equal(reviewChecksSuccessful(passing), true);
+  const pending = await evaluate(oldJobs, [oldRun, { ...current, status: 'queued' }]);
+  assert.equal(shouldReconcilePendingChecks(pending, head, head, true), true);
+  assert.equal(shouldReconcilePendingChecks(pending, 'b'.repeat(40), head, true), false);
+  assert.match(checkWaitingSummary(pending), /current workflow is still running/);
+  const noJobsYet = await evaluate(oldJobs, [oldRun, current]);
+  assert.equal(reviewChecksReady(noJobsYet), false);
+  for (const runs of [
+    [oldRun],
+    [oldRun, { ...current, conclusion: 'failure' }],
+    [oldRun, { ...current, conclusion: 'cancelled' }],
+    [oldRun, { ...current, head_sha: 'b'.repeat(40) }],
+    [oldRun, { ...current, pull_requests: [{ number: 52 }] }],
+    [oldRun, { ...current, workflow_id: 2 }]
+  ]) {
+    assert.equal(reviewChecksSuccessful(await evaluate([...oldJobs, ...currentJobs], runs)), false);
+  }
+  assert.equal(reviewChecksSuccessful(await evaluate([...oldJobs, ...currentJobs], [oldRun, current], 3)), false);
+  assert.equal(reviewChecksSuccessful(await evaluate([...oldJobs, ...currentJobs, job(20, 'verify', 'failure')], [oldRun, current])), false);
+  assert.equal(reviewChecksSuccessful(await evaluate([...oldJobs, ...currentJobs, job(10, 'external check', 'failure', 99)], [oldRun, current])), false);
+  assert.equal(reviewChecksSuccessful(await evaluate([...oldJobs, job(11, 'verify', 'failure')], [oldRun, current])), false);
+});
+
+test('fork workflow runs with empty associations require a unique matching PR across branch history', async () => {
+  const sha = 'a'.repeat(40);
+  const head = { sha, ref: 'fix/example', repo: { id: 123, owner: { login: 'contributor' } } };
+  const pr = { number: 51, head };
+  const job = (id: number, conclusion: string) => ({ name: 'verify', status: 'completed', conclusion, app: { id: 15368 }, check_suite: { id } });
+  const check_runs = [job(10, 'failure'), job(11, 'success')];
+  const cancelled = { head_sha: sha, head_branch: head.ref, head_repository: { id: 123 }, event: 'pull_request', workflow_id: 1,
+    check_suite_id: 10, run_number: 125, status: 'completed', conclusion: 'cancelled', pull_requests: [] as { number: number }[] };
+  const replacement = { ...cancelled, check_suite_id: 11, run_number: 126, conclusion: 'success' };
+  const evaluate = async (pulls: typeof pr[] | null, workflow = replacement) => {
+    const read = publicReviewCheckReader('/repos/Oddmash/example', 51, async () => ({ check_runs, total_count: 2 }),
+      async () => Response.json({ total_count: 2, workflow_runs: [cancelled, workflow] }), {
+        head,
+        readPulls: async path => {
+          const url = new URL(path, 'https://api.github.com');
+          assert.equal(url.pathname, '/repos/Oddmash/example/pulls');
+          assert.equal(url.searchParams.get('head'), 'contributor:fix/example');
+          assert.equal(url.searchParams.get('state'), 'all');
+          assert.equal(url.searchParams.get('per_page'), '2');
+          return pulls;
+        },
+      });
+    return reviewChecksSuccessful((await read(sha))!);
+  };
+  assert.equal(await evaluate([pr]), true);
+  assert.equal(await evaluate([pr, { ...pr, number: 52 }]), false);
+  assert.equal(await evaluate([{ ...pr, number: 52 }]), false);
+  assert.equal(await evaluate([{ ...pr, head: { ...head, sha: 'b'.repeat(40) } }]), false);
+  assert.equal(await evaluate(null), false);
+  assert.equal(await evaluate([pr], { ...replacement, head_repository: { id: 124 } }), false);
+  assert.equal(await evaluate([pr], { ...replacement, head_branch: 'other' }), false);
+  assert.equal(await evaluate([pr], { ...replacement, pull_requests: [{ number: 52 }] }), false);
+});
 
 test('only final aggregate CI evidence can produce an official review', () => {
   const label = { name: 'labels', status: 'completed', conclusion: 'success' };

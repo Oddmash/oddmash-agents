@@ -2,11 +2,118 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import { acquirePendingReview, attachReviewFindings, attachReviewFindingsWithCoverage, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock, ownsPendingReview, reviewWebhook } from '../src/webhook-review.ts';
-import { githubApi } from '../src/webhook.ts';
+import { githubApi, route } from '../src/webhook.ts';
 
 const path = '/repos/Oddmash/example/pulls/1';
 const bot = 'oddmash-reviewer[bot]';
 const head = 'a'.repeat(40);
+
+for (const scenario of ['bare command after CI', 'mention after CI', 'CI completes during acknowledgment', 'CI completes after acknowledgment', 'failed current CI', 'stale requested head']) {
+  test(`explicit public review: ${scenario}`, async t => {
+    t.mock.method(console, 'warn', () => {});
+    const repo = { id: 7, full_name: 'Oddmash/example', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
+    const actor = { login: 'qtaghdi', id: 135234546, type: 'User' };
+    const slug = bot.replace('[bot]', '');
+    const root = '/repos/Oddmash/example';
+    const issueComments = `${root}/issues/1/comments`;
+    const command = { id: 9, user: actor, body: scenario === 'mention after CI' ? `@${slug}[bot] /review` : '/review' };
+    const routed = route('issue_comment', { action: 'created', sender: actor, comment: command, issue: { number: 1, pull_request: {} }, repository: repo, installation: { id: 3 } }, slug);
+    assert.ok(routed?.requestComment);
+    const target = { ...routed, expectedHead: scenario === 'stale requested head' ? 'c'.repeat(40) : head };
+    const pr = { number: 1, state: 'open', draft: false, user: actor, head: { sha: head }, base: { sha: 'b'.repeat(40), repo }, changed_files: 0, labels: [], title: 'Fixture' };
+    const reviews = new Map<number, Record<string, unknown>>();
+    const comments: { id: number; body: string; user: { login: string } }[] = [];
+    const acknowledgments = () => comments.filter(item => item.body.includes('oddmash-deferred:'));
+    let started = 0;
+    let submitted = 0;
+    let nextReview = 42;
+    let ci = scenario.startsWith('CI completes') ? 'pending' : scenario === 'failed current CI' ? 'failure' : 'success';
+    t.mock.method(globalThis, 'fetch', async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const endpoint = url.pathname;
+      const method = init?.method ?? 'GET';
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      assert.equal(url.origin, 'https://api.github.com');
+      if (endpoint === '/app/installations/3') return Response.json({ account: { login: 'Oddmash' }, suspended_at: null });
+      if (endpoint === '/app/installations/3/access_tokens') return Response.json({ token: 'fixture' });
+      if (endpoint === root) return Response.json(repo);
+      if (endpoint === path) return Response.json(pr);
+      if (endpoint === `${root}/pulls`) return Response.json([pr]);
+      if (endpoint === `${path}/files`) { ++started; return Response.json([]); }
+      if (endpoint.includes('/contents/')) return new Response(null, { status: 404 });
+      if (endpoint === `${root}/commits/${head}/check-runs`) {
+        const verify = { name: 'verify', status: 'completed', app: { id: 15368 } };
+        const check_runs = [{ ...verify, id: 1, conclusion: 'failure', check_suite: { id: 125 } }];
+        if (ci !== 'pending') check_runs.push({ ...verify, id: 2, conclusion: ci, check_suite: { id: 126 } });
+        return Response.json({ check_runs, total_count: check_runs.length });
+      }
+      if (endpoint === `${root}/actions/runs`) {
+        const run = { head_sha: head, event: 'pull_request', workflow_id: 1, pull_requests: [{ number: 1 }] };
+        return Response.json({ total_count: 2, workflow_runs: [
+          { ...run, check_suite_id: 125, run_number: 125, status: 'completed', conclusion: 'cancelled' },
+          { ...run, check_suite_id: 126, run_number: 126, status: ci === 'pending' ? 'queued' : 'completed', conclusion: ci === 'pending' ? null : ci }
+        ] });
+      }
+      if (endpoint === `${path}/reviews`) {
+        if (method !== 'POST') return Response.json([...reviews.values()]);
+        const id = nextReview++;
+        const review = { ...body, id, state: 'PENDING', user: { login: bot } };
+        reviews.set(id, review);
+        return Response.json(review);
+      }
+      if (endpoint.startsWith(`${path}/reviews/`)) {
+        const id = Number(endpoint.slice(`${path}/reviews/`.length).split('/')[0]);
+        const review = reviews.get(id);
+        assert.ok(review);
+        if (method === 'DELETE') { reviews.delete(id); return new Response(null, { status: 204 }); }
+        if (endpoint.endsWith('/events')) {
+          ++submitted;
+          reviews.set(id, { ...review, body: body.body, state: 'COMMENTED' });
+        }
+        return Response.json(review);
+      }
+      if (endpoint === issueComments) {
+        if (method !== 'POST') return Response.json(comments);
+        const comment = { id: comments.length + 10, body: body.body, user: { login: bot } };
+        comments.push(comment);
+        if (scenario === 'CI completes during acknowledgment' && comment.body.includes('oddmash-deferred:')) ci = 'success';
+        return Response.json(comment);
+      }
+      if (endpoint === `${root}/issues/comments/${command.id}`) return Response.json({ ...command, issue_url: `https://api.github.com${root}/issues/1` });
+      if (endpoint.endsWith('/reactions')) return Response.json(method === 'POST' ? { id: 99 } : []);
+      if (endpoint.endsWith('/reactions/99')) return new Response(null, { status: 204 });
+      if (endpoint.endsWith('/labels') || endpoint === `${path}/comments`) return Response.json([]);
+      assert.fail(`Unexpected request: ${method} ${endpoint}`);
+    });
+    const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+    const config = { appId: '42', key, slug, openaiKey: 'fixture', model: 'fixture' };
+    await reviewWebhook(target, config);
+    if (scenario === 'stale requested head') {
+      assert.equal(started, 0);
+      assert.equal(acknowledgments().length, 0);
+      return;
+    }
+    if (scenario === 'failed current CI') {
+      assert.equal(started, 0);
+      assert.match(acknowledgments()[0].body, /required checks did not pass/);
+      return;
+    }
+    if (scenario === 'CI completes after acknowledgment') {
+      assert.equal(started, 0);
+      assert.match(acknowledgments()[0].body, /will start when the required checks pass/);
+      ci = 'success';
+    } else {
+      assert.equal(started, 1);
+      assert.equal(acknowledgments().length, scenario === 'CI completes during acknowledgment' ? 1 : 0);
+    }
+    const completed = { installation: 3, repository: repo.full_name, repositoryId: repo.id, sha: head };
+    await reviewWebhook(completed, config);
+    await reviewWebhook(completed, config);
+    await reviewWebhook(target, config);
+    assert.equal(started, 1);
+    assert.equal(submitted, 1);
+  });
+}
 
 test('concurrent eligible PR deliveries waiting on CI create one queued check without submitting a review', { timeout: 10000 }, async t => {
   const previousProgress = process.env.REVIEWER_CHECK_PROGRESS_ENABLED;
