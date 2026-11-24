@@ -11,7 +11,7 @@ export type MergePull = { number: number; state: string; draft: boolean; user: I
 type Issue = { number: number; state: string; body: string | null; user: Identity; pull_request?: unknown; updated_at: string };
 type Branch = { protected: boolean; commit: { sha: string }; protection?: { enabled: boolean; required_status_checks?: { enforcement_level: string; checks?: { context: string; app_id: number }[] } } };
 type Review = { id: number; user: Identity; state: string; commit_id: string; body: string | null };
-export type Acceptance = { issue: number; digest: string; body: string; criteria: string[] };
+export type Acceptance = { issue: number; digest: string; body: string; criteria: string[]; mode?: 'partial'; scope?: string };
 export type Candidate = { pull: MergePull; acceptance: Acceptance; repositoryOptIn?: 'documentation' };
 export function mergeProof(candidate: Candidate): string {
   const { pull, acceptance } = candidate;
@@ -108,14 +108,18 @@ export function lowRisk(files: ChangedFile[], count: number, repository = ''): b
   return lowRiskReason(files, count, repository) === undefined;
 }
 
-export function linkedIssue(body: string | null): number | null {
+export function linkedIssueReference(body: string | null): { number: number; mode: 'closing' | 'partial' } | null {
   const text = body ?? '';
   if (text.length > 12000 || /\x60\x60\x60/.test(text)) return null;
-  const links = [...text.matchAll(/^(?:closes|fixes|resolves)\s+#([1-9]\d*)\s*$/gim)];
-  const closing = [...text.matchAll(/\b(?:close[sd]?|fix(?:es|ed)?|resolve[sd]?)\s+(?:#|[a-z0-9_.-]+\/|https?:\/\/)/gi)];
-  if (links.length !== 1 || closing.length !== 1) return null;
-  const n = Number(links[0][1]);
-  return Number.isSafeInteger(n) ? n : null;
+  const links = [...text.matchAll(/^(refs|closes|fixes|resolves)\s+#([1-9]\d*)\s*$/gim)];
+  const references = [...text.matchAll(/\b(?:refs?|references?|close[sd]?|fix(?:es|ed)?|resolve[sd]?)\s+(?:#|[a-z0-9_.-]+\/|https?:\/\/)/gi)];
+  if (links.length !== 1 || references.length !== 1) return null;
+  const number = Number(links[0][2]);
+  return Number.isSafeInteger(number) ? { number, mode: links[0][1].toLowerCase() === 'refs' ? 'partial' : 'closing' } : null;
+}
+
+export function linkedIssue(body: string | null): number | null {
+  return linkedIssueReference(body)?.number ?? null;
 }
 
 export function acceptanceOf(issue: Issue, privateReview = false): Acceptance | null {
@@ -128,6 +132,24 @@ export function acceptanceOf(issue: Issue, privateReview = false): Acceptance | 
   const criteria = lines.map(l => l.match(/^\s*-\s+\[[ xX]\]\s+(.+)$/)?.[1]?.trim());
   if (!criteria.length || criteria.length > 8 || criteria.some(c => !c || c.length < 12 || c.length > 500)) return null;
   return { issue: issue.number, digest: createHash('sha256').update(JSON.stringify([issue.number, issue.updated_at, issue.body])).digest('hex'), body: issue.body, criteria: criteria as string[] };
+}
+
+export function acceptanceForPull(issue: Issue, pull: MergePull, privateReview = false): Acceptance | null {
+  const reference = linkedIssueReference(pull.body);
+  const full = acceptanceOf(issue, privateReview);
+  if (!reference || !full || reference.number !== issue.number) return null;
+  if (reference.mode === 'closing') return full;
+  const body = pull.body ?? '';
+  if (safeText(body) !== body || (privateReview && privateSensitiveText(body))) return null;
+  const sections = body.split(/\r?\n/);
+  const explicit = sections.findIndex(line => /^## Acceptance criteria\s*$/i.test(line));
+  const start = explicit >= 0 ? explicit : sections.findIndex(line => /^## Summary\s*$/i.test(line));
+  if (start < 0) return null;
+  const end = sections.findIndex((line, index) => index > start && /^#{1,2}\s/.test(line));
+  const lines = sections.slice(start + 1, end < 0 ? undefined : end).filter(line => line.trim());
+  const criteria = lines.map(line => explicit >= 0 ? line.match(/^\s*-\s+\[[ xX]\]\s+(.+)$/)?.[1]?.trim() : line.replace(/^\s*[-*]\s+/, '').trim());
+  if (!criteria.length || criteria.length > 8 || criteria.some(value => !value || value.length < 12 || value.length > 500)) return null;
+  return { ...full, mode: 'partial', scope: body, criteria: criteria as string[], digest: createHash('sha256').update(JSON.stringify([full.digest, 'partial', body])).digest('hex') };
 }
 
 export function acceptanceSatisfied(value: unknown, acceptance: Acceptance | undefined, files: ChangedFile[]): boolean {
@@ -151,9 +173,9 @@ export async function mergeCandidate(api: Api, target: Target, number: number, w
   if (optIn === 'disabled') return deny('repository automatic merge opt-in is not enabled');
   if (optIn === 'unavailable') return deny('repository automatic merge opt-in is unavailable');
   const issueNumber = linkedIssue(pr.body);
-  if (!issueNumber || issueNumber === number) return deny('missing single closing issue link');
+  if (!issueNumber || issueNumber === number) return deny('missing single issue reference');
   const issue = await api<Issue>(root + '/issues/' + issueNumber);
-  const acceptance = acceptanceOf(issue, Boolean(target.private));
+  const acceptance = acceptanceForPull(issue, pr, Boolean(target.private));
   if (!acceptance || acceptance.issue !== issueNumber) return deny('issue acceptance criteria are ineligible');
   const files = await api<ChangedFile[]>(root + '/pulls/' + number + '/files?per_page=100');
   const risk = lowRiskReason(files, pr.changed_files, target.repository, optIn === 'documentation' ? optIn : undefined);
@@ -192,7 +214,7 @@ export async function mergeAuthorized(api: Api, target: Target, candidate: Candi
   const final = await api<MergePull>(root + '/pulls/' + number);
   if (final.mergeable === null || final.mergeable_state === 'unknown') throw new Error('Mergeability evidence pending');
   if (!eligiblePull(final, target) || final.head.sha !== current.pull.head.sha || final.base.ref !== current.pull.base.ref || final.base.sha !== current.pull.base.sha || final.merge_commit_sha !== current.pull.merge_commit_sha || final.mergeable_state !== 'clean' || final.mergeable !== true || linkedIssue(final.body) !== current.acceptance.issue) return deny('final PR state changed');
-  const finalIssue = acceptanceOf(await api<Issue>(root + '/issues/' + current.acceptance.issue), Boolean(target.private));
+  const finalIssue = acceptanceForPull(await api<Issue>(root + '/issues/' + current.acceptance.issue), final, Boolean(target.private));
   if (!finalIssue || finalIssue.digest !== current.acceptance.digest) return deny('issue changed during review');
   const finalOptIn = await repositoryMergeOptIn(api, target.repository);
   if (finalOptIn === 'disabled') return deny('repository automatic merge opt-in is not enabled');

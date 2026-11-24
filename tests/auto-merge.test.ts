@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eligiblePull, linkedIssue, acceptanceOf, lowRisk, lowRiskReason, repositoryMergeOptIn, mergeCandidate, acceptanceSatisfied, protectedBranch, mergeAuthorized, mergeProof, type MergePull, type Candidate } from '../src/auto-merge.ts';
+import { eligiblePull, linkedIssue, linkedIssueReference, acceptanceForPull, acceptanceOf, lowRisk, lowRiskReason, repositoryMergeOptIn, mergeCandidate, acceptanceSatisfied, protectedBranch, mergeAuthorized, mergeProof, type MergePull, type Candidate } from '../src/auto-merge.ts';
 import { githubApi, mergeRepositoryAllowed } from '../src/webhook.ts';
 
 const target = { installation: 1, repository: 'Oddmash/kowrap', repositoryId: 42 };
@@ -77,6 +77,30 @@ test('organization documentation requires exact public identity, main and mainta
   for (const filename of ['SECURITY.md', 'CODEOWNERS', '.github/CODEOWNERS', 'docs/AI-CODE-REVIEW.md', '.github/workflows/ci.yml', '.github/ISSUE_TEMPLATE/config.yml', 'docs/example.md', 'assets/agent-family.svg']) {
     assert.equal(lowRiskReason([{ ...files[0], filename }], 1, repository, 'documentation'), 'protected changed path requires manual merge');
   }
+});
+
+test('single Refs supports partial same-repository scope without claiming issue completion', () => {
+  const partial = { ...pr, body: 'Refs #9\n\n## Summary\nExplain the example clearly.\n\n## Verification\nTests passed.' };
+  assert.deepEqual(linkedIssueReference(partial.body), { number: 9, mode: 'partial' });
+  assert.equal(linkedIssue(partial.body), 9);
+  assert.equal(linkedIssue('Refs #9\nCloses #10'), null);
+  assert.equal(linkedIssue('Refs #9\nRefs #10'), null);
+  assert.equal(linkedIssue('Refs Other/repo#9'), null);
+  assert.equal(linkedIssue('Refs #9\nRelated discussion: Other/repo#10'), 9);
+  assert.equal(linkedIssue('Refs #9\nRefs Other/repo#10'), null);
+  assert.equal(linkedIssue('Refs #9\nFixes Other/repo#10'), null);
+  const acceptance = acceptanceForPull(issue, partial)!;
+  assert.equal(acceptance.mode, 'partial');
+  assert.deepEqual(acceptance.criteria, ['Explain the example clearly.']);
+  assert.notEqual(acceptance.digest, acceptanceOf(issue)!.digest);
+  assert.notEqual(acceptance.digest, acceptanceForPull(issue, { ...partial, body: partial.body + '\nExtra detail.' })!.digest);
+  assert.equal(acceptanceForPull(issue, { ...partial, body: 'Refs #9' }), null);
+  assert.equal(acceptanceForPull({ ...issue, state: 'closed' }, partial), null);
+  assert.equal(acceptanceForPull(issue, { ...partial, body: 'Refs #9\n\n## Acceptance criteria\n- [ ] Explain the example clearly.' })?.criteria.length, 1);
+  const evidence = [{ criterion: 0, fulfilled: true, path: 'docs/example.md', line: 1, evidence: 'Example is described.' }];
+  assert.equal(acceptanceSatisfied(evidence, acceptance, files), true);
+  assert.equal(acceptanceSatisfied(evidence, acceptanceOf(issue)!, files), false);
+  assert.notEqual(mergeProof({ pull: partial, acceptance }), mergeProof(candidate));
 });
 
 test('requires one linked issue and all explicit criteria', () => {
