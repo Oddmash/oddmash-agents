@@ -68,6 +68,10 @@ export function lowRiskReason(files: ChangedFile[], count: number, repository = 
     if (!f.patch || !patchComplete(f)) return 'changed diff evidence is incomplete';
     if (!['added', 'modified'].includes(f.status) || f.previous_filename) return 'changed file operation requires manual merge';
     if (safeText(f.patch) !== f.patch) return 'changed content requires confidential manual review';
+    if (repository === 'Oddmash/.github') {
+      if (!/^(?:AGENTS\.md|CONTRIBUTING\.md|PULL_REQUEST_TEMPLATE\.md|profile\/README\.md|docs\/(?:ko|ja|zh-CN)\/(?:README|CONTRIBUTING)\.md|\.github\/ISSUE_TEMPLATE\/(?:bug_report_en|chore|documentation|feature|fix|improvement|refactor|test)\.md)$/.test(path)) return 'protected changed path requires manual merge';
+      continue;
+    }
     if (/(?:policy|release|deploy|security|auth|architecture|credential|instructions|review|config|permission|secret|token|generated|background|service.worker|storage|migration)/i.test(path) || /(?:^|\/)(?:AGENTS\.md|CONTRIBUTING\.md|SECURITY\.md|CODEOWNERS|PROMPT\.md|SPEC\.md|CHANGELOG\.md|\.github|scripts)(?:\/|$)/i.test(path)) return 'protected changed path requires manual merge';
     if (/^(?:README(?:\.[a-z-]+)?\.md|docs\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.md)$/i.test(path)) continue;
     const isTest = testRoots[repository]?.test(path) || /(?:\.test\.|\.spec\.|(?:^|\/)(?:tests?|__tests__)\/)/.test(path);
