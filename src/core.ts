@@ -190,7 +190,7 @@ function validatedBlockingEvidence(finding: Finding, files: ChangedFile[], priva
   return { excerpt: proof.excerpt, impact: proof.impact, requirement: proof.requirement };
 }
 
-export function guidancePaths(files: ChangedFile[]): string[] {
+export function guidancePaths(files: readonly Pick<ChangedFile, 'filename'>[]): string[] {
   const paths = new Set(['AGENTS.md']);
   for (const file of files) {
     const parts = file.filename.split('/').slice(0, -1);

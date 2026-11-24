@@ -19,7 +19,11 @@ const mock = (options: { private?: boolean; exhausted?: boolean; findings?: bool
       const body = JSON.parse(String(init?.body));
       assert.equal(body.store, false);
       assert.ok(body.text.format.schema.properties.findings.items.required.includes('korean'));
-      assert.deepEqual(JSON.parse(body.input).allowedFindingLines, { 'src/ui.ts': [1] });
+      const modelInput = JSON.parse(body.input);
+      assert.deepEqual(modelInput.allowedFindingLines, { 'src/ui.ts': [1] });
+      assert.match(modelInput.sharedSkill.path, /oddmash-code-review-collaboration/);
+      assert.match(modelInput.sharedSkill.revision, /^[0-9a-f]{40}$/);
+      assert.ok(modelInput.sharedSkill.text);
       return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: options.findings ? [finding] : [] }) }] }] });
     }
     if (url.includes('/files?')) return Response.json([{ filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
@@ -48,6 +52,46 @@ test('report-only never writes to GitHub', async () => {
   assert.equal(result.posted, false);
   assert.match(result.report, /No validated findings/);
   assert.ok(calls.filter(x => x.url.includes('api.github.com')).every(x => x.method === 'GET'));
+});
+
+test('Lead uses related project guidance from the PR base alongside the organization rules', async () => {
+  const { request } = mock();
+  const projectReads: string[] = [];
+  await runReview(config, async (input, init) => {
+    const url = new URL(String(input));
+    if (url.hostname === 'api.openai.com') {
+      const model = JSON.parse(JSON.parse(String(init?.body)).input);
+      assert.deepEqual(model.guidance, {
+        'Oddmash/.github/AGENTS.md': 'Organization rules.',
+        'Oddmash/example/AGENTS.md': 'Project rules.',
+        'Oddmash/example/src/AGENTS.md': 'Source rules.'
+      });
+    }
+    if (url.pathname === '/repos/Oddmash/.github/contents/AGENTS.md') {
+      assert.equal(url.searchParams.get('ref'), 'main');
+      assert.equal(new Headers(init?.headers).has('Authorization'), false);
+      return Response.json({ encoding: 'base64', content: Buffer.from('Organization rules.').toString('base64') });
+    }
+    if (url.pathname.endsWith('/AGENTS.md')) {
+      assert.equal(url.searchParams.get('ref'), pr.base.sha);
+      assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer fixture');
+      projectReads.push(url.pathname);
+      const text = url.pathname.includes('/contents/src/') ? 'Source rules.' : 'Project rules.';
+      return Response.json({ encoding: 'base64', content: Buffer.from(text).toString('base64') });
+    }
+    return request(input, init);
+  });
+  assert.deepEqual(projectReads.sort(), ['/repos/Oddmash/example/contents/AGENTS.md', '/repos/Oddmash/example/contents/src/AGENTS.md']);
+});
+
+test('Lead withholds a review when the GitHub project guidance read fails', async () => {
+  const { request, calls } = mock();
+  await assert.rejects(runReview(config, async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/repos/Oddmash/example/contents/AGENTS.md') return new Response(null, { status: 503 });
+    return request(input, init);
+  }), /GitHub request failed \(503\)/);
+  assert.ok(!calls.some(call => call.url.includes('api.openai.com')));
 });
 
 test('review reports explain image omissions and unfetched files without sending diagnostic metadata to the model', async () => {
@@ -90,7 +134,9 @@ test('candidate blockers require an independent, complete affirmative verdict', 
   const reply = (verdicts: unknown): typeof fetch => async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     assert.equal(body.text.format.name, 'oddmash_blocker_confirmation');
-    assert.equal(JSON.parse(body.input).candidates.length, 1);
+    const modelInput = JSON.parse(body.input);
+    assert.equal(modelInput.candidates.length, 1);
+    assert.match(modelInput.sharedSkill.path, /oddmash-code-review-collaboration/);
     return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ verdicts }) }] }] });
   };
   const approved = await confirmBlockingFindings(context, [candidate], config, reply([{ index: 0, confirmed: true }]));

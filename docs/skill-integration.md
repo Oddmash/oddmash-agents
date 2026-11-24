@@ -2,21 +2,34 @@
 
 The organization [working agreements](https://github.com/Oddmash/.github/blob/main/AGENTS.md) and [AI review policy](https://github.com/Oddmash/.github/blob/main/docs/AI-CODE-REVIEW.md) define the operational boundaries. The [skills catalog](https://github.com/Oddmash/oddmash-skills) defines reusable methods. Product repositories define their own contracts and verification commands.
 
-## Approved reference baseline
+## Runtime sources
 
-| Consumer | Skill | Revision | Usage |
-| --- | --- | --- | --- |
-| Reviewer maintenance | [oddmash-quality-assurance](https://github.com/Oddmash/oddmash-skills/blob/5bc1c57882af6f189251277c26418c0febbadd46/skills/oddmash-quality-assurance/SKILL.md) | `5bc1c57882af6f189251277c26418c0febbadd46` | Maintainer test planning and evidence assessment |
+Each assessment uses the compact runtime advisory section of an Oddmash skill. The deployed bundle records one full catalog commit SHA and the exact `SKILL.md` path for each role. The service reads the bundled text locally. It does not fetch the catalog during a review or load the hands-on procedures and references intended for interactive coding agents.
 
-The reference is for maintainers developing and verifying the reviewer. It is not loaded into deployed review prompts and does not change current runtime behavior. Additional consumers must define their own reviewed references before adoption.
+| Role | Shared skill |
+| --- | --- |
+| Lead | `oddmash-code-review-collaboration` |
+| QA | `oddmash-quality-assurance` |
+| Docs | `oddmash-developer-documentation` |
+| Impact | `oddmash-product-planning`, Impact guidance |
+| Triage | `oddmash-product-planning`, Triage guidance |
+| Architect | `oddmash-technical-architecture` |
+| Release | `oddmash-release-management` |
+
+Lead also reads the organization agreements and review policy. For PR work, each role reads the project root `AGENTS.md` and eligible guidance along the directories of its selected changed files at the exact PR base SHA. Triage uses the root guide at the verified default-branch commit. QA and Release preparation use the root guide at the verified main candidate. Model requests use the existing privacy filters and byte limits. Project guidance reads prioritize the root guide and are limited to forty files for Lead and twelve per specialist assessment. A missing project guide leaves the remaining approved guidance available. Lead stops when GitHub reports an error other than a missing guide.
 
 ## Upgrade procedure
 
-1. Review changes to the exact skill path and any required references against the current pinned revision.
-2. Update the reference in this document through a ready-for-review pull request by default, reserving drafts for documented organization exceptions. Record the reason, affected consumers, compatibility, and verification evidence.
-3. Run the relevant deterministic tests and review the affected behavior before merging.
-4. If an agent needs runtime consumption in the future, implement and review it separately with a trusted, immutable, locally available artifact and explicit data-handling boundaries. Do not fetch mutable instructions during a review.
-5. Roll back by reverting the reference change and, if applicable, the independently reviewed deployment.
+1. Review the changes to the relevant runtime advisory sections in the catalog. Fix shared guidance in the catalog first so all consumers can reference the same decision criteria.
+2. Regenerate the bundle from the exact approved catalog commit.
+
+   ```sh
+   node scripts/bundle-agent-skills.mjs ../oddmash-skills <catalog-commit-sha>
+   node scripts/bundle-agent-skills.mjs ../oddmash-skills <catalog-commit-sha> --check
+   ```
+
+3. Review the generated diff and run the offline tests and type check. Open a ready-for-review PR recording the source revision, affected roles, compatibility and evidence. Deploy only through the existing release process.
+4. Roll back by reverting the bundle update and releasing the reviewed rollback, or rolling back the production deployment through the approved process.
 
 ## Authority and failure handling
 

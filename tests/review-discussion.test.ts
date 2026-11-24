@@ -22,6 +22,11 @@ test('answers a verified maintainer thread once and does not change review state
     const path = new URL(String(url)).pathname;
     if (path === '/repos/Oddmash/example') return Response.json(repository);
     if (path === base) return Response.json(pull);
+    if (path.includes('/contents/')) {
+      assert.equal(new URL(String(url)).searchParams.get('ref'), pull.base.sha);
+      const text = path.endsWith('/src/AGENTS.md') ? 'Verify a visible pause control.' : 'Use product terminology.';
+      return Response.json({ encoding: 'base64', content: Buffer.from(text).toString('base64') });
+    }
     if (path === `${base}/comments`) {
       const page = new URL(String(url)).searchParams.get('page');
       return Response.json(page === '1' ? Array.from({ length: 100 }, (_, index) => ({ ...root, id: 100 + index, user: actor })) : comments);
@@ -56,6 +61,12 @@ test('answers a verified maintainer thread once and does not change review state
     modelCalls++;
     assert.match(String(init?.body), /pause button/);
     assert.match(String(init?.body), /const paused = true/);
+    const input = JSON.parse(JSON.parse(String(init?.body)).input);
+    assert.match(input.sharedSkill.path, /oddmash-code-review-collaboration/);
+    assert.deepEqual(input.projectGuidance, {
+      'Oddmash/example/AGENTS.md': 'Use product terminology.',
+      'Oddmash/example/src/AGENTS.md': 'Verify a visible pause control.'
+    });
     return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ verdict: 'agree', english: 'The control is present. My earlier concern is not supported.', korean: '제어 버튼이 있으므로 이전 지적은 근거가 부족합니다.' }) }] }] });
   };
   await replyToReview(api, target, config, model);
@@ -243,6 +254,42 @@ test('full re-review reconciles each earlier finding from its own correction evi
   assert.equal(modelCalls, 2);
   changed = true;
   await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, async () => assert.fail('stale request must not call the model'));
+});
+
+test('scoped specialist discussion loads only root guidance when the file is excluded', async () => {
+  const slug = 'oddmash-docs';
+  const privateTarget = { ...target, repository: 'Oddmash/oddmash-agents', repositoryId: 1468182609, private: true };
+  const repositoryPath = `/repos/${privateTarget.repository}`;
+  const pullPath = `${repositoryPath}/pulls/3`;
+  const original = { ...root, path: 'config/internal.mjs', user: { ...bot, login: `${slug}[bot]` }, body: root.body + '\n<!-- oddmash-specialist:docs -->', pull_request_url: `https://api.github.com${pullPath}` };
+  const ask = { ...question, body: `@${slug}[bot] Is the example still current?`, pull_request_url: original.pull_request_url };
+  const current = { ...pull, base: { ...pull.base, repo: { full_name: privateTarget.repository, id: privateTarget.repositoryId, private: true } } };
+  const guidanceReads: string[] = [];
+  const api = githubApi('fixture', async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === repositoryPath) return Response.json({ ...repository, id: privateTarget.repositoryId, full_name: privateTarget.repository, private: true, visibility: 'private' });
+    if (url.pathname === pullPath) return Response.json(current);
+    if (url.pathname === `${pullPath}/comments`) return Response.json([original, ask]);
+    if (url.pathname === `${pullPath}/files`) return Response.json([{ filename: original.path, status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
+    if (url.pathname.includes('/contents/')) {
+      guidanceReads.push(url.pathname + url.search);
+      return Response.json({ encoding: 'base64', content: Buffer.from('Use product terminology.').toString('base64') });
+    }
+    if (url.pathname.endsWith('/reactions')) return Response.json({ id: 9 });
+    if (url.pathname.endsWith('/reactions/9')) return new Response(null, { status: 204 });
+    assert.fail(`${init?.method ?? 'GET'} ${url.pathname}`);
+  });
+  let modelCalls = 0;
+  await replyToReview(api, privateTarget, { ...config, slug, specialist: 'docs' }, async (_input, init) => {
+    modelCalls++;
+    const input = JSON.parse(JSON.parse(String(init?.body)).input);
+    assert.match(input.sharedSkill.path, /oddmash-developer-documentation/);
+    assert.equal(input.currentPatch, null);
+    assert.deepEqual(input.projectGuidance, { [`${privateTarget.repository}/AGENTS.md`]: 'Use product terminology.' });
+    return Response.json({ status: 'completed', output_parsed: { verdict: 'uncertain' } });
+  });
+  assert.equal(modelCalls, 1);
+  assert.deepEqual(guidanceReads, [`${repositoryPath}/contents/AGENTS.md?ref=${current.base.sha}`]);
 });
 
 test('dedicated discussion ignores another App and findings without its own role marker', async () => {
