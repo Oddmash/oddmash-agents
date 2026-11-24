@@ -139,3 +139,21 @@ test('verifies a referenced conversation finding without resolving a thread or s
   await replyToReview(api, { ...target, reply: { root: 4, comment: 5, kind: 'conversation', rootKind: 'issue', path: root.path } }, config, model);
   assert.equal(replies, 1);
 });
+
+test('dedicated discussion ignores another App and findings without its own role marker', async () => {
+  const slug = 'oddmash-docs';
+  const ask = { ...question, body: `@${slug}[bot] Does the example still apply?` };
+  for (const original of [
+    { ...root, body: root.body + '\n<!-- oddmash-specialist:docs -->' },
+    { ...root, user: { ...bot, login: `${slug}[bot]` }, body: root.body + '\n<!-- oddmash-specialist:qa -->' }
+  ]) {
+    const api = githubApi('fixture', async url => {
+      const path = new URL(String(url)).pathname;
+      if (path === '/repos/Oddmash/example') return Response.json(repository);
+      if (path === base) return Response.json(pull);
+      if (path === `${base}/comments`) return Response.json([original, ask]);
+      assert.fail(path);
+    });
+    await replyToReview(api, target, { ...config, slug, specialist: 'docs' }, async () => assert.fail('model should not run'));
+  }
+});

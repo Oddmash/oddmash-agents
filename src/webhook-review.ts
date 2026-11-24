@@ -137,6 +137,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
   if (!/^[a-z0-9-]+\[bot\]$/i.test(bot) || !openaiKey) throw new Error('Missing app configuration');
   const authorized = await authorize(target, appId, key);
   const { api, token: githubToken } = authorized;
+  if (target.advisoryIdentity && target.reply) {
+    await replyToReview(api, target, { slug, openaiKey, model, specialist: target.advisoryIdentity });
+    return;
+  }
   if (target.impact) { await runImpact(authorized.api, target, { bot, ...advisoryModelConfig('impact', { model, openaiKey }) }); return; }
   if (target.advisory) { await runAdvisory(authorized.api, target, { bot, ...advisoryModelConfig(target.advisory, { model, openaiKey }) }); return; }
   const repository = target.repository;

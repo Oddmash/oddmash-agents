@@ -1,0 +1,82 @@
+import { createHash } from 'node:crypto';
+import { addedLineText, privateSensitiveText, type ChangedFile } from './core.ts';
+import type { AdvisoryRole } from './advisory-agents.ts';
+import type { Target, githubApi } from './webhook.ts';
+
+type Api = ReturnType<typeof githubApi>;
+type Finding = { path: string; line: number; evidence: string; en: string; ko: string };
+type Role = Exclude<AdvisoryRole, 'triage'>;
+
+export const specialistFindingRules = 'Provide at most three inlineFindings for concrete actionable defects within your role. Use only added lines from the provided patches. For each, copy the exact added source line without the diff prefix as evidence, and describe the defect and why it matters in one concise English and Korean sentence. General advice belongs in the summary. Return an empty array when there is no supported anchor.';
+
+export function specialistSchema(summary: { properties: object; required: string[] }) {
+  return {
+    ...summary, type: 'object', additionalProperties: false, required: [...summary.required, 'inlineFindings'],
+    properties: {
+      ...summary.properties,
+      inlineFindings: {
+        type: 'array', maxItems: 3,
+        items: {
+          type: 'object', additionalProperties: false, required: ['path', 'line', 'evidence', 'en', 'ko'],
+          properties: { path: { type: 'string' }, line: { type: 'integer' }, evidence: { type: 'string' }, en: { type: 'string' }, ko: { type: 'string' } }
+        }
+      }
+    }
+  };
+}
+
+const safeField = (value: unknown): value is string =>
+  typeof value === 'string' && value.length <= 600 && value.trim().length > 0 && !privateSensitiveText(value) && !/[<>\r\n]/.test(value);
+const plain = (value: string) => value.replace(/@/g, '＠').replace(/[\\`*_\[\]()#!|~]/g, '\\$&').replace(/https?:\/\//gi, 'https[:]//');
+
+function validateFindings(report: object, files: ChangedFile[]): Finding[] {
+  const value = (report as { inlineFindings?: unknown }).inlineFindings;
+  if (!Array.isArray(value)) return [];
+  const findings: Finding[] = [];
+  for (const item of value.slice(0, 3)) {
+    if (!item || typeof item.path !== 'string' || !Number.isSafeInteger(item.line) || item.line < 1 ||
+        !safeField(item.en) || !safeField(item.ko) || !/[가-힣]/.test(item.ko) || typeof item.evidence !== 'string') continue;
+    const file = files.find(file => file.filename === item.path);
+    const line = file && addedLineText(file.patch ?? '', item.line);
+    if (!line?.trim() || line !== item.evidence || findings.some(f => f.path === item.path && f.line === item.line)) continue;
+    findings.push(item);
+  }
+  return findings;
+}
+
+export function specialistRole(target: Target, bot: string): Role | undefined {
+  const role = target.advisoryIdentity;
+  if (role && role !== 'triage' && target.advisory === role && bot === `oddmash-${role}[bot]`) return role;
+}
+
+export async function publishSpecialistFindings(api: Api, target: Target, bot: string, head: string, report: object, files: ChangedFile[], current: () => Promise<boolean>) {
+  const role = specialistRole(target, bot);
+  if (!role || !target.number || !/^[a-f0-9]{40}$/i.test(head)) return;
+  const findings = validateFindings(report, files);
+  if (!findings.length) return;
+  const path = `/repos/${target.repository}/pulls/${target.number}/comments`;
+  const existing = new Set<string>();
+  for (let page = 1; page <= 10; page++) {
+    const batch = await api<{ body: string; user: { login: string; type: string } }[]>(`${path}?per_page=100&page=${page}`);
+    for (const item of batch) {
+      if (item.user.login === bot && item.user.type === 'Bot') {
+        const marker = /^<!-- oddmash-finding:([a-f0-9]{24}) -->/.exec(item.body);
+        if (marker) existing.add(marker[1]);
+      }
+    }
+    if (batch.length < 100) break;
+    if (page === 10) { console.warn('Specialist inline comment lookup incomplete'); return; }
+  }
+  for (const finding of findings) {
+    const id = createHash('sha256').update(JSON.stringify([role, head, finding.path, finding.line])).digest('hex').slice(0, 24);
+    if (existing.has(id)) continue;
+    if (!await current()) return;
+    const body = `<!-- oddmash-finding:${id} -->\n<!-- oddmash-specialist:${role} -->\n${plain(finding.en)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(finding.ko)}\n\n</details>`;
+    try {
+      await api(path, { method: 'POST', body: JSON.stringify({ body, commit_id: head, path: finding.path, line: finding.line, side: 'RIGHT' }) });
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== 'GitHub request failed (422)') throw error;
+      console.warn('Specialist inline anchor rejected by GitHub');
+    }
+  }
+}

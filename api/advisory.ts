@@ -3,7 +3,7 @@ import { waitUntil } from '@vercel/functions';
 import { send } from '@vercel/queue';
 import { advisoryConfig } from '../src/runtime-config.ts';
 import { isAdvisoryRole } from '../src/advisory-agents.ts';
-import { route, validSignature } from '../src/webhook.ts';
+import { dedicatedAdvisoryTarget, validSignature } from '../src/webhook.ts';
 import { createReviewJob, reviewTopic } from '../src/review-job.ts';
 import { reviewWebhook } from '../src/webhook-review.ts';
 
@@ -17,11 +17,10 @@ export async function POST(request: Request) {
   if (!validSignature(bytes, request.headers.get('x-hub-signature-256'), config.secret)) return new Response('Unauthorized', { status: 401 });
   let payload;
   try { payload = JSON.parse(new TextDecoder().decode(bytes)); } catch { return new Response('Bad request', { status: 400 }); }
-  if (!payload || typeof payload !== 'object' || request.headers.get('x-github-event') !== 'issue_comment') return new Response('Ignored', { status: 200 });
+  if (!payload || typeof payload !== 'object') return new Response('Ignored', { status: 200 });
   const delivery = request.headers.get('x-github-delivery') ?? '';
-  const routed = route('issue_comment', payload, config.slug, delivery);
-  if (!routed || routed.advisory !== role) return new Response('Ignored', { status: 200 });
-  const target = { ...routed, advisoryIdentity: role };
+  const target = dedicatedAdvisoryTarget(request.headers.get('x-github-event'), payload, role, config.slug, delivery);
+  if (!target) return new Response('Ignored', { status: 200 });
   const execution = executionContext(role, delivery);
   if (process.env.REVIEWER_QUEUE_ENABLED === 'true') {
     let job;
