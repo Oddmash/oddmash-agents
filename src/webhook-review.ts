@@ -12,6 +12,7 @@ import { replyToReview } from './review-discussion.ts';
 import { retryableJobError } from './review-job.ts';
 import { publishAutomationStatus } from './review-status.ts';
 import { actionsQuotaEvidence, actionsWorkflowUrl } from './actions-quota.ts';
+import { incrementalPaths, reviewBaseMarker, selectAdvisoryRoles, type ChangeMetadata, type CompareEvidence } from './review-follow-up-policy.ts';
 
 type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 export type Review = { id: number; node_id?: string; body: string | null; user: { login: string }; state: string; commit_id: string };
@@ -22,8 +23,8 @@ export function existingAdvisoryReview(reviews: Review[], bot: string, head: str
   return reviews.filter(review => review.user.login === bot && review.commit_id === head && review.state === 'COMMENTED' && review.body?.includes('<!-- oddmash-app-review:')).at(-1);
 }
 
-export function hasOfficialReview(reviews: Review[], bot: string): boolean {
-  return reviews.some(review => review.user.login === bot && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state) && review.body?.includes('<!-- oddmash-app-review:'));
+export function hasOfficialReview(reviews: Review[], bot: string, head?: string): boolean {
+  return reviews.some(review => review.user.login === bot && (!head || review.commit_id === head) && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state) && review.body?.includes('<!-- oddmash-app-review:'));
 }
 
 export async function acknowledgePendingChecks(api: Api, repository: string, number: number, bot: string, comment: NonNullable<Target['requestComment']>, head: string) {
@@ -117,7 +118,7 @@ export async function attachReviewFindings(api: Api, path: string, pendingId: nu
   return (await attachReviewFindingsWithCoverage(api, path, pendingId, head, bot, findings)).attached;
 }
 
-const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human', 'review: follow-up'];
+const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human', 'review: follow-up', 'review: stale'];
 
 export async function reviewWebhook(target: Target, config: { appId: string; key: string; slug: string; openaiKey: string; model: string; autoMerge?: boolean }) {
   if (target.advisoryIdentity && target.advisory !== target.advisoryIdentity) throw new Error('Invalid advisory identity');
@@ -190,7 +191,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         throw error;
       }
     };
-    if (!target.recheck && hasOfficialReview(reviews, bot)) {
+    if (!target.recheck && hasOfficialReview(reviews, bot, pr.head.sha)) {
       await reconcileCompletedProgress(reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state) && review.body?.includes('<!-- oddmash-app-review:')).at(-1));
       await retryExistingApproval();
       return;
@@ -216,7 +217,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         const current = await api<Pull>(path);
         if (current.head.sha !== pr.head.sha || current.state !== 'open' || current.draft || !eligibleBase(current)) return false;
         const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
-        if (latest.length === 100 || (!target.recheck && hasOfficialReview(latest, bot)) || (requestTag && latest.some(review => review.user.login === bot && review.body?.includes(requestTag)))) return false;
+        if (latest.length === 100 || (!target.recheck && hasOfficialReview(latest, bot, pr.head.sha)) || (requestTag && latest.some(review => review.user.login === bot && review.body?.includes(requestTag)))) return false;
         const progress = await progressFor(true, Boolean(blocked));
         if (blocked) await progress?.finish('neutral', blocked, 'Required CI did not pass. A successful rerun can start a new review.');
       } catch { console.warn('Waiting review progress unavailable'); }
@@ -272,7 +273,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         return null;
       }) : null;
       if (approved && !candidate) return;
-      const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: candidate?.acceptance, privateRepositoryId: target.private ? target.repositoryId : undefined, progress: progress?.update }).catch(async error => {
+      const previous = reviews.filter(review => review.user.login === bot && review.commit_id !== pr.head.sha && review.body?.includes('<!-- oddmash-app-review:') && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state)).at(-1);
+      const comparison = !target.recheck && previous?.state === 'APPROVED' && /^[a-f0-9]{40}$/i.test(previous.commit_id) && previous.body?.includes(reviewBaseMarker(pr.base.sha)) ? await api<CompareEvidence>(`${root}/compare/${previous.commit_id}...${pr.head.sha}?per_page=100`).catch(() => undefined) : undefined;
+      const incrementalFiles = !target.recheck ? incrementalPaths(previous, pr.head.sha, pr.base.sha, comparison) : undefined;
+      const result = await runReview({ repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: incrementalFiles === undefined ? candidate?.acceptance : undefined, incrementalFiles, privateRepositoryId: target.private ? target.repositoryId : undefined, progress: progress?.update }).catch(async error => {
         await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', error instanceof Error ? error.message : 'review processing failed');
         throw error;
       });
@@ -281,7 +285,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
       if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state) && (!approved || review.id > approved.id))))) return;
       const finalChecks = await readChecks(current);
-      const event = finalReviewEvent(result.assessment, finalChecks, repository);
+      const event = finalReviewEvent(incrementalFiles !== undefined && result.assessment === 'APPROVE' ? 'COMMENT' : result.assessment, finalChecks, repository);
       if (!event) {
         if (reviewChecksReady(finalChecks, repository) && !reviewChecksSuccessful(finalChecks, repository)) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
         return;
@@ -289,8 +293,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks, target.recheck);
       await progress?.update('Publishing review', 'Rechecking the current commit and submitting the result.');
       const completedResult = event === 'APPROVE' ? { conclusion: 'success' as const, title: 'Review approved' } : event === 'REQUEST_CHANGES' ? { conclusion: 'failure' as const, title: 'Changes requested' } : { conclusion: 'neutral' as const, title: reviewOutcome(event, result.followUp).title };
-      const proof = event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === current.head.sha && candidate.pull.base.sha === current.base.sha && candidate.pull.merge_commit_sha === current.merge_commit_sha ? `\n\n${mergeProof(candidate)}` : '';
-      let body = formatReviewBody(event, finalMarker, result.report, current.user, result.followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof;
+      const proof = incrementalFiles === undefined && event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === current.head.sha && candidate.pull.base.sha === current.base.sha && candidate.pull.merge_commit_sha === current.merge_commit_sha ? `\n\n${mergeProof(candidate)}` : '';
+      const scopeNote = `\n\n${reviewBaseMarker(current.base.sha)}` + (incrementalFiles !== undefined ? '\n\nIncremental follow-up only. Earlier files were not re-reviewed; request a full review before approval or merge.\n\n증분 검토입니다. 이전 파일은 다시 검토하지 않았으며 승인 또는 머지 전 전체 리뷰가 필요합니다.' : '');
+      let body = formatReviewBody(event, finalMarker, result.report, current.user, result.followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote;
       const attemptMerge = async (reviewId: number) => {
         if (!candidate) { await mergeStatus(mergeReason); return; }
         if (candidate.pull.head.sha !== result.head || candidate.pull.base.sha !== current.base.sha) { await mergeStatus('candidate changed'); return; }
@@ -316,7 +321,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
       const advisory = event === 'COMMENT' && !target.recheck ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
       const attachment = event !== 'APPROVE' ? await attachReviewFindingsWithCoverage(api, path, pendingId, result.head, bot, result.comments) : { attached: 0, covered: true };
-      if (attachment.covered) body = formatReviewBody(event, finalMarker, result.inlineReport, current.user, result.followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof;
+      if (attachment.covered) body = formatReviewBody(event, finalMarker, result.inlineReport, current.user, result.followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote;
       if (advisory && !attachment.attached) {
         if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
       } else {
@@ -327,7 +332,23 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
       progressResult = completedResult;
       await progress?.finish(progressResult.conclusion, progressResult.title);
-      if (event === 'APPROVE') await attemptMerge(pendingId);
+      if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED === 'true') {
+        const metadata = await api<ChangeMetadata[]>(`${path}/files?per_page=100&page=1`).catch(() => []);
+        const scoped = incrementalFiles === undefined ? metadata : metadata.filter(file => incrementalFiles.includes(file.filename));
+        for (const role of selectAdvisoryRoles(scoped)) {
+          try {
+            const latest = await api<Pull>(path);
+            if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) break;
+            const advisoryTarget: Target = { installation: target.installation, repository, repositoryId: target.repositoryId, private: target.private, number: current.number, expectedHead: current.head.sha, advisory: role, ...(role === 'impact' ? { impact: true as const } : {}) };
+            const advisoryAuth = await authorize(advisoryTarget, appId, key);
+            const advisoryConfig = { bot, ...advisoryModelConfig(role, { model, openaiKey }), automatic: true, incrementalFiles };
+            if (role === 'impact') await runImpact(advisoryAuth.api, advisoryTarget, advisoryConfig);
+            else await runAdvisory(advisoryAuth.api, advisoryTarget, advisoryConfig);
+            console.log(JSON.stringify({ event: 'reviewer_advisory', role, outcome: 'completed' }));
+          } catch { console.warn(JSON.stringify({ event: 'reviewer_advisory', role, outcome: 'failed' })); }
+        }
+      }
+      if (event === 'APPROVE' && incrementalFiles === undefined) await attemptMerge(pendingId);
       await publishAutomationStatus(api, repository, pr.number, bot, current.head.sha, 'review', 'review completed', true);
       const label = reviewOutcome(event, result.followUp).label;
       const labels = await api<{ name: string }[]>(`${root}/labels?per_page=100`);
