@@ -51,16 +51,22 @@ export function specialistRole(target: Target, bot: string): Role | undefined {
 
 export const verifiedReviewer = /^oddmash-(?:lead|impact|qa|release|docs|architect)\[bot\]$/;
 
+const genericFindingWords = new Set(['about', 'against', 'affects', 'from', 'into', 'might', 'should', 'their', 'this', 'when', 'which', 'with', 'would']);
+
 function findingWords(text: string) {
   const english = text.split('\n<details>', 1)[0].replace(/^<!--.*-->$/gm, '');
-  return new Set(english.toLowerCase().match(/[a-z][a-z-]{3,}/g) ?? []);
+  return (english.toLowerCase().match(/[a-z][a-z-]{3,}/g) ?? []).filter(word => !genericFindingWords.has(word));
 }
 
 export function sameFindingText(left: string, right: string): boolean {
   const a = findingWords(left);
   const b = findingWords(right);
-  const common = [...a].filter(word => b.has(word)).length;
-  return common >= 4 && common * 2 >= Math.min(a.size, b.size);
+  const aWords = new Set(a);
+  const bWords = new Set(b);
+  const common = [...aWords].filter(word => bWords.has(word)).length;
+  if (common < 5 || common * 3 < Math.min(aWords.size, bWords.size) * 2) return false;
+  const comparable = b.join(' ');
+  return a.some((_, index) => index <= a.length - 3 && ` ${comparable} `.includes(` ${a.slice(index, index + 3).join(' ')} `));
 }
 
 export async function publishSpecialistFindings(api: Api, target: Target, bot: string, head: string, report: object, files: ChangedFile[], current: () => Promise<boolean>) {

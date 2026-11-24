@@ -302,9 +302,11 @@ test('coordinated specialists keep one thread for a matching finding and preserv
   const files = [{ filename: path, patch: '@@ -1 +1 @@\n-old\n+new', status: 'modified' }];
   const matching = 'Negative focus outline offset can draw the indicator inside or clipped against the link boundary.';
   const distinct = 'The color property no longer meets contrast requirements on a dark background.';
-  for (const en of [matching, distinct]) await publishSpecialistFindings(api, target, 'oddmash-qa[bot]', sha, {
+  const differentKeyboardDefect = 'The focus indicator remains visible inside the link, but keyboard focus skips the link entirely when navigating backwards.';
+  for (const en of [matching, distinct, differentKeyboardDefect]) await publishSpecialistFindings(api, target, 'oddmash-qa[bot]', sha, {
     inlineFindings: [{ path, line: 1, evidence: 'new', en, ko: '표시 상태를 확인하세요.' }]
   }, files, async () => true);
-  assert.equal(posts.length, 1);
+  assert.equal(posts.length, 2);
   assert.match(posts[0], /contrast requirements/);
+  assert.match(posts[1], /skips the link/);
 });
