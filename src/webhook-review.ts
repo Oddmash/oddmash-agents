@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { runImpact } from './impact.ts';
 import { runAdvisory } from './advisory.ts';
 import { advisoryModelConfig } from './runtime-config.ts';
+import { authorizeCoordinatedAdvisor } from './coordinated-advisory.ts';
 import { runReview } from './reviewer.ts';
 import { startReviewProgress } from './review-progress.ts';
 import { formatReviewBody, reviewOutcome } from './core.ts';
@@ -367,12 +368,12 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           const remaining = { ...budget, elapsedMs: Math.max(0, budget.elapsedMs - (Date.now() - planningStarted)) };
           await runCoordinatedAdvisories(selectAdvisoryRoles(scoped, remaining.maxRequests), remaining, async (role, signal) => {
             const request = boundedRequest(signal);
-            const advisoryApi = githubApi(githubToken, request);
-            const latest = await advisoryApi<Pull>(path);
+            const advisor = await authorizeCoordinatedAdvisor({ ...target, number: current.number, expectedHead: current.head.sha }, role, appId, request);
+            if (!advisor) { console.info('Coordinated advisor unavailable: ' + role); return true; }
+            const latest = await advisor.api<Pull>(path);
             if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) return false;
-            const advisoryTarget: Target = { installation: target.installation, repository, repositoryId: target.repositoryId, private: target.private, number: current.number, expectedHead: current.head.sha, advisory: role, ...(role === 'impact' ? { impact: true as const } : {}) };
-            const advisoryConfig = { bot, ...advisoryModelConfig(role, { model, openaiKey }), automatic: true, incrementalFiles: advisoryPaths };
-            await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(advisoryApi, advisoryTarget, advisoryConfig, request) : runAdvisory(advisoryApi, advisoryTarget, advisoryConfig, request));
+            const advisoryConfig = { ...advisor.config, automatic: true, incrementalFiles: advisoryPaths };
+            await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(advisor.api, advisor.target, advisoryConfig, request) : runAdvisory(advisor.api, advisor.target, advisoryConfig, request));
             return true;
           });
         }
