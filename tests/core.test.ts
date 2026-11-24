@@ -216,3 +216,17 @@ test('quality review hides confidential names, rename origins and credential-lik
   const privateSelection = selectFiles([{ ...file, filename: 'config/internal.ts' }], 45_000, true, 'quality');
   assert.deepEqual(privateSelection.omissionDetails, [{ reason: 'private-policy' }]);
 });
+
+test('needs human explains the exact reason and directs maintainers to verification tabs', () => {
+  const coverage = formatReviewBody('COMMENT', 'marker', 'report', undefined, { advisory: false, incompleteCoverage: true, invalidEvidence: false });
+  assert.match(coverage, /review: needs human/);
+  assert.match(coverage, /Manual review coverage/);
+  assert.match(coverage, /Files changed/);
+  assert.match(coverage, /confidential changes locally/);
+  assert.match(coverage, /수동 검토 필요 사유 및 확인 위치/);
+  const invalid = formatReviewBody('COMMENT', 'marker', 'report', undefined, { advisory: false, incompleteCoverage: false, invalidEvidence: true });
+  assert.match(invalid, /Review evidence incomplete/);
+  assert.match(invalid, /Conversation/);
+  assert.match(invalid, /Checks/);
+  assert.doesNotMatch(invalid, /Manual review coverage/);
+});
