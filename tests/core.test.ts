@@ -149,9 +149,9 @@ test('manual review summarizes bounded file counts and explains coverage limits'
   assert.ok(many.omissionDetails.every(item => item.reason === 'file-limit'));
   const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: many.files, omitted: many.omitted, guidance: {}, checks: [] };
   const report = formatReport(context, [], true, [...many.omissionDetails, { reason: 'pagination', count: 5 }]);
-  assert.match(report, /`src\/file-51.ts` \(3 files without listed paths\): Review file limit reached/);
+  assert.match(report, /`src\/file-51.ts` \(3 unlisted\): Review file limit reached/);
   assert.doesNotMatch(report, /src\/file-52.ts/);
-  assert.match(report, /\(5 files without listed paths\): Files beyond the fetched page/);
+  assert.match(report, /\(5 unlisted\): Files beyond the fetched page/);
 });
 
 test('renders English first and Korean translation in a collapsed section', () => {

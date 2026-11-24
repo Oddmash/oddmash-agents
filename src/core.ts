@@ -246,7 +246,7 @@ function manualReviewLines(details: OmissionDetail[], language: 0 | 1): string[]
     remaining -= paths.length;
     const location = paths.length ? paths.map(path => `\`${path}\``).join(', ') : language === 0 ? 'Files requiring separate verification' : '별도 검증이 필요한 파일';
     const unlisted = group.count - paths.length;
-    return `- ${location}${unlisted ? ` (${language === 0 ? `${unlisted} files without listed paths` : `경로 미표시 ${unlisted}개`})` : ''}: ${omissionActions[reason][language]}`;
+    return `- ${location}${unlisted ? ` (${language === 0 ? `${unlisted} unlisted` : `미표시 ${unlisted}개`})` : ''}: ${omissionActions[reason][language]}`;
   });
 }
 
