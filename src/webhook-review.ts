@@ -343,4 +343,3 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     }
   }
 }
-

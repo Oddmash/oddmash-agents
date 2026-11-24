@@ -153,4 +153,3 @@ export async function authorizeMerge(target: Target, appId: string, key: string,
   if (result.permissions.contents !== 'write') throw new Error('Merge permission missing');
   return githubApi(result.token, request);
 }
-
