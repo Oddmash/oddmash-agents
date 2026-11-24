@@ -1,12 +1,12 @@
 # Oddmash Agents
 
-Advisory agents for Oddmash products. The first agent, Reviewer, helps maintainers identify concrete regressions in pull requests while preserving project-specific conventions and maintainer control.
+Advisory agents for Oddmash products. Lead coordinates specialized agents, identifies concrete regressions in pull requests, and issues the formal review while preserving project-specific conventions and maintainer control.
 
 ## Agent family
 
 | | Agent | Responsibility | Execution | Command |
 | --- | --- | --- | --- | --- |
-| <img src="assets/agents/reviewer.svg" width="40" alt="Reviewer badge"> | Oddmash Reviewer | Code quality, defects and accessibility | Automatic | `/review` |
+| <img src="assets/agents/lead.svg" width="40" alt="Lead badge"> | Oddmash Lead | Coordination, concrete defects and final review | Automatic | `/review` |
 | <img src="assets/agents/impact.svg" width="40" alt="Impact badge"> | Oddmash Impact | Product value, necessity and trade-offs | On request | `/impact` |
 | <img src="assets/agents/triage.svg" width="40" alt="Triage badge"> | Oddmash Triage | Issue classification, duplicates and priority | On request | `/triage` |
 | <img src="assets/agents/qa.svg" width="40" alt="QA badge"> | Oddmash QA | Missing tests and observed verification | On request | `/qa` |
@@ -14,11 +14,13 @@ Advisory agents for Oddmash products. The first agent, Reviewer, helps maintaine
 | <img src="assets/agents/docs.svg" width="40" alt="Docs badge"> | Oddmash Docs | Code and documentation consistency | On request | `/docs` |
 | <img src="assets/agents/architect.svg" width="40" alt="Architect badge"> | Oddmash Architect | Design and maintainability assessment | On request | `/architect` |
 
-Reviewer is the only automatic entry point. Other roles respond to explicit maintainer mentions and produce advisory output. With optional coordinated review enabled, Reviewer selects only relevant PR advisors from changed-file metadata within explicit request and time budgets. These reports do not grant approval or merge authority. They share the same server and queue, while role-specific identity, permissions and model usage remain separately configurable. Dedicated apps must be configured before their own mentions become available; the Reviewer mention is the compatibility entry point.
+Lead is the only automatic entry point (currently authenticated as `oddmash-reviewer[bot]`). Other roles respond to explicit maintainer mentions and produce advisory output. With optional coordinated review enabled, Lead selects only relevant PR advisors from changed-file metadata within explicit request and time budgets. These reports do not grant approval or merge authority. They share the same server and queue, while role-specific identity, permissions and model usage remain separately configurable. Dedicated apps must be configured before their own mentions become available; the existing `@oddmash-reviewer[bot]` mention remains the compatibility entry point.
 
 See [agent family and setup](docs/agent-family.md) for invocation details and role configuration.
 
-## Reviewer
+## Lead
+
+Lead coordinates specialized advisors and owns formal review decisions. It independently checks concrete defects and mandatory requirements; optional specialist improvements do not become duplicate Lead findings. See [the identity migration plan](docs/lead-identity.md).
 
 Current-head automatic reviews wait for required CI. A new push makes an older review stale until current-head work begins; pending indicates active review. A small verified descendant of an approved head with unchanged base can receive bounded incremental analysis. Incremental reports never authorize a merge; explicit review requests always use full evidence. Missing, divergent, large or unverified comparisons fall back to a full review.
 
@@ -43,7 +45,7 @@ flowchart TD
     Intake --> Queue["Shared queue when enabled"]
     Queue --> Runtime["Role routing and execution"]
     Intake --> Runtime
-    Runtime --> Review["Reviewer"]
+    Runtime --> Review["Lead"]
     Runtime --> Advisory["Impact and advisory roles"]
     Review --> Output["GitHub review and comments"]
     Advisory --> Output
