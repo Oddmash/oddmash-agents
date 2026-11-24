@@ -1,3 +1,4 @@
+import { executionContext, executionRole, runAgentExecution } from '../src/agent-execution.ts';
 import { handleCallback, send } from '@vercel/queue';
 import { runtimeConfig, advisoryConfig } from '../src/runtime-config.ts';
 import { verifyReviewJob, deadLetterTopic, publishFailureRecord, retryableJobError, retryDelay, type ReviewJob } from '../src/review-job.ts';
@@ -11,7 +12,7 @@ export const POST = handleCallback(async (message: ReviewJob, metadata) => {
   if (!verifyReviewJob(message, identity ? dedicated?.secret ?? '' : process.env.REVIEWER_WEBHOOK_SECRET ?? '') || (identity && message.target.advisory !== identity)) { console.error('Invalid reviewer queue message'); return; }
   const job = message;
   try {
-    await reviewWebhook(job.target, config);
+    await runAgentExecution(executionContext(executionRole(job.target), job.delivery, metadata.deliveryCount), () => reviewWebhook(job.target, config));
   } catch (error) {
     if (retryableJobError(error) && metadata.deliveryCount < 4) throw error;
     await publishFailureRecord(() => send(deadLetterTopic, { version: 1, delivery: job.delivery, target: job.target, attempts: metadata.deliveryCount, reason: retryableJobError(error) ? 'retry-limit' : 'permanent' }, { idempotencyKey: job.delivery, retentionSeconds: 86400 }), message => console.error(message));
