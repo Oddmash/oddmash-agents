@@ -63,7 +63,11 @@ test('separates advisory findings, coverage gaps and approval without weakening 
   assert.equal(reviewDecision(context, [advisory], true), 'COMMENT');
   assert.equal(reviewOutcome('COMMENT', followUp).label, 'review: follow-up');
   const body = formatReviewBody('COMMENT', '<!-- marker -->', formatReport(context, [advisory]), undefined, followUp);
-  assert.match(body, /Advisory findings: investigate/);
+  assert.match(body, /Advisory review complete/);
+  assert.match(body, /Advisory findings are optional/);
+  assert.match(body, /defer to a separate issue/);
+  assert.match(body, /repeated review is not required solely/);
+  assert.match(body, /참고 의견 처리/);
   assert.doesNotMatch(body, /Maintainer review required/);
   assert.match(body, /Consider:/);
   const incomplete = reviewFollowUp({ ...context, omitted: ['image'] }, [advisory], true);
