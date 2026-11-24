@@ -103,6 +103,27 @@ test('single Refs supports partial same-repository scope without claiming issue 
   assert.notEqual(mergeProof({ pull: partial, acceptance }), mergeProof(candidate));
 });
 
+test('matches issue form headings and measurable bullet lists without changing closing semantics', () => {
+  const body = '### Acceptance criteria\n\n- Explain the example clearly.\n* [ ] Document the expected output.\n\n### Notes\nOther';
+  assert.deepEqual(acceptanceOf({ ...issue, body })?.criteria, ['Explain the example clearly.', 'Document the expected output.']);
+  assert.equal(acceptanceOf({ ...issue, body: '### Acceptance criteria\n- placeholder' }), null);
+  assert.equal(acceptanceForPull(issue, { ...pr, base: { ...pr.base, ref: 'develop' } }), null);
+  assert.equal(linkedIssue('- Refs #9.'), 9);
+  assert.equal(linkedIssue('Refs #9\nCloses #10'), null);
+});
+
+test('reports a valid multi-issue release separately from an ambiguous topic reference', async () => {
+  const reasons: string[] = [];
+  const release = { ...pr, head: { ...pr.head, ref: 'develop' }, body: 'Closes #9\nRefs #11' };
+  const api = (pull: MergePull) => githubApi('fixture-token', async () => Response.json(pull));
+  assert.equal(await mergeCandidate(api(release), target, pr.number, reason => reasons.push(reason)), null);
+  assert.equal(reasons.pop(), 'multi-issue release requires manual merge');
+  assert.equal(await mergeCandidate(api({ ...release, head: { ...release.head, ref: 'feat/example' } }), target, pr.number, reason => reasons.push(reason)), null);
+  assert.equal(reasons.pop(), 'missing single issue reference');
+  assert.equal(await mergeCandidate(api({ ...pr, base: { ...pr.base, ref: 'develop' } }), target, pr.number, reason => reasons.push(reason)), null);
+  assert.equal(reasons.pop(), 'integration branch requires Refs');
+});
+
 test('requires one linked issue and all explicit criteria', () => {
   assert.equal(linkedIssue('Closes #9'), 9);
   assert.equal(linkedIssue('Closes #9\nFixes #10'), null);
