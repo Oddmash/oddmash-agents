@@ -111,3 +111,23 @@ test('auto-merge diagnostics provide bilingual next actions without confidential
   assert.match(statusText('merge', 'private strict review coverage is incomplete')[1], /로컬/);
   assert.doesNotMatch(statusText('merge', 'arbitrary confidential path example')[0], /confidential path example/);
 });
+
+test('cross-repository auto-merge notice explains the rule and names the current linked issue', async () => {
+  const bot = 'oddmash-lead[bot]', head = 'a'.repeat(40);
+  let posted = '';
+  const api = githubApi('fixture', async (input, init) => {
+    if (String(input).endsWith('/pulls/63')) {
+      return Response.json({ state: 'open', head: { sha: head }, body: '## Related issue\n\nRefs Oddmash/.github#68\n\n## Summary\n\nUnrelated text.' });
+    }
+    if (init?.method === 'POST') {
+      posted = JSON.parse(String(init.body)).body;
+      return Response.json({ id: 1, user: { login: bot }, body: posted });
+    }
+    return Response.json([]);
+  });
+  await publishAutomationStatus(api, 'Oddmash/oddmash-ui', 63, bot, head, 'merge', 'cross-repository issue reference requires manual merge');
+  assert.match(posted, /one issue in this PR’s repository/);
+  assert.match(posted, /CI와 리뷰 통과 후 수동으로 머지/);
+  assert.equal(posted.split('Oddmash/.github#68').length, 3);
+  assert.doesNotMatch(posted, /Unrelated text/);
+});

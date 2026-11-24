@@ -3,7 +3,7 @@ import type { AdvisoryRole } from './advisory-agents.ts';
 import { agentSkill, guidanceInstructions, loadProjectGuidance } from './agent-guidance.ts';
 import { boundedModelBody, recordUsage, type Usage } from './model-request.ts';
 import { safeText, privateSensitiveText, selectFiles, type ChangedFile } from './core.ts';
-import { commentReceipt, conversationFixReference, maintainer, mentioned, privateRepositoryAllowed, reactToComment, reviewableOddmash, type Target, type githubApi } from './webhook.ts';
+import { appJwt, githubApi, commentReceipt, conversationFixReference, maintainer, mentioned, privateRepositoryAllowed, reactToComment, reviewableOddmash, type Target } from './webhook.ts';
 
 type Api = ReturnType<typeof githubApi>;
 type Comment = { id: number; node_id?: string; user: { id: number; login: string; type?: string }; body: string; path?: string; in_reply_to_id?: number; commit_id?: string; original_commit_id?: string; pull_request_url?: string; issue_url?: string };
@@ -48,14 +48,48 @@ async function reviewThreads(api: Api, target: Target, head: string, baseSha: st
   return null;
 }
 
-async function resolveOwnThread(api: Api, target: Target, root: string, bot: string, head: string, baseSha: string): Promise<boolean> {
+type Resolution = (threadId: string, stillCurrent: () => Promise<boolean>) => Promise<boolean>;
+
+async function resolveThread(api: Api, id: string): Promise<boolean> {
+  const result = await api<{ errors?: unknown[]; data?: { resolveReviewThread?: { thread?: { id: string; isResolved: boolean } } } }>('/graphql', { method: 'POST', body: JSON.stringify({ query: 'mutation ResolveVerifiedThread($id: ID!) { resolveReviewThread(input: { threadId: $id }) { thread { id isResolved } } }', variables: { id } }) });
+  return !result.errors?.length && result.data?.resolveReviewThread?.thread?.id === id && result.data.resolveReviewThread.thread.isResolved === true;
+}
+
+export function scopedLeadThreadResolution(target: Target, appId: string, key: string, slug: string, enabled: string | undefined, request: typeof fetch = fetch): Resolution | undefined {
+  if (enabled !== 'true' || appId !== '5881606' || slug !== 'oddmash-lead' ||
+      target.repository !== 'Oddmash/oddmash-ui' || target.repositoryId !== 1456324802 || target.private ||
+      !target.number || !target.reply || target.reply.kind === 'conversation' || target.advisoryIdentity) return;
+  return async (threadId, stillCurrent) => {
+    if (!/^PRRT_[a-zA-Z0-9_-]{1,200}$/.test(threadId)) return false;
+    // The review webhook has already authenticated this installation and verified the correction.
+    const jwt = githubApi(appJwt(appId, key), request);
+    const result = await jwt<{ token: string; permissions: { contents?: string; pull_requests?: string } }>(`/app/installations/${target.installation}/access_tokens`, { method: 'POST', body: JSON.stringify({
+      repository_ids: [target.repositoryId], permissions: { contents: 'write', pull_requests: 'write' }
+    }) });
+    if (!result.token) return false;
+    const api = githubApi(result.token, request);
+    try {
+      if (result.permissions?.contents !== 'write' || result.permissions?.pull_requests !== 'write' || !await stillCurrent()) return false;
+      return await resolveThread(api, threadId);
+    } finally {
+      await api('/installation/token', { method: 'DELETE' }).catch(() => console.warn('Temporary thread resolution token revocation unavailable'));
+    }
+  };
+}
+
+async function resolveOwnThread(api: Api, target: Target, root: string, bot: string, head: string, baseSha: string, elevated?: Resolution): Promise<boolean> {
   const threads = await reviewThreads(api, target, head, baseSha, root);
   const thread = threads?.find(item => item.comments.nodes[0]?.id === root && ownsThread(item.comments.nodes[0]?.author, bot));
   if (!thread) return false;
   if (thread.isResolved) return true;
-  if (thread.viewerCanResolve === false) throw new Error('GitHub resolve permission unavailable');
-  const resolved = await api<{ errors?: unknown[]; data?: { resolveReviewThread?: { thread?: { id: string; isResolved: boolean } } } }>('/graphql', { method: 'POST', body: JSON.stringify({ query: 'mutation ResolveVerifiedThread($id: ID!) { resolveReviewThread(input: { threadId: $id }) { thread { id isResolved } } }', variables: { id: thread.id } }) });
-  return !resolved.errors?.length && resolved.data?.resolveReviewThread?.thread?.id === thread.id && resolved.data.resolveReviewThread.thread.isResolved === true;
+  if (!elevated) {
+    if (thread.viewerCanResolve === false) throw new Error('GitHub resolve permission unavailable');
+    return resolveThread(api, thread.id);
+  }
+  return elevated(thread.id, async () => {
+    const current = await api<Pull>(pathFor(target));
+    return eligiblePull(current, target) && current.head.sha === head && current.base.sha === baseSha;
+  });
 }
 
 const sha = /^[a-f0-9]{40}$/i;
@@ -140,7 +174,7 @@ async function discuss(input: object, config: { slug: string; model: string; ope
   return parsed;
 }
 
-export async function replyToReview(api: Api, target: Target, config: { slug: string; openaiKey: string; model: string; specialist?: AdvisoryRole }, request: typeof fetch = fetch) {
+export async function replyToReview(api: Api, target: Target, config: { slug: string; openaiKey: string; model: string; specialist?: AdvisoryRole; resolve?: Resolution }, request: typeof fetch = fetch) {
   if (!target.reply || !target.number) return;
   if (!/^Oddmash\/[a-z0-9_.-]+$/i.test(target.repository) || (target.private && !privateRepositoryAllowed(target.repository, target.repositoryId))) return;
   const repository = await api<Repository>(`/repos/${target.repository}`);
@@ -198,7 +232,7 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
       throw new Error('Discussion acknowledgement reaction unavailable');
     }
     if (verdict === 'fixed' && !conversation) {
-      if (!original.node_id || !await resolveOwnThread(api, target, original.node_id, bot, pr.head.sha, pr.base.sha)) {
+      if (!original.node_id || !await resolveOwnThread(api, target, original.node_id, bot, pr.head.sha, pr.base.sha, config.resolve)) {
         console.warn('Verified finding resolution unavailable; maintainer review required.');
         throw new Error('Verified finding resolution unavailable');
       }

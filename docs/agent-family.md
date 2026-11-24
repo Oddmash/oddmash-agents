@@ -33,6 +33,8 @@ Lead receives the slash command. Advisory responses use the corresponding dedica
 
 The release workflow syncs the GitHub Actions repository variable `REVIEWER_AUTO_ADVISORY_ENABLED` to Vercel Production when it is set to `true` or `false`. Leaving the Actions variable unset preserves the current Vercel setting. The setting takes effect with the next production release.
 
+The `REVIEWER_UI_THREAD_RESOLVE_ENABLED` production opt-in permits Lead to resolve its own verified inline threads in Oddmash UI. GitHub requires a temporary repository-scoped write token for this mutation. The service uses the token for the single verified thread operation and revokes it after the attempt. Specialist and ordinary review tokens retain their existing scope.
+
 ## Lead identity
 
 Lead is the renamed primary review App. Its verified authenticated account is `oddmash-lead[bot]`. Use the [identity guide](lead-identity.md) for attribution. The App ID, webhook endpoint, existing environment key names and historical attribution remain unchanged.

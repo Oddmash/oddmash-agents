@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { reconcileReviewThreads, replyToReview, threadReconciliationExclusions, threadReconciliationMarker } from '../src/review-discussion.ts';
+import { generateKeyPairSync } from 'node:crypto';
+import { reconcileReviewThreads, replyToReview, scopedLeadThreadResolution, threadReconciliationExclusions, threadReconciliationMarker } from '../src/review-discussion.ts';
 import { githubApi, type Target } from '../src/webhook.ts';
 import { githubContentFixture } from './github-content-fixture.ts';
 
@@ -323,4 +324,43 @@ test('dedicated discussion ignores another App and findings without its own role
     });
     await replyToReview(api, target, { ...config, slug, specialist: 'docs' }, async () => assert.fail('model should not run'));
   }
+});
+
+test('Lead opts into a temporary UI-only token for one verified thread operation', async () => {
+  const target = { installation: 3, repository: 'Oddmash/oddmash-ui', repositoryId: 1456324802, number: 51, reply: { comment: 8, root: 7 } };
+  const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const calls: string[] = [];
+  let accept = true;
+  const request: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    assert.equal(url.origin, 'https://api.github.com');
+    calls.push(init?.method + ' ' + url.pathname);
+    if (url.pathname === '/app/installations/3/access_tokens') {
+      assert.deepEqual(JSON.parse(String(init?.body)), { repository_ids: [1456324802], permissions: { contents: 'write', pull_requests: 'write' } });
+      return Response.json({ token: 'fixture', permissions: { contents: 'write', pull_requests: 'write' } });
+    }
+    assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer fixture');
+    if (url.pathname === '/installation/token') return new Response(null, { status: 204 });
+    assert.equal(url.pathname, '/graphql');
+    const { query, variables } = JSON.parse(String(init?.body));
+    assert.match(query, /resolveReviewThread/);
+    assert.deepEqual(variables, { id: 'PRRT_fixture' });
+    return Response.json(accept ? { data: { resolveReviewThread: { thread: { id: 'PRRT_fixture', isResolved: true } } } } : { errors: [{ type: 'FORBIDDEN' }] });
+  };
+  for (const [repo, id, slug, enabled] of [
+    ['Oddmash/example', '5881606', 'oddmash-lead', 'true'],
+    ['Oddmash/oddmash-ui', '1', 'oddmash-lead', 'true'],
+    ['Oddmash/oddmash-ui', '5881606', 'oddmash-qa', 'true'],
+    ['Oddmash/oddmash-ui', '5881606', 'oddmash-lead', 'false'],
+  ]) assert.equal(scopedLeadThreadResolution({ ...target, repository: repo }, id, key, slug, enabled, request), undefined);
+  const resolve = scopedLeadThreadResolution(target, '5881606', key, 'oddmash-lead', 'true', request)!;
+  assert.equal(await resolve('invalid', async () => true), false);
+  assert.deepEqual(calls, []);
+  assert.equal(await resolve('PRRT_fixture', async () => false), false);
+  assert.deepEqual(calls.splice(0), ['POST /app/installations/3/access_tokens', 'DELETE /installation/token']);
+  assert.equal(await resolve('PRRT_fixture', async () => true), true);
+  assert.deepEqual(calls.splice(0), ['POST /app/installations/3/access_tokens', 'POST /graphql', 'DELETE /installation/token']);
+  accept = false;
+  assert.equal(await resolve('PRRT_fixture', async () => true), false);
+  assert.deepEqual(calls, ['POST /app/installations/3/access_tokens', 'POST /graphql', 'DELETE /installation/token']);
 });

@@ -11,7 +11,7 @@ import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts'
 import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence, type ReviewCheckHead } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, githubApi, commentReceipt, completeCommentReaction, reactToComment, slashRequestContext, type Target } from './webhook.ts';
-import { reconcileReviewThreads, replyToReview, threadReconciliationExclusions, threadReconciliationMarker } from './review-discussion.ts';
+import { reconcileReviewThreads, replyToReview, scopedLeadThreadResolution, threadReconciliationExclusions, threadReconciliationMarker } from './review-discussion.ts';
 import { retryableJobError } from './review-job.ts';
 import { publishAutomationStatus } from './review-status.ts';
 import { actionsQuotaEvidence, actionsWorkflowUrl } from './actions-quota.ts';
@@ -180,7 +180,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         return;
       }
     }
-    await replyToReview(api, target, { slug, openaiKey, model });
+    const resolve = scopedLeadThreadResolution(target, appId, key, slug, process.env.REVIEWER_UI_THREAD_RESOLVE_ENABLED);
+    await replyToReview(api, target, { slug, openaiKey, model, resolve });
     return;
   }
   const prs = target.number ? [await api<Pull>(root + '/pulls/' + target.number)] : await api<Pull[]>(root + '/pulls?state=open&per_page=100');
