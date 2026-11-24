@@ -1,8 +1,8 @@
 import { runReview } from './reviewer.ts';
-import { formatReviewBody } from './core.ts';
+import { formatReviewBody, reviewOutcome } from './core.ts';
 import { publicRepositories as repositories, reviewTarget } from './routing.ts';
 import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, type CheckEvidence } from './checks.ts';
-import { acquirePendingReview, attachReviewFindings, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, type Review } from './webhook-review.ts';
+import { acquirePendingReview, attachReviewFindingsWithCoverage, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, type Review } from './webhook-review.ts';
 
 const target = reviewTarget(process.env.REVIEW_REPOSITORY ?? '', process.env.REVIEW_PR_NUMBER ?? '');
 const githubToken = process.env.GITHUB_TOKEN ?? '';
@@ -19,7 +19,7 @@ const api = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
 type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: { sha: string }; base: { sha: string; repo: { private: boolean; full_name: string } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 const installation = await api<{ repositories: { full_name: string; private: boolean }[] }>('/installation/repositories?per_page=100');
 const enabled = new Set(installation.repositories.filter(repo => !repo.private).map(repo => repo.full_name));
-const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human'];
+const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human', 'review: follow-up'];
 let processed = 0;
 for (const repository of repositories) {
   if (!enabled.has(repository) || processed >= 3 || (target && target.repository !== repository)) continue;
@@ -54,10 +54,10 @@ for (const repository of repositories) {
     const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
     if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))) continue;
     const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks);
-    const body = formatReviewBody(event, finalMarker, result.report, current.user);
+    const attachment = event !== 'APPROVE' ? await attachReviewFindingsWithCoverage(api, path, pendingId, result.head, bot, result.comments) : { attached: 0, covered: true };
+    const body = formatReviewBody(event, finalMarker, attachment.covered ? result.inlineReport : result.report, current.user, result.followUp);
     const advisory = event === 'COMMENT' ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
-    const attachedCount = event !== 'APPROVE' ? await attachReviewFindings(api, path, pendingId, result.head, bot, result.comments) : 0;
-    if (advisory && !attachedCount) {
+    if (advisory && !attachment.attached) {
       if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
     } else {
       const beforeSubmit = await api<Pull>(path);
@@ -65,7 +65,7 @@ for (const repository of repositories) {
       await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) });
       submitted = true;
     }
-    const label = event === 'APPROVE' ? 'review: approved' : event === 'REQUEST_CHANGES' ? 'review: changes requested' : 'review: needs human';
+    const label = reviewOutcome(event, result.followUp).label;
     await api(`${root}/issues/${pr.number}/labels`, { method: 'POST', body: JSON.stringify({ labels: [label] }) });
     for (const attached of current.labels) {
       if (attached.name !== label && statuses.includes(attached.name)) await api(`${root}/issues/${pr.number}/labels/${encodeURIComponent(attached.name)}`, { method: 'DELETE' });
