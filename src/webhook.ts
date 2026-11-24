@@ -138,6 +138,15 @@ export function route(event: string | null, p: Payload, slug = '', delivery = ''
   return null;
 }
 
+export function dedicatedAdvisoryTarget(event: string | null, payload: Payload, role: AdvisoryRole, slug: string, delivery: string): Target | null {
+  if (event !== 'issue_comment' && event !== 'pull_request_review_comment') return null;
+  const target = route(event, payload, slug, delivery, undefined, false);
+  if (!target) return null;
+  if (event === 'issue_comment' && target.advisory === role) return { ...target, advisoryIdentity: role };
+  if (event === 'pull_request_review_comment' && role !== 'triage' && target.reply) return { ...target, advisory: role, advisoryIdentity: role };
+  return null;
+}
+
 export function appJwt(appId: string, privateKey: string, now = Math.floor(Date.now() / 1000)): string {
   if (!/^\d+$/.test(appId) || !privateKey) throw new Error('Missing app configuration');
   const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');

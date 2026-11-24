@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { advisoryRoles, advisoryCommand } from '../src/advisory-agents.ts';
-import { route, githubApi } from '../src/webhook.ts';
+import { dedicatedAdvisoryTarget, route, githubApi } from '../src/webhook.ts';
 import { runAdvisory, validAdvisory } from '../src/advisory.ts';
 import { advisoryConfig, advisoryModelConfig } from '../src/runtime-config.ts';
 import { createReviewJob, verifyReviewJob } from '../src/review-job.ts';
@@ -109,16 +109,28 @@ test('each dedicated PR advisor publishes once with its own identity and bounded
   for (const role of ['qa', 'release', 'docs', 'architect'] as const) {
     const slug = `oddmash-${role}`;
     const bot = `${slug}[bot]`;
-    const target = route('issue_comment', event(role, false, slug), slug)!;
+    const target = dedicatedAdvisoryTarget('issue_comment', event(role, false, slug), role, slug, '')!;
     const head = 'a'.repeat(40), base = 'b'.repeat(40);
     const comments: { id: number; body: string; user: { login: string } }[] = [];
     let calls = 0;
+    const inline: { body: string; user: { login: string; type: string } }[] = [];
+    let summaryFailed = false;
     const api = githubApi('fixture', async (input, init) => {
       const url = String(input);
       if (url.includes('/reactions')) return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ id: 1 });
       if (url.includes('/check-runs?')) return Response.json({ total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] });
       if (url.includes('/files?')) return Response.json([{ filename: 'src/example.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
+      if (url.includes('/pulls/7/comments')) {
+        if (init?.method === 'POST') {
+          const body = JSON.parse(String(init.body));
+          assert.deepEqual({ commit: body.commit_id, path: body.path, side: body.side, line: body.line }, { commit: head, path: 'src/example.ts', side: 'RIGHT', line: 1 });
+          assert.match(body.body, new RegExp(`oddmash-specialist:${role}`));
+          inline.push({ body: body.body, user: { login: bot, type: 'Bot' } });
+        }
+        return Response.json(inline);
+      }
       if (url.endsWith('/issues/7/comments') || url.includes('/issues/7/comments?')) {
+        if (init?.method === 'POST' && !summaryFailed) { summaryFailed = true; return Response.json({}, { status: 503 }); }
         if (init?.method === 'POST') comments.push({ id: 12, body: JSON.parse(String(init.body)).body, user: { login: bot } });
         return Response.json(comments);
       }
@@ -128,11 +140,18 @@ test('each dedicated PR advisor publishes once with its own identity and bounded
     const request: typeof fetch = async (_input, init) => {
       calls++;
       assert.equal(JSON.parse(String(init?.body)).max_output_tokens, 1100);
-      return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(result) }] }] });
+      assert.ok(JSON.parse(String(init?.body)).text.format.schema.required.includes('inlineFindings'));
+      const inlineFindings = [
+        { path: 'src/example.ts', line: 1, evidence: 'new', en: 'The new case lacks a fallback.', ko: '새 사례에 대체 처리가 없습니다.' },
+        { path: 'src/example.ts', line: 2, evidence: 'wrong', en: 'Invalid position.', ko: '위치가 잘못되었습니다.' }
+      ];
+      return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ ...result, inlineFindings }) }] }] });
     };
+    await assert.rejects(runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request), /503/);
     await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
     await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
-    assert.equal(calls, 1);
+    assert.equal(calls, 2);
+    assert.equal(inline.length, 1);
     assert.equal(comments.length, 1);
     assert.match(comments[0].body, new RegExp(`oddmash-advisory:${role}`));
   }
@@ -173,4 +192,20 @@ test('a new slash command refreshes the same-head advisory when it removes prior
   assert.deepEqual(contexts, ['Check the migration example.', undefined]);
   assert.equal(posts, 1);
   assert.equal(edits, 1);
+});
+
+test('dedicated inline requests route only maintainer replies to the mentioned PR specialist', () => {
+  const payload = {
+    ...event('qa'), pull_request: { number: 7, draft: false },
+    comment: { id: 9, user, body: '@oddmash-qa[bot] Does this cover the fallback?', in_reply_to_id: 8 }
+  };
+  const routeReply = (input = payload) => dedicatedAdvisoryTarget('pull_request_review_comment', input, 'qa', 'oddmash-qa', '');
+  assert.deepEqual(routeReply()?.reply, { comment: 9, root: 8 });
+  assert.equal(routeReply()?.advisoryIdentity, 'qa');
+  assert.equal(routeReply()?.recheck, undefined);
+  assert.equal(routeReply({ ...payload, sender: { ...user, id: 99 } }), null);
+  assert.equal(routeReply({ ...payload, comment: { ...payload.comment, in_reply_to_id: 0 } }), null);
+  assert.equal(routeReply({ ...payload, comment: { ...payload.comment, body: '@oddmash-qa[bot] /review' } }), null);
+  assert.equal(dedicatedAdvisoryTarget('pull_request_review_comment', payload, 'docs', 'oddmash-docs', ''), null);
+  assert.equal(dedicatedAdvisoryTarget('pull_request_review_comment', { ...payload, comment: { ...payload.comment, body: '@oddmash-triage Question?' } }, 'triage', 'oddmash-triage', ''), null);
 });

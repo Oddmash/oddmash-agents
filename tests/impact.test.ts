@@ -73,3 +73,46 @@ test('protected private paths are withheld and a changed head suppresses publica
   await runImpact(api, privateTarget, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
   assert.equal(posts, 0);
 });
+
+test('dedicated Impact emits one exact-head finding and omits private or unsupported anchors', async () => {
+  const privateRepo = { id: 1468182609, full_name: 'Oddmash/oddmash-agents', private: true, visibility: 'private', owner: { login: 'Oddmash' } };
+  const dedicated = { ...target, repository: privateRepo.full_name, repositoryId: privateRepo.id, private: true, advisoryIdentity: 'impact' as const };
+  const bot = 'oddmash-impact[bot]';
+  const writes: string[] = [];
+  const issueComments: { id: number; body: string; user: { login: string } }[] = [];
+  const api = githubApi('fixture', async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    if (path.includes('/reactions')) return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ id: 1 });
+    if (path.endsWith('/files')) return Response.json(['src/example.ts', 'config/private.ts'].map(filename => ({ filename, status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' })));
+    if (path.endsWith('/comments')) {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init.body));
+        writes.push(path);
+        if (path.includes('/pulls/')) {
+          assert.equal(body.commit_id, head);
+          assert.equal(body.path, 'src/example.ts');
+          assert.equal(body.line, 1);
+          assert.equal(body.side, 'RIGHT');
+          assert.match(body.body, /oddmash-specialist:impact/);
+        } else issueComments.push({ id: 10, body: body.body, user: { login: bot } });
+      }
+      return Response.json(path.includes('/pulls/') ? [] : issueComments);
+    }
+    assert.ok(path.endsWith('/pulls/7'));
+    return Response.json({ title: 'Change', state: 'open', draft: false, changed_files: 2, head: { sha: head }, base: { sha: base, repo: privateRepo } });
+  });
+  const request: typeof fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.deepEqual(JSON.parse(body.input).files.map((file: { filename: string }) => file.filename), ['src/example.ts']);
+    assert.ok(body.text.format.schema.required.includes('inlineFindings'));
+    const inlineFindings = [
+      { path: 'config/private.ts', line: 1, evidence: 'new', en: 'Private change.', ko: '비공개 변경입니다.' },
+      { path: 'src/example.ts', line: 1, evidence: 'wrong line', en: 'Wrong evidence.', ko: '근거가 잘못되었습니다.' },
+      { path: 'src/example.ts', line: 1, evidence: 'new', en: 'The fallback no longer appears.', ko: '대체 경로가 표시되지 않습니다.' }
+    ];
+    return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ ...result, inlineFindings }) }] }] });
+  };
+  await runImpact(api, dedicated, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+  await runImpact(api, dedicated, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+  assert.deepEqual(writes, [`/repos/${privateRepo.full_name}/pulls/7/comments`, `/repos/${privateRepo.full_name}/issues/7/comments`]);
+});

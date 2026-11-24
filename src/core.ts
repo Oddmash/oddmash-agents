@@ -166,7 +166,7 @@ export function deletedLines(patch: string): Set<number> {
   return lines;
 }
 
-function addedLineText(patch: string, target: number): string | undefined {
+export function addedLineText(patch: string, target: number): string | undefined {
   let position = 0;
   for (const line of patch.split('\n')) {
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
