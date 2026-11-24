@@ -6,12 +6,18 @@ type WorkflowRun = {
   workflow_id: number; run_number: number; check_suite_id: number; head_sha: string;
   event: string; status: string; conclusion: string | null;
   pull_requests: { number: number }[];
+  head_branch?: string; head_repository?: { id: number } | null;
 };
 type WorkflowRuns = { total_count: number; workflow_runs: WorkflowRun[] };
+export type ReviewCheckHead = { sha: string; ref?: string; repo?: { id: number; owner?: { login: string } } | null };
+type PullSource = {
+  head: ReviewCheckHead;
+  readPulls: (path: string) => Promise<{ number: number; head: ReviewCheckHead }[] | null>;
+};
 const actionsApp = 15368;
 const aggregateVerify = /^(?:CI \/ )?verify$/;
 
-export function publicReviewCheckReader(root: string, number: number, read: (sha: string) => Promise<CheckEvidence | null>, request: typeof fetch = fetch) {
+export function publicReviewCheckReader(root: string, number: number, read: (sha: string) => Promise<CheckEvidence | null>, request: typeof fetch = fetch, source?: PullSource) {
   return async (sha: string): Promise<CheckEvidence | null> => {
     const evidence = await read(sha);
     if (!evidence || evidence.total_count !== evidence.check_runs.length) return evidence;
@@ -26,8 +32,25 @@ export function publicReviewCheckReader(root: string, number: number, read: (sha
     }).then(response => response.ok ? response.json() as Promise<WorkflowRuns> : null).catch(() => null);
     if (!Array.isArray(runs?.workflow_runs) || runs.total_count !== runs.workflow_runs.length) return evidence;
 
-    const related = runs.workflow_runs.filter(run => run.head_sha === sha && run.event === 'pull_request' &&
-      run.pull_requests?.some(pr => pr.number === number));
+    const eligibleRuns = runs.workflow_runs.filter(run => run.head_sha === sha && run.event === 'pull_request');
+    const head = source?.head;
+    const repo = head?.repo;
+    const owner = repo?.owner?.login;
+    const branch = head?.ref;
+    let unlisted: WorkflowRun[] = [];
+    if (source && head?.sha === sha && owner && branch && Number.isSafeInteger(repo?.id)) {
+      const candidates = eligibleRuns.filter(run => run.pull_requests?.length === 0 &&
+        run.head_branch === branch && run.head_repository?.id === repo?.id);
+      if (candidates.length) {
+        // GitHub may omit PRs for fork runs. Require an unambiguous branch history in this base repository.
+        const filter = new URLSearchParams({ state: 'all', head: owner + ':' + branch, per_page: '2' });
+        const pulls = await source.readPulls(`${root}/pulls?${filter}`).catch(() => null);
+        const pull = pulls?.[0];
+        if (pulls?.length === 1 && pull?.number === number && pull.head.sha === sha &&
+            pull.head.ref === branch && pull.head.repo?.id === repo?.id) unlisted = candidates;
+      }
+    }
+    const related = eligibleRuns.filter(run => run.pull_requests?.some(pr => pr.number === number) || unlisted.includes(run));
     const superseded = new Set<number>();
     let workflowPending = false;
     for (const oldSuite of new Set(candidates.map(check => check.check_suite!.id))) {

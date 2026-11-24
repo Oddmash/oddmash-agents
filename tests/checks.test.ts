@@ -42,6 +42,40 @@ test('superseded cancellation, including failed aggregate and retired jobs, does
   assert.equal(reviewChecksSuccessful(await evaluate([...oldJobs, job(11, 'verify', 'failure')], [oldRun, current])), false);
 });
 
+test('fork workflow runs with empty associations require a unique matching PR across branch history', async () => {
+  const sha = 'a'.repeat(40);
+  const head = { sha, ref: 'fix/example', repo: { id: 123, owner: { login: 'contributor' } } };
+  const pr = { number: 51, head };
+  const job = (id: number, conclusion: string) => ({ name: 'verify', status: 'completed', conclusion, app: { id: 15368 }, check_suite: { id } });
+  const check_runs = [job(10, 'failure'), job(11, 'success')];
+  const cancelled = { head_sha: sha, head_branch: head.ref, head_repository: { id: 123 }, event: 'pull_request', workflow_id: 1,
+    check_suite_id: 10, run_number: 125, status: 'completed', conclusion: 'cancelled', pull_requests: [] as { number: number }[] };
+  const replacement = { ...cancelled, check_suite_id: 11, run_number: 126, conclusion: 'success' };
+  const evaluate = async (pulls: typeof pr[] | null, workflow = replacement) => {
+    const read = publicReviewCheckReader('/repos/Oddmash/example', 51, async () => ({ check_runs, total_count: 2 }),
+      async () => Response.json({ total_count: 2, workflow_runs: [cancelled, workflow] }), {
+        head,
+        readPulls: async path => {
+          const url = new URL(path, 'https://api.github.com');
+          assert.equal(url.pathname, '/repos/Oddmash/example/pulls');
+          assert.equal(url.searchParams.get('head'), 'contributor:fix/example');
+          assert.equal(url.searchParams.get('state'), 'all');
+          assert.equal(url.searchParams.get('per_page'), '2');
+          return pulls;
+        },
+      });
+    return reviewChecksSuccessful((await read(sha))!);
+  };
+  assert.equal(await evaluate([pr]), true);
+  assert.equal(await evaluate([pr, { ...pr, number: 52 }]), false);
+  assert.equal(await evaluate([{ ...pr, number: 52 }]), false);
+  assert.equal(await evaluate([{ ...pr, head: { ...head, sha: 'b'.repeat(40) } }]), false);
+  assert.equal(await evaluate(null), false);
+  assert.equal(await evaluate([pr], { ...replacement, head_repository: { id: 124 } }), false);
+  assert.equal(await evaluate([pr], { ...replacement, head_branch: 'other' }), false);
+  assert.equal(await evaluate([pr], { ...replacement, pull_requests: [{ number: 52 }] }), false);
+});
+
 test('only final aggregate CI evidence can produce an official review', () => {
   const label = { name: 'labels', status: 'completed', conclusion: 'success' };
   const verify = { name: 'verify', status: 'completed', conclusion: 'success', app: { id: 15368 } };
