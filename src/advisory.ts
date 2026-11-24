@@ -60,7 +60,10 @@ export async function runAdvisory(api: Api, target: Target, config: { bot: strin
   }
   const requestContext = await slashRequestContext(api, target, role);
   if (requestContext) context.requestContext = requestContext;
-  const revision = `<!-- oddmash-advisory-revision:${fingerprint(subject)}:${createHash('sha256').update(JSON.stringify(requestContext ? [context.observedChecks, context.relatedIssues, requestContext] : role === 'qa' ? context.observedChecks : role === 'triage' ? context.relatedIssues : null)).digest('hex')} -->`;
+  const revisionEvidence = role === 'qa' ? context.observedChecks : role === 'triage' ? context.relatedIssues : null;
+  const revisionInputs = target.requestComment?.slash ? [revisionEvidence, requestContext ?? null] : revisionEvidence;
+  const revisionHash = createHash('sha256').update(JSON.stringify(revisionInputs)).digest('hex');
+  const revision = `<!-- oddmash-advisory-revision:${fingerprint(subject)}:${revisionHash} -->`;
   const find = async () => {
     for (let page = 1; page <= 10; page++) {
       const comments = await api<Comment[]>(`${commentsPath}?per_page=100&page=${page}`);
