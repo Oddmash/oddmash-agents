@@ -113,6 +113,13 @@ const standaloneReferences = (body: string) => body.split(/\r?\n/).flatMap(line 
   return match ? [match] : [];
 });
 
+export function crossRepositoryIssueReference(body: string | null): string | undefined {
+  if (!body || body.length > 12_000 || body.includes('```')) return;
+  const links = standaloneReferences(body);
+  const reference = links.length === 1 ? links[0][2] : undefined;
+  if (reference && !reference.startsWith('#') && reference.length <= 160) return reference;
+}
+
 export function linkedIssueReference(body: string | null): { number: number; mode: 'closing' | 'partial' } | null {
   const text = body ?? '';
   if (text.length > 12000 || /\x60\x60\x60/.test(text)) return null;
