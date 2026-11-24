@@ -86,3 +86,9 @@ test('release advisory recognizes nested version and release files', () => {
     assert.ok(selectAdvisoryRoles([{ filename }]).includes('release'), filename);
   }
 });
+
+
+test('ordinary filenames containing sensitive token prefixes remain eligible', () => {
+  const filenames = ['src/authors.ts', 'src/deploymentBanner.ts', 'src/auth/index.ts', 'infra/deploy.ts'];
+  assert.deepEqual(automaticAdvisoryPaths(filenames.map(filename => ({ filename }))), filenames.slice(0, 2));
+});
