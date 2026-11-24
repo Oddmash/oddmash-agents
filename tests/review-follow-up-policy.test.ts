@@ -24,3 +24,9 @@ test('advisory selection is deterministic, capped, and excludes issue triage', (
   assert.deepEqual(selectAdvisoryRoles([{ filename:'package.json' },{ filename:'src/api/client.ts' },{ filename:'src/domain/model.ts' }]), ['architect','release']);
   assert.ok(selectAdvisoryRoles([{ filename:'src/components/button.tsx' },{ filename:'docs/usage.md' },{ filename:'package.json' }]).length <= 2);
 });
+
+test('release advisory recognizes nested version and release files', () => {
+  for (const filename of ['src/version.ts', 'packages/example/release.ts', 'package.json', 'CHANGELOG.md', '.changeset/example.md']) {
+    assert.ok(selectAdvisoryRoles([{ filename }]).includes('release'), filename);
+  }
+});
