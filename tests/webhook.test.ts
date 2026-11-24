@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
-import { completeCommentReaction, githubApi, ignoredReviewRequest, reactToComment, route, validSignature } from '../src/webhook.ts';
+import { createHmac, generateKeyPairSync } from 'node:crypto';
+import { authorize, completeCommentReaction, githubApi, ignoredReviewRequest, reactToComment, route, validSignature } from '../src/webhook.ts';
 
 const repo = { id: 7, full_name: 'Oddmash/new-project', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
 const event = { action: 'opened', installation: { id: 3 }, repository: repo, pull_request: { number: 2, draft: false } };
@@ -148,4 +148,24 @@ test('only explicitly approved private repository identities are eligible', () =
     assert.equal(route('pull_request', { ...event, repository: { ...repository, archived: true } }), null);
   }
   assert.equal(route('pull_request', { ...event, repository: { ...repo, private: true, visibility: 'private' } }), null);
+});
+
+
+test('PR advisory identities request pull request write access while Triage remains read-only', async () => {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
+  for (const role of ['impact', 'qa', 'release', 'docs', 'architect', 'triage'] as const) {
+    const requests: unknown[] = [];
+    const request: typeof fetch = async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (path === '/app/installations/3') return Response.json({ account: { login: 'Oddmash' }, suspended_at: null });
+      if (path === '/app/installations/3/access_tokens') {
+        requests.push(JSON.parse(String(init?.body)));
+        return Response.json({ token: 'fixture' });
+      }
+      if (path === `/repos/${repo.full_name}`) return Response.json(repo);
+      throw new Error('Unexpected fixture request');
+    };
+    await authorize({ installation: 3, repository: repo.full_name, repositoryId: repo.id, number: 2, advisory: role }, '123', privateKey, request);
+    assert.deepEqual(requests, [{ repository_ids: [repo.id], permissions: { contents: 'read', pull_requests: role === 'triage' ? 'read' : 'write', checks: 'read', issues: 'write' } }]);
+  }
 });
