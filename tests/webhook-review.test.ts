@@ -93,9 +93,10 @@ test('acquires only its own pending review lock', async () => {
   assert.equal(await acquirePendingReview(api, path, head, bot), 42);
 });
 
-test('a submitted official review prevents automatic repeated reviews on later heads', () => {
+test('a submitted official review deduplicates only the current head', () => {
   const review = { id: 42, state: 'CHANGES_REQUESTED', user: { login: bot }, body: '<!-- oddmash-app-review:fixture -->', commit_id: 'b'.repeat(40) };
-  assert.equal(hasOfficialReview([review], bot), true);
+  assert.equal(hasOfficialReview([review], bot, review.commit_id), true);
+  assert.equal(hasOfficialReview([review], bot, 'd'.repeat(40)), false);
   assert.equal(hasOfficialReview([{ ...review, state: 'DISMISSED' }], bot), true);
   assert.equal(hasOfficialReview([{ ...review, state: 'PENDING' }], bot), false);
   assert.equal(hasOfficialReview([{ ...review, user: { login: 'another-reviewer' } }], bot), false);
