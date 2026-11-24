@@ -48,3 +48,9 @@ test('billing notices link only the known organization and use generic guidance 
   assert.match(billingHelpLink('personal/example'), /docs\.github\.com\/en\/billing/);
   assert.match(billingHelpLink('Oddmash/other/invalid'), /docs\.github\.com\/en\/billing/);
 });
+
+test('model input budget failures provide actionable guidance without private details', () => {
+  const [en, ko] = statusText('review', 'Model input budget exceeded');
+  assert.match(en, /Split the PR/);
+  assert.match(ko, /입력 한도/);
+});

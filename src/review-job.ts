@@ -19,7 +19,7 @@ export function verifyReviewJob(job: ReviewJob, secret: string): boolean {
 
 export function retryableJobError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : '';
-  if (message === 'Reviewer failure record unavailable') return false;
+  if (message === 'Reviewer failure record unavailable' || message === 'Model input budget exceeded') return false;
   if (/quota|credit limit|missing app configuration|installation not eligible|repository not eligible|invalid delivery/i.test(message)) return false;
   const status = /(?:GitHub|Model) request failed \((\d{3})\)/.exec(message)?.[1];
   return !status || Number(status) >= 500 || ['408', '409', '429'].includes(status);

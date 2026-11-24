@@ -37,9 +37,4 @@ export function relatedPaths(files: ChangedFile[]): string[] {
   return [...paths];
 }
 
-export type Usage = { input_tokens?: number; output_tokens?: number; total_tokens?: number };
-export function recordUsage(phase: string, model: string, usage?: Usage) {
-  if (!usage) return;
-  const count = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
-  console.log(JSON.stringify({ event: 'reviewer_usage', phase, model, inputTokens: count(usage.input_tokens), outputTokens: count(usage.output_tokens), totalTokens: count(usage.total_tokens) }));
-}
+export { recordUsage, type Usage } from './model-request.ts';

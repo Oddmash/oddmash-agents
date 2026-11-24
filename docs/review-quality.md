@@ -4,13 +4,17 @@ The reviewer uses a bounded, project-specific focus and may read direct relative
 
 Maintainer comment requests that arrive before passing checks persist a bot-authored acknowledgement tied to the exact head. A check-suite completion can resume the request without a second mention. Stale heads and already-recorded requests are ignored. The scan is bounded to 100 comments per type; if exceeded, use the explicit manual command. A failed check requires repair and a passing check event. Native GitHub review requests without a comment still require manual retry if checks are not ready.
 
-Usage events record only model, phase and numeric input/output/total tokens. Aggregate them by phase and model using the applicable pricing; do not log prompts or source. Missing usage is not recorded as zero cost.
+Usage events record role, model, phase and numeric input/output/total tokens. See [agent operations](agent-operations.md) for limits, diagnostics and cost estimation.
 
 ## Review coverage and merge eligibility
 
 Reviewer quality checks may include conventional configuration manifests, explicitly recognized CI/deployment workflow filenames, and authentication or authorization source under the conventional src directories. These checks are defensive and do not authorize executable security-sensitive suggestions. The private-repository allowlist, changed-patch-only boundary, credential-like content checks, confidential names and rename-origin checks remain enforced. Unrecognized sensitive private paths remain excluded. Excluded names are not included in model input or reports.
 
 Coverage explanations distinguish confidential paths, private repository policy exclusions, potential sensitive content, missing or incomplete patches, and budget limits. Automatic merge continues to use its independent strict selection and existing low-risk path checks, exact-head approval, issue acceptance, CI and branch protection. Reviewable configuration and authentication changes do not become merge eligible.
+
+## Generated artifacts and configuration
+
+Use the evidence appropriate to the artifact. A frozen-lockfile install proves that the declared dependency graph can be installed consistently; it does not establish dependency safety. Dependency review and applicable audit checks must be evaluated separately. Generated assets and screenshots need deterministic format/build validation or manual visual QA; a green compiler check does not prove visual quality. Conventional configuration can be reviewed defensively, but confidential values and protected paths remain outside model input. Missing lockfile patches, omitted assets and incomplete checks are coverage gaps, not zero findings. CI results do not authorize automatic merge in the presence of missing coverage or protected changes.
 
 ## Review outcomes
 

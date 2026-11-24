@@ -104,3 +104,36 @@ test('role model settings can be isolated without changing other roles', () => {
     }
   }
 });
+
+test('each dedicated PR advisor publishes once with its own identity and bounded request', async () => {
+  for (const role of ['qa', 'release', 'docs', 'architect'] as const) {
+    const slug = `oddmash-${role}`;
+    const bot = `${slug}[bot]`;
+    const target = route('issue_comment', event(role, false, slug), slug)!;
+    const head = 'a'.repeat(40), base = 'b'.repeat(40);
+    const comments: { id: number; body: string; user: { login: string } }[] = [];
+    let calls = 0;
+    const api = githubApi('fixture', async (input, init) => {
+      const url = String(input);
+      if (url.includes('/reactions')) return init?.method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ id: 1 });
+      if (url.includes('/check-runs?')) return Response.json({ total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] });
+      if (url.includes('/files?')) return Response.json([{ filename: 'src/example.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
+      if (url.endsWith('/issues/7/comments') || url.includes('/issues/7/comments?')) {
+        if (init?.method === 'POST') comments.push({ id: 12, body: JSON.parse(String(init.body)).body, user: { login: bot } });
+        return Response.json(comments);
+      }
+      assert.ok(!init?.method || init.method === 'GET');
+      return Response.json({ number: 7, title: 'Change', state: 'open', draft: false, changed_files: 1, head: { sha: head }, base: { sha: base, repo } });
+    });
+    const request: typeof fetch = async (_input, init) => {
+      calls++;
+      assert.equal(JSON.parse(String(init?.body)).max_output_tokens, 1100);
+      return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(result) }] }] });
+    };
+    await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+    await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+    assert.equal(calls, 1);
+    assert.equal(comments.length, 1);
+    assert.match(comments[0].body, new RegExp(`oddmash-advisory:${role}`));
+  }
+});

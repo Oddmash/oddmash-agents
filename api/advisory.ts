@@ -1,3 +1,4 @@
+import { executionContext, recordQueued, runAgentExecution } from '../src/agent-execution.ts';
 import { waitUntil } from '@vercel/functions';
 import { send } from '@vercel/queue';
 import { advisoryConfig } from '../src/runtime-config.ts';
@@ -21,11 +22,13 @@ export async function POST(request: Request) {
   const routed = route('issue_comment', payload, config.slug, delivery);
   if (!routed || routed.advisory !== role) return new Response('Ignored', { status: 200 });
   const target = { ...routed, advisoryIdentity: role };
+  const execution = executionContext(role, delivery);
   if (process.env.REVIEWER_QUEUE_ENABLED === 'true') {
     let job;
     try { job = createReviewJob(delivery, target, config.secret); } catch { return new Response('Bad request', { status: 400 }); }
     try { await send(reviewTopic, job, { idempotencyKey: `${role}:${delivery}`, retentionSeconds: 86400 }); }
     catch { return new Response('Unavailable', { status: 503 }); }
-  } else waitUntil(reviewWebhook(target, config).catch(() => console.error('Advisory job failed')));
+    recordQueued(execution);
+  } else waitUntil(runAgentExecution(execution, () => reviewWebhook(target, config)).catch(() => console.error('Advisory job failed')));
   return new Response('Accepted', { status: 202 });
 }

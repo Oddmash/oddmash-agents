@@ -1,3 +1,4 @@
+import { executionContext, executionRole, recordQueued, runAgentExecution } from '../src/agent-execution.ts';
 import { waitUntil } from '@vercel/functions';
 import { ignoredReviewRequest, route, validSignature } from '../src/webhook.ts';
 import { reviewWebhook } from '../src/webhook-review.ts';
@@ -31,18 +32,20 @@ export async function POST(request: Request) {
     console.error('Reviewer runtime configuration unavailable');
     return new Response('Unavailable', { status: 503 });
   }
+  const delivery = request.headers.get('x-github-delivery') ?? '';
+  const execution = executionContext(executionRole(target), delivery);
   if (process.env.REVIEWER_QUEUE_ENABLED === 'true') {
-    const delivery = request.headers.get('x-github-delivery') ?? '';
     let job;
     try { job = createReviewJob(delivery, target, secret); } catch { return new Response('Bad request', { status: 400 }); }
     try { await send(reviewTopic, job, { idempotencyKey: delivery, retentionSeconds: 86400 }); }
     catch { console.error('Reviewer queue publish failed'); return new Response('Unavailable', { status: 503 }); }
+    recordQueued(execution);
     if (target.requestComment) console.info('Reviewer comment request queued');
     return new Response('Accepted', { status: 202 });
   }
-  waitUntil(reviewWebhook(target, config).catch(error => {
+  waitUntil(runAgentExecution(execution, () => reviewWebhook(target, config)).catch(error => {
     const message = error instanceof Error ? error.message : '';
-    const known = /^(?:GitHub request failed \(\d{3}\)|Model request failed \(\d{3}\)|Incomplete review response|Unexpected pending review response|Missing app configuration|Installation not eligible|Repository not eligible|Model quota, rate or credit limit reached; stop and check API billing before retrying|Pending review: Unexpected pending review response|Pending review: GitHub request failed \(\d{3}\)|Submit review: GitHub request failed \(\d{3}\))$/;
+    const known = /^(?:GitHub request failed \(\d{3}\)|Model request failed \(\d{3}\)|Incomplete review response|Model input budget exceeded|Unexpected pending review response|Missing app configuration|Installation not eligible|Repository not eligible|Model quota, rate or credit limit reached; stop and check API billing before retrying|Pending review: Unexpected pending review response|Pending review: GitHub request failed \(\d{3}\)|Submit review: GitHub request failed \(\d{3}\))$/;
     console.error('Webhook review failed: ' + (known.test(message) ? message : 'Unexpected error'));
   }));
   if (target.requestComment) console.info('Reviewer comment request accepted');

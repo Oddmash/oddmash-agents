@@ -1,3 +1,4 @@
+import { executionContext, runAgentExecution } from './agent-execution.ts';
 import { createHash } from 'node:crypto';
 import { runImpact } from './impact.ts';
 import { runAdvisory } from './advisory.ts';
@@ -347,10 +348,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
             if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) break;
             const advisoryTarget: Target = { installation: target.installation, repository, repositoryId: target.repositoryId, private: target.private, number: current.number, expectedHead: current.head.sha, advisory: role, ...(role === 'impact' ? { impact: true as const } : {}) };
             const advisoryConfig = { bot, ...advisoryModelConfig(role, { model, openaiKey }), automatic: true, incrementalFiles };
-            if (role === 'impact') await runImpact(api, advisoryTarget, advisoryConfig);
-            else await runAdvisory(api, advisoryTarget, advisoryConfig);
-            console.log(JSON.stringify({ event: 'reviewer_advisory', role, outcome: 'returned' }));
-          } catch { console.warn(JSON.stringify({ event: 'reviewer_advisory', role, outcome: 'failed' })); }
+            await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(api, advisoryTarget, advisoryConfig) : runAdvisory(api, advisoryTarget, advisoryConfig));
+          } catch { console.warn('Coordinated advisory failed'); }
         }
       }
       if (event === 'APPROVE' && incrementalFiles === undefined) await attemptMerge(pendingId);

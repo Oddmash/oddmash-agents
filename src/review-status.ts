@@ -26,6 +26,7 @@ const messages: Record<string, [string, string]> = {
   'exact-head approval or independent review evidence is incomplete': ['Current approval or required review evidence is incomplete.', '현재 커밋의 승인 또는 필수 리뷰 근거가 부족합니다.'],
   'Mergeability evidence pending': ['GitHub is still calculating mergeability. Retry when ready.', 'GitHub에서 머지 가능 여부를 계산 중입니다. 완료 후 재시도합니다.'],
   'Model quota, rate or credit limit reached; stop and check API billing before retrying': ['Model usage limit reached. Check billing before requesting another review.', '모델 사용량 한도에 도달했습니다. 결제를 확인한 후 재리뷰를 요청하세요.'],
+  'Model input budget exceeded': ['The model request exceeds its configured input budget. Split the PR or use a smaller scope before requesting another review.', '모델 입력 한도를 초과했습니다. PR을 나누거나 검토 범위를 줄인 후 재리뷰를 요청하세요.'],
   'review completed': ['Review completed.', '리뷰가 완료되었습니다.'],
   'merge completed': ['Automatic merge completed.', '자동 머지가 완료되었습니다.']
 };
