@@ -356,6 +356,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
       progressResult = completedResult;
       await progress?.finish(progressResult.conclusion, progressResult.title);
+      if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED !== 'true') console.info('Coordinated advisors disabled');
       if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED === 'true') {
         const budget = automaticAdvisoryBudget(process.env, Date.now() - executionStarted);
         if (budget.maxRequests > 0 && budget.elapsedMs > 0) {
@@ -366,7 +367,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           const scoped = incrementalFiles === undefined ? metadata : metadata.filter(file => incrementalFiles.includes(file.filename));
           const advisoryPaths = automaticAdvisoryPaths(scoped);
           const remaining = { ...budget, elapsedMs: Math.max(0, budget.elapsedMs - (Date.now() - planningStarted)) };
-          await runCoordinatedAdvisories(selectAdvisoryRoles(scoped, remaining.maxRequests), remaining, async (role, signal) => {
+          const roles = selectAdvisoryRoles(scoped, remaining.maxRequests);
+          console.info(roles.length ? 'Coordinated advisors selected: ' + roles.join(', ') : 'Coordinated advisors skipped: no eligible roles');
+          await runCoordinatedAdvisories(roles, remaining, async (role, signal) => {
             const request = boundedRequest(signal);
             const advisor = await authorizeCoordinatedAdvisor({ ...target, number: current.number, expectedHead: current.head.sha }, role, appId, request);
             if (!advisor) { console.info('Coordinated advisor unavailable: ' + role); return true; }
@@ -374,9 +377,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
             if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) return false;
             const advisoryConfig = { ...advisor.config, automatic: true, incrementalFiles: advisoryPaths };
             await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(advisor.api, advisor.target, advisoryConfig, request) : runAdvisory(advisor.api, advisor.target, advisoryConfig, request));
+            console.info('Coordinated advisor finished: ' + role);
             return true;
           });
-        }
+        } else console.info('Coordinated advisors skipped: budget exhausted');
       }
       if (event === 'APPROVE' && incrementalFiles === undefined) await attemptMerge(pendingId);
       await publishAutomationStatus(api, repository, pr.number, bot, current.head.sha, 'review', 'review completed', true);
