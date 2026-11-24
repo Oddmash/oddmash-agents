@@ -21,3 +21,17 @@ The reference is for maintainers developing and verifying the reviewer. It is no
 ## Authority and failure handling
 
 Skills never grant invocation, repository access, posting, merging, or deployment rights. Keep credentials and private source out of shared guidance and review output. If an approved reference is unavailable, report the missing guidance rather than substituting an unreviewed version. Existing reviewer policy, repository authorization, and deployment controls remain unchanged.
+
+## Recurring quality feedback
+
+Use the catalog's [skill improvement proposal workflow](https://github.com/Oddmash/oddmash-skills/blob/main/docs/skill-improvement-proposals.md) for recurring confirmed non-security feedback across separate product PRs. This is a maintainer-reviewed improvement queue, not a change to review, advisory or deployment behavior. Agent comments can supply evidence, but they do not authorize publication or mutate guidance.
+
+Run the proposal helper from this repository using the maintainer's existing authenticated GitHub CLI session. Categorize two to eight distinct public merged PRs, read their review discussions, confirm the same actionable quality problem and inspect the currently owning skill for a genuine shared gap. For example, use the following format with real, verified PR numbers:
+
+```sh
+pnpm skills:proposal ui-feedback Oddmash/kowrap#123 Oddmash/oddmash-ui#456
+````
+
+The command previews the issue or novel evidence comment without writing. After independently verifying the evidence and the proposed gap, rerun the same command with `--confirm-gap --publish` only if authorized to post. The fixed categories are `ui-feedback`, `visual-layout`, `docs-examples`, `test-coverage`, `compatibility`, and `maintainability`. Do not infer that a merged PR validates a particular finding; a maintainer confirms that from the source discussion.
+
+The helper verifies active public product repositories and merged PR identity, rejects private and unsupported references, and uses only fixed text plus public PR permalinks. It identifies the catalog issue by stable skill/category marker, adds only new references, and does not reopen closed issues or publish if history is ambiguous or incomplete. Serialize publication by category and inspect the catalog issue list if a request fails; GitHub issue creation is not atomic with lookup. Do not grant deployed GitHub Apps additional cross-repository access to run this helper.

@@ -6,7 +6,7 @@ import { advisoryModelConfig } from './runtime-config.ts';
 import { runReview } from './reviewer.ts';
 import { startReviewProgress } from './review-progress.ts';
 import { formatReviewBody, reviewOutcome } from './core.ts';
-import { finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence } from './checks.ts';
+import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, githubApi, completeCommentReaction, reactToComment, type Target } from './webhook.ts';
 import { replyToReview } from './review-discussion.ts';
@@ -72,6 +72,13 @@ export async function acquirePendingReview(api: Api, path: string, head: string,
     if (reviews.some(review => review.user.login === bot && (review.state === 'PENDING' || review.commit_id === head && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED'].includes(review.state)))) return null;
     throw error;
   }
+}
+
+export function ownsPendingReview(reviews: Review[], bot: string, head: string, id: number): boolean {
+  if (reviews.length >= 100) return false;
+  const pending = reviews.filter(review => review.user.login === bot && review.state === 'PENDING');
+  const own = pending.find(review => review.id === id);
+  return !!own && own.commit_id === head && !!own.body?.includes('<!-- oddmash-review-lock -->') && pending.every(review => Number.isSafeInteger(review.id) && review.id >= id && review.commit_id === head && !!review.body?.includes('<!-- oddmash-review-lock -->'));
 }
 
 export function expiredWebhookLock(review: Review, bot: string, now = Date.now()): boolean {
@@ -161,7 +168,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     }
     const existingApproval = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state)).at(-1);
     const progressEnabled = process.env.REVIEWER_CHECK_PROGRESS_ENABLED === 'true';
-    const progressFor = async (waiting = false, reuseOnly = false) => progressEnabled ? authorize(target, appId, key, fetch, true).then(auth => startReviewProgress(auth.api, repository, pr.head.sha, { appId: Number(appId), number: pr.number, request: target.recheck, waiting, reuseOnly })).catch(() => { console.warn('Review progress permission unavailable'); return undefined; }) : undefined;
+    const progressFor = async (waiting = false, reuseOnly = false, waitingSummary?: string) => progressEnabled ? authorize(target, appId, key, fetch, true).then(auth => startReviewProgress(auth.api, repository, pr.head.sha, { appId: Number(appId), number: pr.number, request: target.recheck, waiting, reuseOnly, waitingSummary })).catch(() => { console.warn('Review progress permission unavailable'); return undefined; }) : undefined;
     const reconcileCompletedProgress = async (review: Review | undefined) => {
       const progress = await progressFor(false, true);
       if (!review) await progress?.finish('cancelled', 'No review for this commit', 'A new maintainer review request is required.');
@@ -170,7 +177,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       else await progress?.finish('neutral', 'Review follow-up required');
     };
     const mergeStatus = (reason: string, completed = false) => publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'merge', reason, completed);
-    const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
+    const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`), Number(appId));
     const retryExistingApproval = async () => {
       if (existingApproval?.state !== 'APPROVED') return;
       let reason = !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
@@ -210,7 +217,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     if (!target.recheck && decisive?.state === 'CHANGES_REQUESTED') return;
     const approved = !target.recheck && decisive?.state === 'APPROVED' ? decisive : undefined;
     if (approved && !config.autoMerge) return;
-    const publishWaiting = async (blocked?: string) => {
+    const publishWaiting = async (blocked?: string, summary?: string) => {
       if (!progressEnabled || reviews.some(review => review.user.login === bot && review.state === 'PENDING')) return false;
       let lock: number | null = null;
       try {
@@ -219,9 +226,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         const current = await api<Pull>(path);
         if (current.head.sha !== pr.head.sha || current.state !== 'open' || current.draft || !eligibleBase(current)) return false;
         const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
-        if (latest.length === 100 || (!target.recheck && hasOfficialReview(latest, bot, pr.head.sha)) || (requestTag && latest.some(review => review.user.login === bot && review.body?.includes(requestTag)))) return false;
-        const progress = await progressFor(true, Boolean(blocked));
-        if (blocked) await progress?.finish('neutral', blocked, 'Required CI did not pass. A successful rerun can start a new review.');
+        if (!ownsPendingReview(latest, bot, pr.head.sha, lock) || (!target.recheck && hasOfficialReview(latest, bot, pr.head.sha)) || (requestTag && latest.some(review => review.user.login === bot && review.body?.includes(requestTag)))) return false;
+        const progress = await progressFor(true, Boolean(blocked), summary);
+        if (blocked) await progress?.finish('neutral', blocked, summary ?? 'Required CI did not pass. A successful rerun can start a new review.');
       } catch { console.warn('Waiting review progress unavailable'); }
       finally {
         if (lock !== null) {
@@ -248,7 +255,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha);
       const ready = reviewChecksReady(checks, repository);
       if (ready) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
-      const published = await publishWaiting(ready ? 'Review blocked by failed CI' : undefined);
+      const published = await publishWaiting(ready ? 'Review blocked by failed CI' : undefined, checkWaitingSummary(checks, repository));
       if (published && reconcileWaiting) {
         const current = await api<Pull>(path);
         if (current.head.sha === pr.head.sha && current.state === 'open' && !current.draft && eligibleBase(current) && reviewChecksSuccessful(await readChecks(current), repository)) return reviewOne(current, target, false);
@@ -264,9 +271,13 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const pendingId = await acquirePendingReview(api, path, pr.head.sha, bot, true).catch(error => { throw new Error('Pending review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
     if (pendingId === null) return;
     let submitted = false;
-    const progress = await progressFor();
+    let progress: Awaited<ReturnType<typeof progressFor>> = undefined;
     let progressResult: { conclusion: 'success' | 'failure' | 'neutral' | 'cancelled'; title: string } = { conclusion: 'cancelled', title: 'Review not submitted' };
     try {
+      const acquired = await api<Review[]>(`${path}/reviews?per_page=100`);
+      if (!ownsPendingReview(acquired, bot, pr.head.sha, pendingId)) return;
+      if ((!target.recheck && hasOfficialReview(acquired, bot, pr.head.sha)) || (requestTag && acquired.some(review => review.user.login === bot && review.body?.includes(requestTag)))) return;
+      progress = await progressFor();
       await progress?.update('Collecting changes', 'Preparing the current commit review.');
       try {
         const active = await api<Pull>(path);
@@ -291,7 +302,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const current = await api<Pull>(path);
       if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft || !eligibleBase(current)) return;
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
-      if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state) && (!approved || review.id > approved.id))))) return;
+      if (!ownsPendingReview(latest, bot, current.head.sha, pendingId) || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state) && (!approved || review.id > approved.id))))) return;
       const finalChecks = await readChecks(current);
       const event = finalReviewEvent(incrementalFiles !== undefined && result.assessment === 'APPROVE' ? 'COMMENT' : result.assessment, finalChecks, repository);
       if (!event) {
@@ -318,6 +329,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           if (retryableJobError(error)) throw error;
         }
       };
+      const publication = await api<Review[]>(`${path}/reviews?per_page=100`);
+      if (!ownsPendingReview(publication, bot, current.head.sha, pendingId) || publication.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(finalMarker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))))) return;
       if (approved) {
         if (event === 'APPROVE') {
           await api(`${path}/reviews/${approved.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
@@ -335,6 +348,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       } else {
         const beforeSubmit = await api<Pull>(path);
         if (beforeSubmit.head.sha !== result.head || beforeSubmit.base.sha !== current.base.sha || beforeSubmit.merge_commit_sha !== current.merge_commit_sha || beforeSubmit.state !== 'open' || beforeSubmit.draft || !eligibleBase(beforeSubmit)) return;
+        const beforePublish = await api<Review[]>(`${path}/reviews?per_page=100`);
+        if (!ownsPendingReview(beforePublish, bot, current.head.sha, pendingId) || beforePublish.some(review => review.user.login === bot && review.commit_id === current.head.sha && (review.body?.includes(finalMarker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))))) return;
         await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) }).catch(error => { throw new Error('Submit review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
         submitted = true;
       }
@@ -379,7 +394,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if (!submitted && progressResult.conclusion === 'cancelled') progressResult = { conclusion: 'failure', title: 'Review processing failed' };
       throw error;
     } finally {
-      await progress?.finish(progressResult.conclusion, progressResult.title);
+      if (progress && (submitted || await api<Review[]>(`${path}/reviews?per_page=100`).then(items => ownsPendingReview(items, bot, pr.head.sha, pendingId)).catch(() => false))) await progress.finish(progressResult.conclusion, progressResult.title);
       if (!submitted) {
         try {
           const pending = await api<Review>(`${path}/reviews/${pendingId}`);

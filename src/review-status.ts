@@ -49,14 +49,18 @@ export async function publishAutomationStatus(api: Api, repository: string, numb
   const marker = `<!-- oddmash-automation-status:${kind} -->`;
   const path = `/repos/${repository}/issues/${number}/comments`;
   type Comment = { id: number; body: string; user: { login: string } };
-  try {
-    let existing: Comment | undefined;
+  const matching = async (): Promise<Comment[] | undefined> => {
+    const found: Comment[] = [];
     for (let page = 1; page <= 10; page++) {
       const comments = await api<Comment[]>(`${path}?per_page=100&page=${page}`);
-      existing = comments.find(item => item.user.login === bot && item.body.startsWith(marker));
-      if (existing || comments.length < 100) break;
-      if (page === 10) return;
+      found.push(...comments.filter(item => item.user.login === bot && item.body.startsWith(marker)));
+      if (comments.length < 100) return found.sort((left, right) => left.id - right.id);
     }
+  };
+  try {
+    const known = await matching();
+    if (!known) return;
+    const existing = known[0];
     if (completed && !existing) return;
     const current = await api<{ state: string; head: { sha: string }; merged?: boolean }>(`/repos/${repository}/pulls/${number}`);
     if (current.head.sha !== head || (!completed && current.state !== 'open')) return;
@@ -66,6 +70,19 @@ export async function publishAutomationStatus(api: Api, repository: string, numb
     const body = `${marker}\n**${title}**\n\n${en}${links}\n\nCommit: \`${head.slice(0, 12)}\`\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${ko}\n\n</details>`;
     if (existing?.body === body) return;
     if (existing) await api(`/repos/${repository}/issues/comments/${existing.id}`, { method: 'PATCH', body: JSON.stringify({ body }) });
-    else await api(path, { method: 'POST', body: JSON.stringify({ body }) });
+    else {
+      const fresh = await matching();
+      if (!fresh) return;
+      if (fresh.length) {
+        if (fresh[0].body !== body) await api(`/repos/${repository}/issues/comments/${fresh[0].id}`, { method: 'PATCH', body: JSON.stringify({ body }) });
+        return;
+      }
+      const created = await api<Comment>(path, { method: 'POST', body: JSON.stringify({ body }) });
+      if (created.user.login !== bot || created.body !== body || !Number.isSafeInteger(created.id)) return;
+      const after = await matching();
+      if (!after?.some(item => item.id < created.id && item.body === body)) return;
+      const own = await api<Comment>(`/repos/${repository}/issues/comments/${created.id}`);
+      if (own.id === created.id && own.user.login === bot && own.body === body) await api(`/repos/${repository}/issues/comments/${created.id}`, { method: 'DELETE' });
+    }
   } catch { console.warn('Automation status comment unavailable'); }
 }
