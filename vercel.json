@@ -15,6 +15,10 @@
           "topic": "oddmash-review-jobs"
         }
       ]
+    },
+    "api/advisory.ts": {
+      "maxDuration": 300,
+      "installCommand": "corepack pnpm install --frozen-lockfile --ignore-scripts"
     }
   },
   "git": {
