@@ -11,7 +11,7 @@ export type MergePull = { number: number; state: string; draft: boolean; user: I
 type Issue = { number: number; state: string; body: string | null; user: Identity; pull_request?: unknown; updated_at: string };
 type Branch = { protected: boolean; commit: { sha: string }; protection?: { enabled: boolean; required_status_checks?: { enforcement_level: string; checks?: { context: string; app_id: number }[] } } };
 type Review = { id: number; user: Identity; state: string; commit_id: string; body: string | null };
-export type Acceptance = { issue: number; digest: string; body: string; criteria: string[] };
+export type Acceptance = { issue: number; digest: string; body: string; criteria: string[]; mode?: 'partial'; scope?: string };
 export type Candidate = { pull: MergePull; acceptance: Acceptance; repositoryOptIn?: 'documentation' };
 export function mergeProof(candidate: Candidate): string {
   const { pull, acceptance } = candidate;
