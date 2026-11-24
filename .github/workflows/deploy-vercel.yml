@@ -71,6 +71,7 @@ jobs:
           REVIEWER_QUEUE_ENABLED: ${{ vars.REVIEWER_QUEUE_ENABLED || 'false' }}
           REVIEWER_AUTO_MERGE_ENABLED: ${{ vars.REVIEWER_AUTO_MERGE_ENABLED || 'true' }}
           REVIEWER_AUTO_ADVISORY_ENABLED: ${{ vars.REVIEWER_AUTO_ADVISORY_ENABLED }}
+          REVIEWER_UI_THREAD_RESOLVE_ENABLED: ${{ vars.REVIEWER_UI_THREAD_RESOLVE_ENABLED }}
         run: node scripts/sync-vercel-env.mjs
       - name: Pull production settings
         env:
