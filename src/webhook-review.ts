@@ -152,7 +152,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if (!review) await progress?.finish('cancelled', 'No review for this commit', 'A new maintainer review request is required.');
       else if (review.state === 'APPROVED') await progress?.finish('success', 'Review approved');
       else if (review.state === 'CHANGES_REQUESTED') await progress?.finish('failure', 'Changes requested');
-      else await progress?.finish('neutral', 'Maintainer review needed');
+      else await progress?.finish('neutral', 'Review follow-up required');
     };
     const mergeStatus = (reason: string, completed = false) => publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'merge', reason, completed);
     const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`));
