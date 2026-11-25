@@ -36,10 +36,10 @@ const JobDetails = ({ job, language, observedAt }: { job: Job; language: Languag
   </details>;
 };
 
-const ExecutionEntry = ({ job, language, observedAt, agent }: { job: Job; language: Language; observedAt: string; agent: ReactNode }) => {
+const ExecutionEntry = ({ job, language, observedAt, live, agent }: { job: Job; language: Language; observedAt: string; live: boolean; agent: ReactNode }) => {
   const t = (message: Message) => translate(language, message);
   const [clock, setClock] = useState(observedAt);
-  const active = job.state === 'queued' || job.state === 'running';
+  const active = live && (job.state === 'queued' || job.state === 'running');
   useEffect(() => {
     setClock(observedAt);
     if (!active) return;
@@ -55,13 +55,13 @@ const ExecutionEntry = ({ job, language, observedAt, agent }: { job: Job; langua
           <div className="execution-summary">
             <div>{agent}</div>
             <div className="review-phase"><strong>{job.phase ? t(job.phase) : t('Not reported')}</strong><small>{t('Attempt')} {job.attempt} · <span className="elapsed-number">{elapsed(job, language, clock)}</span></small></div>
-            <div className="review-state"><Badge tone={job.state === 'running' ? 'accent' : 'neutral'}>{job.state === 'running' && <span className="activity-spinner" aria-hidden="true"/>}{t(job.state)}</Badge>{job.failure && <small>{Object.hasOwn(korean, job.failure) ? t(job.failure as Message) : t('unexpected')}</small>}<small>{timestamp(job.updatedAt, language)}</small></div>
+            <div className="review-state"><Badge tone={job.state === 'running' ? 'accent' : 'neutral'}>{live && job.state === 'running' && <span className="activity-spinner" aria-hidden="true"/>}{t(job.state)}</Badge>{job.failure && <small>{Object.hasOwn(korean, job.failure) ? t(job.failure as Message) : t('unexpected')}</small>}<small>{timestamp(job.updatedAt, language)}</small></div>
           </div>
           <JobDetails job={job} language={language} observedAt={clock}/>
         </li>;
 };
 
-export const RepositoryActivity = ({ groups, visibleJobs, observedAt, language, renderAgent }: { groups: TargetGroup[]; visibleJobs: readonly Job[]; observedAt: string; language: Language; renderAgent: (role: AgentRole) => ReactNode }) => {
+export const RepositoryActivity = ({ groups, visibleJobs, observedAt, live, language, renderAgent }: { groups: TargetGroup[]; visibleJobs: readonly Job[]; observedAt: string; live: boolean; language: Language; renderAgent: (role: AgentRole) => ReactNode }) => {
   const t = (message: Message) => translate(language, message);
   const repositories = repositoryActivity(visibleJobs);
   return <div className="repository-list">{repositories.map(repository => {
@@ -73,7 +73,7 @@ export const RepositoryActivity = ({ groups, visibleJobs, observedAt, language, 
         <div className="repository-counts"><Badge tone={counts.running ? 'accent' : 'neutral'}>{t('Running')} {counts.running}</Badge><Badge tone="neutral">{t('Queued')} {counts.queued}</Badge>{counts.failed > 0 && <Badge tone="neutral">{t('Recent failures')} {counts.failed}</Badge>}</div></div>
       <div className="review-list">{targets.map(group => <Card key={group.key} className="review-group">
         <div className="review-heading"><h3>{group.target ? <a href={'https://github.com/' + group.target.repository + '/issues/' + group.target.number} target="_blank" rel="noreferrer">#{group.target.number}</a> : t('Target not reported')}</h3><span className="muted">{executionCount(language, group.jobs.length, group.total)}</span></div>
-        <ul className="review-agents">{group.jobs.map(job => <ExecutionEntry key={job.role + ':' + job.correlationId + ':' + job.attempt} job={job} language={language} observedAt={observedAt} agent={renderAgent(job.role)}/>)}</ul>
+        <ul className="review-agents">{group.jobs.map(job => <ExecutionEntry key={job.role + ':' + job.correlationId + ':' + job.attempt} job={job} language={language} observedAt={observedAt} live={live} agent={renderAgent(job.role)}/>)}</ul>
       </Card>)}</div>
     </section>;
   })}</div>;
