@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Job } from '@oddmash/agent-operator-contract';
-import { activitySummary, filterActivity, groupActivity, reviewOverview } from '../apps/console/src/activity.ts';
+import { activitySummary, filterActivity, groupActivity, reviewOverview, activityDays, localDay, repositoryActivity } from '../apps/console/src/activity.ts';
 
 const jobs: Job[] = [
   { role: 'qa', correlationId: 'a'.repeat(24), attempt: 2, state: 'running', updatedAt: '2026-01-01T00:03:00Z' },
@@ -65,4 +65,20 @@ test('review overview prioritizes identified targets and summarizes repeated rol
   assert.deepEqual(overview.groups[0].jobs.map(job => job.role).sort(), ['qa', 'reviewer']);
   assert.equal(overview.groups[0].jobs.find(job => job.role === 'reviewer'), lead);
   assert.deepEqual(reviewOverview(groupActivity([unknown])).groups, []);
+});
+
+test('repository and local-day filters combine with role/state and keep unattributed work separate', () => {
+  const first = { ...jobs[0], target: { repository: 'Oddmash/UI', number: 12 } };
+  const second = { ...jobs[3], target: { repository: 'Oddmash/ui', number: 13 }, updatedAt: '2026-01-02T12:30:00Z' };
+  const other = { ...jobs[1], target: { repository: 'Oddmash/agents', number: 12 } };
+  const rows = [first, second, other, jobs[2]];
+  const groups = repositoryActivity(rows);
+  assert.equal(groups[0].key, 'oddmash/ui');
+  assert.equal(groups[0].active, 1);
+  assert.equal(groups[0].jobs.length, 2);
+  assert.equal(groups.at(-1)?.key, 'unreported');
+  assert.deepEqual(filterActivity(rows, { role: 'qa', state: 'running', repository: 'oddmash/ui', day: localDay(first.updatedAt) }), [first]);
+  assert.deepEqual(filterActivity(rows, { role: 'all', state: 'all', repository: 'unreported' }), [jobs[2]]);
+  assert.deepEqual(activityDays(rows), [...new Set(rows.map(row => localDay(row.updatedAt)))].sort().reverse());
+  assert.equal(localDay('invalid'), '');
 });
