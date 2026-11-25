@@ -15,7 +15,7 @@ Local type checks and endpoint tests do not prove the deployed function artifact
 
 ## Execution data
 
-The worker emits its existing role-correlated lifecycle events. Events now optionally include the verified public repository and issue/PR number, and actual review phases when the corresponding work is reached. Private repository names and numbers are omitted. A returned handler is not evidence of an approved or completed review. Projected jobs show returned, failed, queued, running or stale; stale is a UI inference based on elapsed time, not an agent verdict. New attempts replace older state. Unknown fields and invalid identifiers are discarded; no model text, credential, request body or source code is part of the contract.
+The worker emits its existing role-correlated lifecycle events. Events now optionally include the verified public repository and issue/PR number, and actual review phases when the corresponding work is reached. Private repository names and numbers are omitted. A returned handler is not evidence of an approved or completed review. Projected jobs show returned, failed, queued, running or stale; stale is a UI inference based on elapsed time, not an agent verdict. New attempts replace older state. The console exposes role summaries, separates stale observations from running and queued counts, lets the owner filter existing executions by role and state, and shows the latest visible attempt. All summaries are derived locally from the same bounded snapshot without extra API requests; a failed refresh labels any retained snapshot instead of implying it is live. Unknown fields and invalid identifiers are discarded; no model text, credential, request body or source code is part of the contract.
 
 ## Configuration
 
