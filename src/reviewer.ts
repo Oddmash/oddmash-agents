@@ -66,22 +66,29 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   if (!pr || (pr.base.repo.private ? !permittedPrivate : c.privateRepositoryId !== undefined) || pr.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase() || pr.state !== 'open' || pr.draft || !shaPattern.test(pr.base.sha) || !shaPattern.test(pr.head.sha)) throw new Error('Only open, non-draft, public or explicitly enabled private PRs are eligible');
   let filePagination = false;
   const files = await api<ChangedFile[]>(`${prPath}/files?per_page=100&page=1`, {}, false, false, response => { filePagination = Boolean(response.headers.get('link')); });
+  const listedFiles = Array.isArray(files) ? files : [];
+  let inconsistentFileMetadata = !Array.isArray(files) || !Number.isSafeInteger(pr.changed_files) || pr.changed_files < listedFiles.length || (filePagination && pr.changed_files <= listedFiles.length);
   let confirmedEmpty = false;
   if (c.incrementalFiles === undefined && pr.changed_files === 0 && Array.isArray(files) && files.length === 0 && !filePagination) {
     const unchanged = await api<Pull>(prPath);
     if (!unchanged || unchanged.head.sha !== pr.head.sha || unchanged.base.sha !== pr.base.sha || unchanged.merge_commit_sha !== pr.merge_commit_sha || unchanged.state !== 'open' || unchanged.draft || unchanged.base.repo.id !== pr.base.repo.id || unchanged.base.repo.private !== pr.base.repo.private || unchanged.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase()) throw new Error('PR changed while confirming an empty review');
     confirmedEmpty = unchanged.changed_files === 0;
+    inconsistentFileMetadata ||= !confirmedEmpty;
   }
   const privateReview = pr.base.repo.private;
-  const scoped = c.incrementalFiles === undefined ? (files ?? []) : (files ?? []).filter(file => c.incrementalFiles!.includes(file.filename));
-  const selected = selectFiles(scoped ?? [], 45_000, privateReview, 'quality');
+  const scoped = c.incrementalFiles === undefined ? listedFiles : listedFiles.filter(file => c.incrementalFiles!.includes(file.filename));
+  const selected = selectFiles(scoped, 45_000, privateReview, 'quality');
+  if (inconsistentFileMetadata) {
+    selected.omitted.push('GitHub file-list metadata missing or inconsistent');
+    selected.omissionDetails.push({ reason: 'file-list-metadata', count: 0 });
+  }
   if (c.incrementalFiles !== undefined && (files?.length !== scoped?.length || scoped.length !== c.incrementalFiles.length)) {
     selected.omitted.push('Previously reviewed files outside the incremental scope');
   }
   await c.progress?.('Collecting review context', `${selected.files.length} of ${pr.changed_files} changed files selected for review.`);
-  if (pr.changed_files > (files?.length ?? 0)) {
+  if (Number.isSafeInteger(pr.changed_files) && pr.changed_files > listedFiles.length) {
     selected.omitted.push('Additional files beyond the first page');
-    selected.omissionDetails.push({ reason: 'pagination', count: pr.changed_files - (files?.length ?? 0) });
+    selected.omissionDetails.push({ reason: 'pagination', count: pr.changed_files - listedFiles.length });
   }
   const readChecks = (sha: string) => api<CheckEvidence>(`${path}/commits/${sha}/check-runs?per_page=100`, {}, true);
   const checks = await loadCheckEvidence(pr.head.sha, pr.merge_commit_sha, privateReview ? readChecks : publicReviewCheckReader(path, c.number, readChecks, request, { head: pr.head, readPulls: api }));
