@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { eligiblePull, linkedIssue, linkedIssueReference, acceptanceForPull, acceptanceOf, lowRisk, lowRiskReason, repositoryMergeOptIn, mergeCandidate, acceptanceSatisfied, protectedBranch, mergeAuthorized, mergeProof, type MergePull, type Candidate } from '../src/auto-merge.ts';
 import { githubApi, mergeRepositoryAllowed } from '../src/webhook.ts';
 
-const target = { installation: 1, repository: 'Oddmash/kowrap', repositoryId: 42 };
+const target = { installation: 1, repository: 'Oddmash/juliya', repositoryId: 42 };
 const user = { id: 135234546, login: 'qtaghdi' };
 const head = 'a'.repeat(40), base = 'b'.repeat(40), merge = 'c'.repeat(40);
 const pr: MergePull = { number: 10, state: 'open', draft: false, user, body: 'Closes #9', changed_files: 1, mergeable: true, mergeable_state: 'clean', merge_commit_sha: merge, head: { sha: head, repo: { id: 42, full_name: target.repository } }, base: { sha: base, ref: 'main', repo: { id: 42, full_name: target.repository, default_branch: 'main', private: false } }, labels: [] };
@@ -53,11 +53,27 @@ test('explicitly approved private identities are candidates but visibility and I
 });
 
 test('all current public product repositories are eligible while organization governance remains manual', () => {
-  for (const repository of ['Oddmash/kowrap', 'Oddmash/oddmash-ui', 'Oddmash/interaction-inspector', 'Oddmash/Vertactics', 'Oddmash/boundra']) {
+  for (const repository of ['Oddmash/juliya', 'Oddmash/oddmash-ui', 'Oddmash/interaction-inspector', 'Oddmash/Vertactics', 'Oddmash/boundra']) {
     assert.equal(mergeRepositoryAllowed({ installation: 1, repository, repositoryId: 42 }), true);
   }
   assert.equal(mergeRepositoryAllowed({ installation: 1, repository: 'Oddmash/.github', repositoryId: 42 }), false);
   assert.equal(mergeRepositoryAllowed({ installation: 1, repository: 'Oddmash/unknown', repositoryId: 42 }), false);
+});
+
+test('Juliya retains the existing source and additive-test path scope under its canonical name', () => {
+  const repository = 'Oddmash/juliya';
+  assert.equal(mergeRepositoryAllowed({ installation: 1, repository, repositoryId: 1463701198 }), true);
+  assert.equal(mergeRepositoryAllowed({ installation: 1, repository: 'Oddmash/kowrap', repositoryId: 1463701198 }), false);
+  for (const filename of ['src/wrap.ts', 'site/app/page.tsx', 'site/components/example.tsx', 'site/lib/example.ts']) {
+    assert.equal(lowRisk([{ ...files[0], filename }], 1, repository), true);
+    assert.equal(lowRisk([{ ...files[0], filename }], 1, 'Oddmash/kowrap'), false);
+  }
+  for (const filename of ['test/wrap.test.ts', 'site/test/wrap.test.ts']) {
+    const addition = { filename, status: 'added', patch: '@@ -0,0 +1 @@\n+assert.ok(true)' };
+    assert.equal(lowRisk([addition], 1, repository), true);
+    assert.equal(lowRisk([{ ...files[0], filename }], 1, repository), false);
+  }
+  assert.equal(lowRisk([{ ...files[0], filename: 'tests/wrap.test.ts' }], 1, repository), false);
 });
 
 test('organization documentation requires exact public identity, main and maintainer authorship', () => {
@@ -224,7 +240,7 @@ test('mint write token only after exact-head approval and protected current CI',
 
 test('configuration and permission changes remain ineligible for automatic merge', () => {
   for (const filename of ['.github/workflows/ci.yml', 'vercel.json', 'tsconfig.json', 'next.config.ts', 'Dockerfile', 'src/auth/session.ts', 'src/authorization/permissions.ts']) {
-    assert.equal(lowRisk([{ filename, status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }], 1, 'Oddmash/kowrap'), false);
+    assert.equal(lowRisk([{ filename, status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }], 1, 'Oddmash/juliya'), false);
   }
 });
 
