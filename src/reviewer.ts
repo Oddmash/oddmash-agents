@@ -8,6 +8,8 @@ import { boundedModelBody } from './model-request.ts';
 import { reviewFeedback } from './review-feedback.ts';
 import { agentSkill, guidanceInstructions, loadProjectGuidance } from './agent-guidance.ts';
 
+import { githubRequest } from './github-request.ts';
+
 type Fetcher = typeof fetch;
 type Config = { repository: string; number: number; githubToken: string; openaiKey: string; model: string; post: boolean; allowedRepositories: string[]; acceptance?: Acceptance; incrementalFiles?: string[]; requestContext?: string; privateRepositoryId?: number; progress?: (title: string, summary: string) => Promise<void> };
 type Pull = { title: string; state: string; draft: boolean; base: { sha: string; repo: { private: boolean; full_name: string; id?: number } }; head: ReviewCheckHead; changed_files: number; merge_commit_sha?: string | null };
@@ -53,7 +55,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   validateConfig(c);
   const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   const api = async <T>(path: string, init: RequestInit = {}, optional = false, publicRead = false, observeResponse?: (response: Response) => void): Promise<T | null> => {
-    const response = await request(`https://api.github.com${path}`, { ...init, headers: { ...headers, ...(!publicRead && c.githubToken ? { Authorization: `Bearer ${c.githubToken}` } : {}), ...init.headers }, redirect: 'error', signal: AbortSignal.timeout(30_000) });
+    const response = await githubRequest(request, path, { ...init, headers: { ...headers, ...(!publicRead && c.githubToken ? { Authorization: `Bearer ${c.githubToken}` } : {}), ...init.headers }, redirect: 'error', signal: AbortSignal.timeout(30_000) }, optional);
     if (optional && response.status === 404) return null;
     if (!response.ok) throw new Error(`GitHub request failed (${response.status})`);
     observeResponse?.(response);
@@ -94,9 +96,14 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   const checks = await loadCheckEvidence(pr.head.sha, pr.merge_commit_sha, privateReview ? readChecks : publicReviewCheckReader(path, c.number, readChecks, request, { head: pr.head, readPulls: api }));
   const guidance: Record<string, string> = {};
   let guidanceBudget = 24_000;
+  let organizationGuidanceUnavailable = false;
   async function readOrganizationGuidance(filename: string) {
     if (guidanceBudget <= 0) return;
-    const content = await api<{ content: string; encoding: string }>(`/repos/Oddmash/.github/contents/${filename}?ref=main`, {}, true, true);
+    const content = await api<{ content: string; encoding: string }>(`/repos/Oddmash/.github/contents/${filename}?ref=main`, {}, true, true).catch(error => {
+      if (privateReview) throw error;
+      organizationGuidanceUnavailable = true;
+      return null;
+    });
     if (!content || content.encoding !== 'base64') return;
     const raw = Buffer.from(content.content, 'base64').toString('utf8');
     if (privateReview && privateSensitiveText(raw)) return;
@@ -108,6 +115,10 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   }
   await readOrganizationGuidance('AGENTS.md');
   await readOrganizationGuidance('docs/AI-CODE-REVIEW.md');
+  if (organizationGuidanceUnavailable) {
+    selected.omitted.push('Organization guidance unavailable');
+    selected.omissionDetails.push({ reason: 'guidance-unavailable', count: 0 });
+  }
   const projectGuidance = await loadProjectGuidance(
     path => api<unknown>(path, {}, true), c.repository, pr.base.sha, selected.files, privateReview, guidanceBudget, 40, true
   );
@@ -169,7 +180,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     findings = validateFindings(raw, context.files, privateReview);
     modelValid = Array.isArray(raw) && raw.length === findings.length;
     await c.progress?.('Validating findings', 'Checking review results against the collected evidence.');
-    if (modelValid) findings = await confirmBlockingFindings(context, findings, c, request);
+    if (modelValid && !organizationGuidanceUnavailable) findings = await confirmBlockingFindings(context, findings, c, request);
     else findings = findings.map(({ blockingEvidence: _unconfirmed, ...finding }) => finding);
   }
   findings = consolidateAdvisoryFindings(context, findings);
