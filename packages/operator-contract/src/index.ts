@@ -4,14 +4,15 @@ export const phases = ['collecting-changes', 'collecting-context', 'reviewing', 
 export type ExecutionPhase = typeof phases[number];
 export type PublicTarget = { repository: string; number: number };
 export type ExecutionOutcome = 'queued' | 'started' | 'phase' | 'returned' | 'failed';
+export type ModelUsageSummary = { calls: number; inputTokens: number; outputTokens: number; missingInput: number; missingOutput: number };
 export type ExecutionEvent = {
   event: 'oddmash_agent_execution'; role: AgentRole; correlationId: string; attempt: number; retryCount: number;
-  timestamp: string; outcome: ExecutionOutcome; durationMs?: number; failure?: string; target?: PublicTarget; phase?: ExecutionPhase;
+  timestamp: string; outcome: ExecutionOutcome; usage?: ModelUsageSummary; durationMs?: number; failure?: string; target?: PublicTarget; phase?: ExecutionPhase;
 };
 export type JobState = 'queued' | 'running' | 'returned' | 'failed' | 'stale';
 export type Job = { role: AgentRole; correlationId: string; attempt: number; state: JobState; updatedAt: string; startedAt?: string; target?: PublicTarget; phase?: ExecutionPhase; durationMs?: number; failure?: string };
 export type AgentSettings = { role: AgentRole; enabled: boolean; configured: boolean; model: string | null; autoMerge: boolean };
-export type WorkerSettings = { queueEnabled: boolean; coordinatedAdvisoriesEnabled: boolean; agents: AgentSettings[] };
+export type WorkerSettings = { queueEnabled: boolean; coordinatedAdvisoriesEnabled: boolean; authenticatedGuidanceEnabled?: boolean; scopedThreadResolutionEnabled?: boolean; advisoryMaxRequests?: number; advisoryMaxMs?: number; agents: AgentSettings[] };
 
 const outcomes = ['queued', 'started', 'phase', 'returned', 'failed'] as const;
 const failures = ['budget', 'model-quota', 'github', 'model', 'pending', 'configuration', 'unexpected'];
@@ -28,6 +29,31 @@ export function modelName(input: unknown): string | null {
   return typeof input === 'string' && /^(?:gpt|o[1-9]|chatgpt)[a-z0-9.-]{0,75}$/i.test(input) ? input : null;
 }
 
+export function parseModelUsage(input: unknown): ModelUsageSummary | undefined {
+  if (!input || typeof input !== 'object') return;
+  const value = input as Record<string, unknown>;
+  const integer = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 && n <= 1_000_000_000;
+  const { calls, inputTokens, outputTokens, missingInput, missingOutput } = value;
+  if (!integer(calls) || calls === 0 || !integer(inputTokens) || !integer(outputTokens) || !integer(missingInput) || !integer(missingOutput) || missingInput > calls || missingOutput > calls) return;
+  return { calls, inputTokens, outputTokens, missingInput, missingOutput };
+}
+
+export function projectModelUsage(inputs: readonly unknown[]) {
+  const rows = new Map<AgentRole, ModelUsageSummary>();
+  const seen = new Set<string>();
+  for (const input of inputs.slice(0, 500)) {
+    const event = parseExecutionEvent(input);
+    if (!event?.usage || !['returned', 'failed'].includes(event.outcome)) continue;
+    const key = event.role + ':' + event.correlationId + ':' + event.attempt;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const row = rows.get(event.role) ?? { calls: 0, inputTokens: 0, outputTokens: 0, missingInput: 0, missingOutput: 0 };
+    for (const field of ['calls', 'inputTokens', 'outputTokens', 'missingInput', 'missingOutput'] as const) row[field] += event.usage[field];
+    rows.set(event.role, row);
+  }
+  return roles.flatMap(role => rows.has(role) ? [{ role, ...rows.get(role)! }] : []);
+}
+
 export function parseExecutionEvent(input: unknown): ExecutionEvent | undefined {
   if (!input || typeof input !== 'object') return;
   const value = input as Record<string, unknown>;
@@ -35,9 +61,10 @@ export function parseExecutionEvent(input: unknown): ExecutionEvent | undefined 
   const phase = phases.includes(value.phase as ExecutionPhase) ? value.phase as ExecutionPhase : undefined;
   if (value.outcome === 'phase' && !phase) return;
   const target = publicTarget(value.target);
+  const usage = ['returned', 'failed'].includes(value.outcome as string) ? parseModelUsage(value.usage) : undefined;
   const failure = typeof value.failure === 'string' && failures.includes(value.failure) ? value.failure : undefined;
   const durationMs = typeof value.durationMs === 'number' && Number.isFinite(value.durationMs) && value.durationMs >= 0 ? value.durationMs : undefined;
-  return { event: 'oddmash_agent_execution', role: value.role as AgentRole, correlationId: value.correlationId, attempt: value.attempt, retryCount: value.attempt - 1, timestamp: new Date(value.timestamp).toISOString(), outcome: value.outcome as ExecutionOutcome, ...(target ? { target } : {}), ...(phase ? { phase } : {}), ...(durationMs === undefined ? {} : { durationMs }), ...(failure ? { failure } : {}) };
+  return { event: 'oddmash_agent_execution', role: value.role as AgentRole, correlationId: value.correlationId, attempt: value.attempt, retryCount: value.attempt - 1, timestamp: new Date(value.timestamp).toISOString(), outcome: value.outcome as ExecutionOutcome, ...(target ? { target } : {}), ...(usage ? { usage } : {}), ...(phase ? { phase } : {}), ...(durationMs === undefined ? {} : { durationMs }), ...(failure ? { failure } : {}) };
 }
 
 export function projectJobs(inputs: readonly unknown[], now: number, staleAfterMs = 360_000): Job[] {
@@ -71,7 +98,7 @@ export function parseWorkerSettings(input: unknown): WorkerSettings | undefined 
     if (typeof agent.enabled !== 'boolean' || typeof agent.configured !== 'boolean' || typeof agent.autoMerge !== 'boolean') return;
     agents.push({ role, enabled: agent.enabled, configured: agent.configured, model: modelName(agent.model), autoMerge: role === 'reviewer' && agent.autoMerge });
   }
-  return { queueEnabled: value.queueEnabled, coordinatedAdvisoriesEnabled: value.coordinatedAdvisoriesEnabled, agents };
+  return { queueEnabled: value.queueEnabled, coordinatedAdvisoriesEnabled: value.coordinatedAdvisoriesEnabled, ...(typeof value.authenticatedGuidanceEnabled === 'boolean' ? { authenticatedGuidanceEnabled: value.authenticatedGuidanceEnabled } : {}), ...(typeof value.scopedThreadResolutionEnabled === 'boolean' ? { scopedThreadResolutionEnabled: value.scopedThreadResolutionEnabled } : {}), ...(typeof value.advisoryMaxRequests === 'number' && Number.isInteger(value.advisoryMaxRequests) && value.advisoryMaxRequests >= 0 && value.advisoryMaxRequests <= 5 ? { advisoryMaxRequests: value.advisoryMaxRequests } : {}), ...(typeof value.advisoryMaxMs === 'number' && Number.isInteger(value.advisoryMaxMs) && value.advisoryMaxMs >= 0 && value.advisoryMaxMs <= 120000 ? { advisoryMaxMs: value.advisoryMaxMs } : {}), agents };
 }
 
 export function isUnfinishedJob(job: Pick<Job, 'state'>): boolean {
