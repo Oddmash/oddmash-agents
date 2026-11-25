@@ -51,3 +51,11 @@ test('consolidates reordered named imports but preserves distinct aliases', () =
   const differentAlias = { ...reordered, files: [reordered.files[0], { ...reordered.files[1], patch: reordered.files[1].patch.replace('mountLegacy', 'mountLegacy as other') }] };
   assert.equal(consolidateAdvisoryFindings(differentAlias, findings.slice(0, 2)).length, 2);
 });
+
+test('groups separate lines in one file and lists each related anchor once', () => {
+  const sameFile = { ...context, files: [{ ...files[0], patch: '@@ -1 +1,2 @@\n-old\n+' + example + '\n+' + example }] };
+  const second = { ...findings[0], line: 2 };
+  const grouped = consolidateAdvisoryFindings(sameFile, [findings[0], second, second]);
+  assert.equal(grouped.length, 1);
+  assert.deepEqual(grouped[0].relatedLocations, [{ path: files[0].filename, line: 2 }]);
+});
