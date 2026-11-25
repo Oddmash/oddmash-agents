@@ -22,6 +22,7 @@ test('authenticated shared guidance uses conditional freshness and does not serv
   assert.equal((await readSharedGuidance('AGENTS.md', token, request, cache))?.content, 'YWJj');
   await assert.rejects(readSharedGuidance('AGENTS.md', token, request, cache), /GitHub request failed \(403\)/);
   assert.equal(count, 3);
+  assert.equal(cache.size, 0);
 });
 
 test('unauthenticated lookup does not reuse a cached authenticated body', async () => {
@@ -71,4 +72,46 @@ test('cache validators are isolated by token and absolute age', async () => {
   const entry = cache.get('AGENTS.md')!;
   entry.until = Date.now() - 1;
   await readSharedGuidance('AGENTS.md', 'different-fixture-token', request, cache);
+});
+
+test('concurrent authenticated reads share one validated in-flight request and revalidate later', async () => {
+  const cache: GuidanceCache = new Map();
+  const token = 'fixture-guidance-token';
+  const body = { content: 'YWJj', encoding: 'base64', type: 'file', path: 'AGENTS.md', size: 3, sha: createHash('sha1').update('blob 3\0abc').digest('hex') };
+  let calls = 0;
+  const request: typeof fetch = async (_url, init) => {
+    calls++;
+    await Promise.resolve();
+    if (calls === 1) return Response.json(body, { headers: { etag: '"fixture"' } });
+    assert.equal(new Headers(init?.headers).get('if-none-match'), '"fixture"');
+    return new Response(null, { status: 304 });
+  };
+  const [first, second] = await Promise.all([
+    readSharedGuidance('AGENTS.md', token, request, cache),
+    readSharedGuidance('AGENTS.md', token, request, cache),
+  ]);
+  assert.deepEqual(first, second);
+  assert.equal(first?.content, 'YWJj');
+  assert.equal(calls, 1);
+  assert.equal((await readSharedGuidance('AGENTS.md', token, request, cache))?.content, 'YWJj');
+  assert.equal(calls, 2);
+});
+
+test('failed coalesced read does not retain an in-flight rejection', async () => {
+  const cache: GuidanceCache = new Map();
+  const token = 'fixture-guidance-token';
+  let calls = 0;
+  const request: typeof fetch = async () => {
+    calls++;
+    return new Response(null, { status: 403 });
+  };
+  const results = await Promise.allSettled([
+    readSharedGuidance('AGENTS.md', token, request, cache),
+    readSharedGuidance('AGENTS.md', token, request, cache),
+  ]);
+  assert.ok(results.every(result => result.status === 'rejected'));
+  assert.equal(calls, 1);
+  assert.equal(cache.size, 0);
+  await assert.rejects(readSharedGuidance('AGENTS.md', token, request, cache));
+  assert.equal(calls, 2);
 });
