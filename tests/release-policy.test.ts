@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateRelease } from '../src/release-policy.ts';
+import { validateRelease } from '../apps/worker/src/release-policy.ts';
 
 const commit = 'a'.repeat(40), tag = 'v0.2.0';
 const selection = { repository: 'Oddmash/oddmash-agents', actorId: '135234546', event: 'release', ref: `refs/tags/${tag}`, eventSha: commit, tag };

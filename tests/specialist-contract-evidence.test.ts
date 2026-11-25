@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { advisoryProfiles } from '../src/advisory-agents.ts';
-import { publishSpecialistFindings, specialistFindingRules } from '../src/specialist-findings.ts';
-import { githubApi } from '../src/webhook.ts';
-import type { ChangedFile } from '../src/core.ts';
+import { advisoryProfiles } from '../apps/worker/src/advisory-agents.ts';
+import { publishSpecialistFindings, specialistFindingRules } from '../apps/worker/src/specialist-findings.ts';
+import { githubApi } from '../apps/worker/src/webhook.ts';
+import type { ChangedFile } from '../apps/worker/src/core.ts';
 
 const head = 'a'.repeat(40);
 const target = { installation: 1, repository: 'Oddmash/example', repositoryId: 71, number: 7, advisory: 'release' as const, advisoryIdentity: 'release' as const };

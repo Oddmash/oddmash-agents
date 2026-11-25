@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addedLines, selectFiles, safeText, guidancePaths, validateFindings, formatReport, formatReviewBody, publicationFollowUp, inlineComment, reviewMarker, reviewDecision, reviewFollowUp, reviewOutcome, checksPassed, type ReviewContext, type Finding } from '../src/core.ts';
+import { addedLines, selectFiles, safeText, guidancePaths, validateFindings, formatReport, formatReviewBody, publicationFollowUp, inlineComment, reviewMarker, reviewDecision, reviewFollowUp, reviewOutcome, checksPassed, type ReviewContext, type Finding } from '../apps/worker/src/core.ts';
 
 const file = { filename: 'src/ui/button.tsx', status: 'modified', patch: '@@ -1,2 +1,3 @@\n const label = "Open";\n-old\n+new\n+other' };
 const finding = { path: file.filename, line: 2, severity: 'medium', confidence: 'high', rule: 'Accessibility', evidence: 'The label is absent.', recommendation: 'Provide a visible label.', verification: 'Inspect the accessible name.' };

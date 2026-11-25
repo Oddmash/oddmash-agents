@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { actionsQuotaBlocked, actionsWorkflowUrl } from '../src/actions-quota.ts';
+import { actionsQuotaBlocked, actionsWorkflowUrl } from '../apps/worker/src/actions-quota.ts';
 
 const check = {
   app: { id: 15368 },

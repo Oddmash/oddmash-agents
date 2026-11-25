@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks } from '../src/checks.ts';
+import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks } from '../apps/worker/src/checks.ts';
 
 test('superseded cancellation, including failed aggregate and retired jobs, does not block current public PR checks', async () => {
   const head = 'a'.repeat(40);

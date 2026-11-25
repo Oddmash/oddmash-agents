@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { consolidateAdvisoryFindings } from '../src/finding-consolidation.ts';
-import { inlineComment, formatReport, reviewDecision, type Finding, type ReviewContext } from '../src/core.ts';
+import { consolidateAdvisoryFindings } from '../apps/worker/src/finding-consolidation.ts';
+import { inlineComment, formatReport, reviewDecision, type Finding, type ReviewContext } from '../apps/worker/src/core.ts';
 
 const example = 'import { mountLegacy } from "https://example.test/pkg";';
 const files = ['README.md', 'docs/guide.md', 'site/examples.tsx'].map((filename, index) => ({

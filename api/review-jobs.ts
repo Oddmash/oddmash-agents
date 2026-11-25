@@ -1,8 +1,8 @@
-import { executionContext, executionRole, runAgentExecution } from '../src/agent-execution.ts';
+import { executionContext, executionRole, runAgentExecution } from '../apps/worker/src/agent-execution.ts';
 import { handleCallback, send } from '@vercel/queue';
-import { runtimeConfig, advisoryConfig } from '../src/runtime-config.ts';
-import { verifyReviewJob, deadLetterTopic, publishFailureRecord, retryableJobError, retryDelay, type ReviewJob } from '../src/review-job.ts';
-import { reviewWebhook } from '../src/webhook-review.ts';
+import { runtimeConfig, advisoryConfig } from '../apps/worker/src/runtime-config.ts';
+import { verifyReviewJob, deadLetterTopic, publishFailureRecord, retryableJobError, retryDelay, type ReviewJob } from '../apps/worker/src/review-job.ts';
+import { reviewWebhook } from '../apps/worker/src/webhook-review.ts';
 
 export const POST = handleCallback(async (message: ReviewJob, metadata) => {
   const identity = message?.target?.advisoryIdentity;

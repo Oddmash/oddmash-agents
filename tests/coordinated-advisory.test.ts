@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { authorizeCoordinatedAdvisor } from '../src/coordinated-advisory.ts';
+import { authorizeCoordinatedAdvisor } from '../apps/worker/src/coordinated-advisory.ts';
 
 const repo = { id: 7, full_name: 'Oddmash/example', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
 const target = { installation: 3, repository: repo.full_name, repositoryId: repo.id, number: 1, expectedHead: 'a'.repeat(40) };

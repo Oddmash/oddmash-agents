@@ -26,7 +26,7 @@ Anchored findings appear once in their inline threads, including verification st
 
 Maintain a reviewed corpus of synthetic or expressly approved public patches. Include no-defect changes, deleted behavior, incorrect loading states, accessibility regressions, SSR mismatches, intentional alternative implementations, and ordinary correctness regressions. Label expected finding anchors and separately adjudicate whether each finding is genuinely actionable. The anchor evaluator counts true positives, false positives and false negatives without counting duplicate anchors. Anchor matches alone do not prove semantic correctness; evaluate severity, evidence and false blocking manually. Compare model versions on the same corpus before enabling policy changes.
 
-Record maintainer corrections as explicit, reviewed test fixtures or version-controlled product guidance, not as automatically trusted instructions. The bot's discussion verdict does not authorize a review decision. Add cases only after adjudication. See [the first public PR baseline](evaluation-baseline.md) and the reviewed feedback rules in `src/review-feedback.ts`.
+Record maintainer corrections as explicit, reviewed test fixtures or version-controlled product guidance, not as automatically trusted instructions. The bot's discussion verdict does not authorize a review decision. Add cases only after adjudication. See [the first public PR baseline](evaluation-baseline.md) and the reviewed feedback rules in `apps/worker/src/review-feedback.ts`.
 
 ## Remaining production rollout
 

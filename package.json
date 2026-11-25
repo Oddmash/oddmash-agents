@@ -10,16 +10,15 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.ts",
-    "review": "node src/cli.ts",
+    "review": "node apps/worker/src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "skills:proposal": "node src/skill-proposal-cli.ts"
+    "skills:proposal": "node apps/worker/src/skill-proposal-cli.ts"
   },
   "dependencies": {
     "@oddmash/agent-operator-contract": "workspace:*",
     "@oddmash/agent-operator-store": "workspace:*",
     "@vercel/functions": "3.11.3",
-    "@vercel/queue": "0.11.0",
-    "hono": "4.13.17"
+    "@vercel/queue": "0.11.0"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

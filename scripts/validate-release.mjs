@@ -1,5 +1,5 @@
 import { appendFileSync } from 'node:fs';
-import { validateRelease } from '../src/release-policy.ts';
+import { validateRelease } from '../apps/worker/src/release-policy.ts';
 
 const token = process.env.GITHUB_TOKEN;
 if (!token) throw new Error('Read-only GitHub token is required');

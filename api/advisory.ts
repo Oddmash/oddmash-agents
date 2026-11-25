@@ -1,12 +1,12 @@
-import { workerEndpoint } from '../src/worker-http.ts';
-import { executionContext, recordQueued, runAgentExecution } from '../src/agent-execution.ts';
+import { workerEndpoint } from '../apps/worker/src/worker-http.ts';
+import { executionContext, recordQueued, runAgentExecution } from '../apps/worker/src/agent-execution.ts';
 import { waitUntil } from '@vercel/functions';
 import { send } from '@vercel/queue';
-import { advisoryConfig } from '../src/runtime-config.ts';
-import { isAdvisoryRole } from '../src/advisory-agents.ts';
-import { dedicatedAdvisoryTarget, validSignature } from '../src/webhook.ts';
-import { createReviewJob, reviewTopic } from '../src/review-job.ts';
-import { reviewWebhook } from '../src/webhook-review.ts';
+import { advisoryConfig } from '../apps/worker/src/runtime-config.ts';
+import { isAdvisoryRole } from '../apps/worker/src/advisory-agents.ts';
+import { dedicatedAdvisoryTarget, validSignature } from '../apps/worker/src/webhook.ts';
+import { createReviewJob, reviewTopic } from '../apps/worker/src/review-job.ts';
+import { reviewWebhook } from '../apps/worker/src/webhook-review.ts';
 
 async function receive(request: Request) {
   const role = new URL(request.url).searchParams.get('agent');

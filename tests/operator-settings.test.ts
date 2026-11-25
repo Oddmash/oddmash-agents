@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { roles } from '@oddmash/agent-operator-contract';
-import { operatorSettings } from '../src/runtime-config.ts';
+import { operatorSettings } from '../apps/worker/src/runtime-config.ts';
 
 test('operator settings contain only explicit non-secret values', () => {
   const previous = { ...process.env };

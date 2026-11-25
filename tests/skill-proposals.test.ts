@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseProposalArgs, proposeSkillImprovement } from '../src/skill-proposals.ts';
+import { parseProposalArgs, proposeSkillImprovement } from '../apps/worker/src/skill-proposals.ts';
 
 const examples = ['Oddmash/juliya#17', 'Oddmash/oddmash-ui#25'];
 const category = 'ui-feedback';

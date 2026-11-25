@@ -59,12 +59,12 @@ The local CLI and organization workflow also use the review engine. Queue-backed
 | Component | Responsibility |
 | --- | --- |
 | [Webhook intake](api/github.ts) and [queue worker](api/review-jobs.ts) | Receive eligible events and coordinate review jobs. |
-| [Review orchestration](src/webhook-review.ts) | Coordinate evidence, progress and publication. |
-| [Review engine](src/reviewer.ts) and [review model](src/core.ts) | Collect bounded evidence, validate findings and classify outcomes. |
-| [Product context](src/review-context.ts) and [CI evidence](src/checks.ts) | Supply project-specific quality criteria and current check results. |
-| [Discussion](src/review-discussion.ts), [Impact](src/impact.ts) and [advisory engine](src/advisory.ts) | Support evidence-based follow-up and on-demand role assessments. |
-| [Merge policy](src/auto-merge.ts) | Independently verify eligibility before any authorized merge. |
-| [Evaluation](src/evaluation.ts) and [offline tests](tests/) | Measure finding accuracy and protect behavior with deterministic fixtures. |
+| [Review orchestration](apps/worker/src/webhook-review.ts) | Coordinate evidence, progress and publication. |
+| [Review engine](apps/worker/src/reviewer.ts) and [review model](apps/worker/src/core.ts) | Collect bounded evidence, validate findings and classify outcomes. |
+| [Product context](apps/worker/src/review-context.ts) and [CI evidence](apps/worker/src/checks.ts) | Supply project-specific quality criteria and current check results. |
+| [Discussion](apps/worker/src/review-discussion.ts), [Impact](apps/worker/src/impact.ts) and [advisory engine](apps/worker/src/advisory.ts) | Support evidence-based follow-up and on-demand role assessments. |
+| [Merge policy](apps/worker/src/auto-merge.ts) | Independently verify eligibility before any authorized merge. |
+| [Evaluation](apps/worker/src/evaluation.ts) and [offline tests](tests/) | Measure finding accuracy and protect behavior with deterministic fixtures. |
 
 ### Evolution
 

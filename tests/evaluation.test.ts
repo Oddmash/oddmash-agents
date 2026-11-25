@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateAnchors } from '../src/evaluation.ts';
+import { evaluateAnchors } from '../apps/worker/src/evaluation.ts';
 
 test('evaluation counts expected and unexpected anchors without duplicate inflation', () => {
   const right = { path: 'src/button.tsx', line: 8, side: 'RIGHT' as const };

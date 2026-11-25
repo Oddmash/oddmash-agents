@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { githubApi } from '../src/webhook.ts';
-import { publishAutomationStatus, statusText, billingHelpLink } from '../src/review-status.ts';
+import { githubApi } from '../apps/worker/src/webhook.ts';
+import { publishAutomationStatus, statusText, billingHelpLink } from '../apps/worker/src/review-status.ts';
 
 test('status comments update in place, suppress repeats and do not disclose arbitrary errors', async () => {
   const head = 'a'.repeat(40), bot = 'oddmash-reviewer[bot]';

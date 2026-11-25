@@ -12,7 +12,7 @@
   },
   "include": [
     "api/**/*.ts",
-    "src/**/*.ts",
+    "apps/worker/src/**/*.ts",
     "tests/**/*.ts"
   ]
 }

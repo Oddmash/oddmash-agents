@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, generateKeyPairSync } from 'node:crypto';
-import { authorize, completeCommentReaction, githubApi, ignoredReviewRequest, reactToComment, route, validSignature } from '../src/webhook.ts';
+import { authorize, completeCommentReaction, githubApi, ignoredReviewRequest, reactToComment, route, validSignature } from '../apps/worker/src/webhook.ts';
 
 const repo = { id: 7, full_name: 'Oddmash/new-project', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
 const event = { action: 'opened', installation: { id: 3 }, repository: repo, pull_request: { number: 2, draft: false } };
@@ -209,7 +209,7 @@ test('Lead alone routes each standalone slash command in its supported context',
 });
 
 test('slash request context is scoped to the authenticated maintainer and subject', async () => {
-  const { slashRequestContext } = await import('../src/webhook.ts');
+  const { slashRequestContext } = await import('../apps/worker/src/webhook.ts');
   const sender = { id: 135234546, login: 'qtaghdi', type: 'User' };
   const payload = { ...event, action: 'created', sender, issue: { number: 2, pull_request: {} }, comment: { id: 5, user: sender, body: '/qa' } };
   const target = route('issue_comment', payload, 'oddmash-lead')!;

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { automaticAdvisoryBudget, automaticAdvisoryPaths, coordinatedAdvisoriesEnabled, incrementalPaths, reviewBaseMarker, runCoordinatedAdvisories, selectAdvisoryRoles } from '../src/review-follow-up-policy.ts';
+import { automaticAdvisoryBudget, automaticAdvisoryPaths, coordinatedAdvisoriesEnabled, incrementalPaths, reviewBaseMarker, runCoordinatedAdvisories, selectAdvisoryRoles } from '../apps/worker/src/review-follow-up-policy.ts';
 
 const base = 'a'.repeat(40), oldHead = 'b'.repeat(40), head = 'c'.repeat(40);
 const approved = { commit_id: oldHead, state: 'APPROVED', body: '<!-- oddmash-app-review:fixture -->\n' + reviewBaseMarker(base) };

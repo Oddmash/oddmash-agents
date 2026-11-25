@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { reconcileReviewThreads, replyToReview, scopedAgentThreadResolution, scopedLeadThreadResolution, shouldReconcileEarlierFindings, threadReconciliationExclusions, threadReconciliationMarker, threadReconciliationScope, threadReconciliationScopeMarker } from '../src/review-discussion.ts';
-import { githubApi, type Target } from '../src/webhook.ts';
+import { reconcileReviewThreads, replyToReview, scopedAgentThreadResolution, scopedLeadThreadResolution, shouldReconcileEarlierFindings, threadReconciliationExclusions, threadReconciliationMarker, threadReconciliationScope, threadReconciliationScopeMarker } from '../apps/worker/src/review-discussion.ts';
+import { githubApi, type Target } from '../apps/worker/src/webhook.ts';
 import { githubContentFixture } from './github-content-fixture.ts';
 
 const target: Target = { installation: 1, repository: 'Oddmash/example', repositoryId: 2, number: 3, reply: { root: 4, comment: 5 } };

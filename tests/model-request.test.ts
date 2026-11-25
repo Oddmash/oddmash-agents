@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { boundedModelBody, usageEvent } from '../src/model-request.ts';
+import { boundedModelBody, usageEvent } from '../apps/worker/src/model-request.ts';
 
 test('role-specific budgets only tighten existing phase limits', () => {
   const payload = { max_output_tokens: 6000, input: 'sample' };
