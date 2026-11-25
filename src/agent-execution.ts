@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { publicTarget, type AgentRole, type ExecutionPhase, type ExecutionOutcome, type PublicTarget } from '@oddmash/agent-operator-contract';
+import { publicTarget, type AgentRole, type ExecutionEvent, type ExecutionPhase, type ExecutionOutcome, type PublicTarget } from '@oddmash/agent-operator-contract';
 import { operatorStoreConfig, writeOperatorEvent } from '@oddmash/agent-operator-store';
 import { operatorSettings } from './runtime-config.ts';
 import type { Target } from './webhook.ts';
@@ -29,7 +29,7 @@ export function failureCategory(error: unknown) {
   return 'unexpected';
 }
 
-export function executionEvent(context: ExecutionContext, outcome: ExecutionOutcome, now: number, durationMs?: number, error?: unknown, phase?: ExecutionPhase) {
+export function executionEvent(context: ExecutionContext, outcome: ExecutionOutcome, now: number, durationMs?: number, error?: unknown, phase?: ExecutionPhase): ExecutionEvent {
   return { event: 'oddmash_agent_execution', ...context, retryCount: context.attempt - 1, timestamp: new Date(now).toISOString(), outcome, ...(durationMs === undefined ? {} : { durationMs: Math.max(0, durationMs) }), ...(phase ? { phase } : {}), ...(outcome === 'failed' ? { failure: failureCategory(error) } : {}) };
 }
 

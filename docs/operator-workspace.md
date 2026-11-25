@@ -1,6 +1,6 @@
 # Operator workspace
 
-The existing root worker remains the production Vercel entrypoint until a separately reviewed migration proves identical webhook, queue, and release behavior. The pnpm workspace already supports independent applications and shared packages.
+The existing root worker remains the production Vercel entrypoint until a separately reviewed migration proves identical webhook, queue, and release behavior. The pnpm workspace already supports independent applications and shared packages. From the root, run `pnpm install --frozen-lockfile --ignore-scripts`, `pnpm test` and `pnpm run typecheck`. Run the console with `pnpm --filter @oddmash/agents-console dev`; verify its build with `pnpm --filter @oddmash/agents-console build`. Internal packages use workspace dependencies and explicit exports.
 
 | Layer | Responsibility |
 | --- | --- |
