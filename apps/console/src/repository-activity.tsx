@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Badge, Card } from '@oddmash/ui';
 import { jobElapsedMs, type AgentRole, type Job } from '@oddmash/agent-operator-contract';
 import { activitySummary, repositoryActivity, type groupActivity } from './activity';
+import { WorkflowView } from './workflow-view';
 import { executionCount, korean, translate, type Language, type Message } from './i18n';
 
 type TargetGroup = ReturnType<typeof groupActivity>[number] & { total: number };
@@ -75,7 +76,7 @@ export const RepositoryActivity = ({ collapsed, onToggle, groups, visibleJobs, o
         <div className="repository-counts"><Badge tone={counts.running ? 'accent' : 'neutral'}>{t('Running')} {counts.running}</Badge><Badge tone="neutral">{t('Queued')} {counts.queued}</Badge>{counts.failed > 0 && <Badge tone="neutral">{t('Recent failures')} {counts.failed}</Badge>}</div></div>
       <div id={contentId} hidden={isCollapsed} className="review-list">{!isCollapsed && targets.map(group => <Card key={group.key} className="review-group">
         <div className="review-heading"><h3>{group.target ? <a href={'https://github.com/' + group.target.repository + '/issues/' + group.target.number} target="_blank" rel="noreferrer">#{group.target.number}</a> : t('Target not reported')}</h3><span className="muted">{executionCount(language, group.jobs.length, group.total)}</span></div>
-        <ul className="review-agents">{group.jobs.map(job => <ExecutionEntry key={job.role + ':' + job.correlationId + ':' + job.attempt} job={job} language={language} observedAt={observedAt} live={live} agent={renderAgent(job.role)}/>)}</ul>
+        {group.target ? <><WorkflowView target={group.target} visibleJobs={visibleJobs} observedAt={observedAt} language={language} renderAgent={renderAgent}/><details className="execution-details"><summary>{t('Execution details')}</summary><ul className="review-agents">{group.jobs.map(job => <ExecutionEntry key={job.role + ':' + job.correlationId + ':' + job.attempt} job={job} language={language} observedAt={observedAt} live={live} agent={renderAgent(job.role)}/>)}</ul></details></> : <ul className="review-agents">{group.jobs.map(job => <ExecutionEntry key={job.role + ':' + job.correlationId + ':' + job.attempt} job={job} language={language} observedAt={observedAt} live={live} agent={renderAgent(job.role)}/>)}</ul>}
       </Card>)}</div>
     </section>;
   })}</div>;
