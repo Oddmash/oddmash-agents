@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 export type ChangedFile = { filename: string; previous_filename?: string; patch?: string; status: string; additions?: number; deletions?: number };
 export type KoreanFinding = { rule: string; evidence: string; recommendation: string; verification: string };
 export type BlockingEvidence = { excerpt: string; impact: string; requirement: string };
-export type Finding = { path: string; line: number; side?: 'LEFT' | 'RIGHT'; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium'; rule: string; evidence: string; recommendation: string; verification: string; blockingEvidence?: BlockingEvidence; suggestion?: string; korean?: KoreanFinding };
+export type Finding = { path: string; line: number; side?: 'LEFT' | 'RIGHT'; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium'; rule: string; evidence: string; recommendation: string; verification: string; blockingEvidence?: BlockingEvidence; suggestion?: string; korean?: KoreanFinding; relatedLocations?: { path: string; line: number }[] };
 export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[]; relatedBaseFiles?: Record<string, string>; changedHeadFiles?: Record<string, string>; focus?: string[]; feedback?: string[] };
 
 export type ReviewDecision = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
@@ -238,12 +238,15 @@ export function findingMarker(context: ReviewContext, finding: Finding): string 
 }
 
 const koreanText = (value: string) => clean(value).replace(/[\[\]`*_!]/g, match => '\\' + match);
+const relatedLocations = (finding: Finding) => (finding.relatedLocations ?? []).map(location => `${clean(location.path)}:${location.line}`).join(', ');
 const koreanDetails = (lines: string[]) => ['<details>', '<summary>한국어 (Korean)</summary>', '', ...lines, '', '</details>'].join('\n');
 
 export function inlineComment(context: ReviewContext, finding: Finding): string {
   const blocking = isBlockingFinding(context, finding);
   const lines = [findingMarker(context, finding), `**${blocking ? 'BLOCKING' : 'ADVISORY'} / ${finding.severity.toUpperCase()}: ${clean(finding.rule)}**`, '', clean(finding.evidence), '', `${blocking ? 'Fix' : 'Consider'}: ${clean(finding.recommendation)}`];
   lines.push('', `Verify: ${clean(finding.verification)}`);
+  const related = relatedLocations(finding);
+  if (related) lines.push('', '<!-- oddmash-grouped-finding -->', `Also affects: ${related}. Verify every listed location before resolving.`, `관련 위치: ${related}. 모든 위치를 확인한 뒤 해결 처리하세요.`);
   if (finding.suggestion) lines.push('', '```suggestion', finding.suggestion, '```');
   if (finding.korean) {
     const ko = finding.korean;
@@ -291,12 +294,12 @@ export function formatReport(context: ReviewContext, findings: Finding[], modelV
   const blockingCount = findings.filter(f => isBlockingFinding(context, f)).length;
   if (inlineCovered && findings.length) lines.push(`${blockingCount} blocking, ${findings.length - blockingCount} advisory. See the inline review threads for details.`);
   for (const f of inlineCovered ? [] : findings) {
-    lines.push(`- **${isBlockingFinding(context, f) ? 'BLOCKING' : 'ADVISORY'} / ${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.evidence)} ${isBlockingFinding(context, f) ? 'Fix' : 'Consider'}: ${clean(f.recommendation)} Verify: ${clean(f.verification)}`);
+    lines.push(`- **${isBlockingFinding(context, f) ? 'BLOCKING' : 'ADVISORY'} / ${f.severity.toUpperCase()}: ${clean(f.rule)}** (${clean(f.path)}:${f.line}): ${clean(f.evidence)} ${isBlockingFinding(context, f) ? 'Fix' : 'Consider'}: ${clean(f.recommendation)} Verify: ${clean(f.verification)}${relatedLocations(f) ? ` Also affects: ${relatedLocations(f)}. Verify every listed location.` : ''}`);
   }
   if (context.omitted.length) lines.push('', '**Manual review coverage**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 0) : ['- Some changes require manual review; inspect Files changed for unreviewed entries.']));
   if (!context.files.length) lines.push('Automated review was not performed: 0 eligible files. No conclusion can be drawn. Inspect the complete diff before approval.');
   else if (!modelValid) lines.push('The review response contained findings that could not be validated against the changed lines. Compare the reported findings with the exact diff or request a fresh review.');
-  const translated = (inlineCovered ? [] : findings).filter(f => f.korean).map(f => `- **${isBlockingFinding(context, f) ? '수정 필수' : '참고 의견'} / ${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.evidence)} ${isBlockingFinding(context, f) ? '수정' : '제안'}: ${koreanText(f.korean!.recommendation)} 확인: ${koreanText(f.korean!.verification)}`);
+  const translated = (inlineCovered ? [] : findings).filter(f => f.korean).map(f => `- **${isBlockingFinding(context, f) ? '수정 필수' : '참고 의견'} / ${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.evidence)} ${isBlockingFinding(context, f) ? '수정' : '제안'}: ${koreanText(f.korean!.recommendation)} 확인: ${koreanText(f.korean!.verification)}${relatedLocations(f) ? ` 관련 위치: ${relatedLocations(f)}. 모든 위치를 확인하세요.` : ''}`);
   if (inlineCovered && findings.length) translated.push(`수정 필수 ${blockingCount}건, 참고 의견 ${findings.length - blockingCount}건. 상세 내용은 인라인 리뷰를 확인하세요.`);
   if (!findings.length && context.files.length && modelValid) translated.push(`검토한 파일 ${context.files.length}개에서 확인된 문제는 없습니다.`);
   if (context.omitted.length) translated.push('', '**수동 검토 범위**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 1) : ['- 일부 변경 사항은 수동 검토가 필요합니다. Files changed에서 미검토 항목을 확인하세요.']));
