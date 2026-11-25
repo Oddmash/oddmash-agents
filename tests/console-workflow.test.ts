@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Job } from '@oddmash/agent-operator-contract';
-import { targetObservations, roleObservations, publicationObservations, publicationPhaseObserved, publicationLink, stateCounts, specialistRoles, executionGroups } from '../apps/console/src/workflow-model.ts';
+import { targetObservations, roleObservations, publicationObservations, publicationPhaseObserved, publicationLink, stateCounts, specialistRoles, executionGroups, publicationCounts } from '../apps/console/src/workflow-model.ts';
 
 const target = { repository: 'Oddmash/example', number: 12 };
 const job: Job = { role: 'reviewer', correlationId: 'a'.repeat(24), attempt: 1, state: 'returned', updatedAt: '2026-01-01T00:00:00Z', target };
@@ -44,4 +44,9 @@ test('distinct observed executions remain separate with their attempts, and link
   assert.deepEqual(groups[0].records, [secondAttempt, job]);
   assert.deepEqual(groups[1].records, [independent]);
   assert.equal(publicationLink({ ...target, number: 13 }, { ...job, publication: { kind: 'review', at: job.updatedAt, id: 5 } }), undefined);
+});
+
+test('conversation comments do not count as published reviews', () => {
+  const comment = { ...job, publication: { kind: 'comment' as const, at: job.updatedAt, id: 12 } };
+  assert.deepEqual(publicationCounts([comment]), { review: 0, 'inline-comment': 0, comment: 1 });
 });
