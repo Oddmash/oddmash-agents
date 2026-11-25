@@ -306,7 +306,7 @@ test('Boundra verified CLI and runtime scopes start neutral review without full 
 });
 
 test('Boundra scoped review selects the latest successful associated suite', async () => {
-  const latestCI = scopedJobs.filter(job => job.check_suite?.id === 10 && job.name !== 'verify-runtime').map(job => ({
+  const latestCI: Check[] = scopedJobs.filter(job => job.check_suite?.id === 10 && job.name !== 'verify-runtime').map(job => ({
     ...job, check_suite: { id: 12 }, conclusion: job.name === 'verify-example' ? 'success' : job.conclusion
   }));
   latestCI.push(...['20', '22', '24'].map(node => scopeJob(12, 'verify-runtime (' + node + ')', 'success')));
