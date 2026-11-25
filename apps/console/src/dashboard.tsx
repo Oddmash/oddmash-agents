@@ -8,7 +8,6 @@ import { translate, executionCount, missingCalls, consoleViews, consoleRoute, lo
 import { activitySummary, filterActivity, groupActivity, reviewOverview, repositoryActivity, activityDays, jobStates, type ActivityFilter } from './activity';
 
 import { RepositoryActivity } from './repository-activity';
-import './repository-activity.css';
 
 type Snapshot = { connected: boolean; jobs: Job[]; usage?: (ModelUsageSummary & { role: AgentRole })[]; settings: WorkerSettings | null; settingsUpdatedAt?: string; observedAt: string };
 const releaseTag = (import.meta as ImportMeta & { env: { VITE_OPERATOR_RELEASE_TAG?: string } }).env.VITE_OPERATOR_RELEASE_TAG;

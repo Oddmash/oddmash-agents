@@ -10,6 +10,9 @@ test('console styles are generated deterministically from JSON design tokens', (
   const css = readFileSync(new URL('../apps/console/src/globals.css', import.meta.url), 'utf8');
   const tokens = JSON.parse(readFileSync(new URL('../apps/console/src/console-tokens.json', import.meta.url), 'utf8'));
   assert.ok(css.includes('--console-duration-800: 800ms;'));
+  assert.ok(css.includes('--console-activity-spinner-size: .75em;'));
+  assert.match(css, /\.activity-spinner\s*\{[^}]+var\(--console-duration-800\)/);
+  assert.match(css, /\.repository-list/);
   assert.ok(css.includes('var(--om-semantic-space-md)'));
   assert.ok(css.includes('var(--om-semantic-border-width)'));
   assert.ok(css.includes('var(--om-semantic-radius-lg)'));
