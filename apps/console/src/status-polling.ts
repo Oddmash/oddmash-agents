@@ -1,5 +1,5 @@
 export type PollResult = { delayMs: number; expired?: boolean };
-type Timer = ReturnType<typeof setTimeout>;
+type Timer = ReturnType<typeof setTimeout> | number;
 type Options = {
   hidden: () => boolean;
   fetchStatus: (signal: AbortSignal) => Promise<PollResult>;
@@ -11,7 +11,7 @@ type Options = {
 
 export function createStatusPolling(options: Options) {
   const schedule = options.schedule ?? setTimeout;
-  const cancel = options.cancel ?? clearTimeout;
+  const cancel = options.cancel ?? ((timer: Timer) => clearTimeout(timer));
   let paused = false;
   let expired = false;
   let disposed = false;
