@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Job } from '@oddmash/agent-operator-contract';
-import { activitySummary, filterActivity, groupActivity, reviewOverview, activityDays, localDay, repositoryActivity } from '../apps/console/src/activity.ts';
+import { activitySummary, filterActivity, groupActivity, reviewOverview, activityDays, localDay, repositoryActivity, toggleRepositoryCollapse } from '../apps/console/src/activity.ts';
 
 const jobs: Job[] = [
   { role: 'qa', correlationId: 'a'.repeat(24), attempt: 2, state: 'running', updatedAt: '2026-01-01T00:03:00Z' },
@@ -81,4 +81,15 @@ test('repository and local-day filters combine with role/state and keep unattrib
   assert.deepEqual(filterActivity(rows, { role: 'all', state: 'all', repository: 'unreported' }), [jobs[2]]);
   assert.deepEqual(activityDays(rows), [...new Set(rows.map(row => localDay(row.updatedAt)))].sort().reverse());
   assert.equal(localDay('invalid'), '');
+});
+
+test('collapse state is independent of filtered and refreshed repository observations', () => {
+  const initial = new Set<string>();
+  const collapsed = toggleRepositoryCollapse(initial, 'oddmash/ui');
+  assert.equal(initial.size, 0);
+  assert.equal(collapsed.has('oddmash/ui'), true);
+  const filtered = repositoryActivity(filterActivity(jobs, { role: 'all', state: 'all', repository: 'unreported' }));
+  assert.equal(filtered.some(row => row.key === 'oddmash/ui'), false);
+  assert.equal(collapsed.has('oddmash/ui'), true);
+  assert.equal(toggleRepositoryCollapse(collapsed, 'oddmash/ui').has('oddmash/ui'), false);
 });
