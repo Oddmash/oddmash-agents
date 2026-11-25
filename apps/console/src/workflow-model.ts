@@ -30,6 +30,18 @@ export const publicationPhaseObserved = (jobs: readonly ObservedJob[]) => jobs.s
 
 export function publicationLink(target: PublicTarget, job: ObservedJob): string | undefined {
   const result = job.publication;
+  if (!job.target || job.target.repository.toLowerCase() !== target.repository.toLowerCase() || job.target.number !== target.number) return;
   if (!result || !Number.isSafeInteger(result.id) || (result.id ?? 0) <= 0) return;
   return 'https://github.com/' + target.repository + (result.kind === 'review' ? '/pull/' + target.number + '#pullrequestreview-' : result.kind === 'inline-comment' ? '/pull/' + target.number + '#discussion_r' : '/issues/' + target.number + '#issuecomment-') + result.id;
+}
+
+export function executionGroups(jobs: readonly ObservedJob[]) {
+  const groups = new Map<string, ObservedJob[]>();
+  for (const job of jobs) {
+    const key = job.role + ':' + job.correlationId;
+    const group = groups.get(key) ?? [];
+    group.push(job);
+    groups.set(key, group);
+  }
+  return [...groups.entries()].map(([key, records]) => ({ key, records: records.sort((a, b) => b.attempt - a.attempt) }));
 }
