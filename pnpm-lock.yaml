@@ -42,6 +42,9 @@ importers:
       '@oddmash/agent-operator-store':
         specifier: workspace:*
         version: link:../../packages/operator-store
+      '@oddmash/juliya':
+        specifier: 0.4.1
+        version: 0.4.1(react@19.3.1)
       '@oddmash/ui':
         specifier: 0.7.0
         version: 0.7.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -142,6 +145,15 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1 || 2.0.0-beta.2
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2
+
+  '@oddmash/juliya@0.4.1':
+    resolution: {integrity: sha512-sbbRNpabWZNdbw+dxTq7yZKS0do3rzhT+YXBO7uBsCssZCGctSIRd1AQPwn7ppZHnd2ue8+5CB7kiDnsBUKe3g==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      react: ^18.2.0 || ^19.0.0
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@oddmash/ui@0.7.0':
     resolution: {integrity: sha512-oXUbg9WOOTJxj8HGD1MGJW5Duoppi9XU519WLgPNO92aW9P3EWt+SYp9n+PnKs3U1wrHXN2DL8Waj/9mY04aQA==}
@@ -962,6 +974,10 @@ snapshots:
       '@emnapi/runtime': 2.0.0-beta.2
       '@tybys/wasm-util': 0.10.5
     optional: true
+
+  '@oddmash/juliya@0.4.1(react@19.3.1)':
+    dependencies:
+      react: 19.3.1
 
   '@oddmash/ui@0.7.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
