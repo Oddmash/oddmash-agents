@@ -1,7 +1,7 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { authConfigManager, SessionProvider, useSession, signIn, signOut } from '@hono/auth-js/react';
-import { chooseLanguage, translate, type Language } from './i18n';
+import { chooseLanguage, localizedUrl, translate, type Language } from './i18n';
 import { Alert, Button, LocalePicker } from '@oddmash/ui';
 import { Dashboard } from './dashboard';
 import '@oddmash/ui/styles.css';
@@ -12,8 +12,8 @@ authConfigManager.setConfig({ basePath: '/api/auth' });
 const Console = () => {
   const [language, setLanguage] = useState<Language>(() => { try { return chooseLanguage(new URLSearchParams(window.location.search).get('lang') ?? localStorage.getItem('oddmash-console-language') ?? navigator.language); } catch { return chooseLanguage(navigator.language); } });
   const t = (message: Parameters<typeof translate>[1]) => translate(language, message);
-  useEffect(() => { document.documentElement.lang = language; document.title = 'Oddmash | ' + t('Agents Console'); const url = new URL(window.location.href); if (url.searchParams.has('lang')) { url.searchParams.delete('lang'); window.history.replaceState(window.history.state, '', url); } try { localStorage.setItem('oddmash-console-language', language); } catch {} }, [language]);
-  const languageControl = <div className="language-control"><span>{t('Language')}</span><LocalePicker label={t('Language')} value={language} options={[{ value: 'en', label: 'English', lang: 'en', href: '?lang=en' }, { value: 'ko', label: '한국어', lang: 'ko', href: '?lang=ko' }]} onValueChange={value => setLanguage(chooseLanguage(value))}/></div>;
+  useEffect(() => { document.documentElement.lang = language; document.title = 'Oddmash | ' + t('Agents Console'); const url = localizedUrl(window.location.href, language); if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url); try { localStorage.setItem('oddmash-console-language', language); } catch {} }, [language]);
+  const languageControl = <div className="language-control"><span>{t('Language')}</span><LocalePicker label={t('Language')} value={language} options={[{ value: 'en', label: 'English', lang: 'en', href: localizedUrl(window.location.href, 'en').href }, { value: 'ko', label: '한국어', lang: 'ko', href: localizedUrl(window.location.href, 'ko').href }]} onValueChange={value => setLanguage(chooseLanguage(value))}/></div>;
   const { status, data } = useSession();
   const [signInError, setSignInError] = useState(false);
   const [configured, setConfigured] = useState<'checking' | 'ready' | 'unconfigured' | 'error'>('checking');
