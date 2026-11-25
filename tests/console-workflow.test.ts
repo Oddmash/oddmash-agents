@@ -29,3 +29,9 @@ test('returned and publishing phase do not establish publication, skipped or app
   assert.equal(publicationObservations([posted]).length, 1);
   assert.equal(publicationLink(target, posted), 'https://github.com/Oddmash/example/pull/12#pullrequestreview-123');
 });
+
+test('publication links distinguish issue comments and inline review comments', () => {
+  assert.equal(publicationLink(target, { ...job, publication: { kind: 'inline-comment', at: job.updatedAt, id: 2 } }), 'https://github.com/Oddmash/example/pull/12#discussion_r2');
+  assert.equal(publicationLink(target, { ...job, publication: { kind: 'comment', at: job.updatedAt, id: 3 } }), 'https://github.com/Oddmash/example/issues/12#issuecomment-3');
+  assert.equal(publicationLink(target, { ...job, publication: { kind: 'review', at: job.updatedAt, id: -1 } }), undefined);
+});
