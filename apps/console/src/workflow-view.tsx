@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { JuliyaText } from '@oddmash/juliya/react';
 import { Badge, Button, Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription, DialogClose } from '@oddmash/ui';
 import { jobElapsedMs, type AgentRole, type PublicTarget, type SkipReason } from '@oddmash/agent-operator-contract';
 import { executionTone } from './execution-status';
@@ -105,7 +106,7 @@ export const WorkflowView = ({ target, visibleJobs, observedAt, language, render
   const publicationPhase = publicationPhaseObserved(jobs);
   const roleProps = { jobs, target, observedAt, language, renderAgent };
   return <div className="workflow-view">
-    <p className="workflow-note">{w.note}</p>
+    <JuliyaText as="p" locale={language} className="workflow-note">{w.note}</JuliyaText>
     <div className="workflow-scroll" tabIndex={0} role="region" aria-label={w.workflow}>
       <div className="workflow-lane">
         <div className="workflow-stage"><span>{w.triage}</span><RoleNode role="triage" description={w.triageNote} {...roleProps}/></div>
