@@ -4,6 +4,8 @@ import { authorizedSessionId } from '../apps/console/auth-policy.ts';
 import { consoleApi } from '../apps/console/auth.ts';
 import { GET as statusGet } from '../api/status.ts';
 import { GET as availabilityGet } from '../api/availability.ts';
+import { POST as signInPost } from '../api/auth/signin/github.ts';
+import { GET as callbackGet } from '../api/auth/callback/github.ts';
 import { GET as authGet } from '../api/auth/[...path].ts';
 import { GET as githubGet } from '../api/github.ts';
 import { POST as advisoryPost } from '../api/advisory.ts';
@@ -26,6 +28,8 @@ test('root console functions preserve fail-closed routes separately from worker 
     assert.equal(status.status, 401);
     assert.equal(status.headers.get('cache-control'), 'private, no-store');
     assert.equal((await authGet(new Request(origin + '/api/auth/session'))).status, 503);
+    assert.equal((await signInPost(new Request(origin + '/api/auth/signin/github', { method: 'POST' }))).status, 503);
+    assert.equal((await callbackGet(new Request(origin + '/api/auth/callback/github'))).status, 503);
     assert.equal((await statusGet(new Request(origin + '/api/github'))).status, 404);
     assert.equal((await githubGet(new Request(origin + '/api/github'))).status, 200);
   } finally {
@@ -75,6 +79,11 @@ test('configured console still rejects missing session and noncanonical auth ori
     assert.equal(response.status, 401);
     assert.equal(response.headers.get('cache-control'), 'private, no-store');
     assert.equal((await consoleApi.request('https://other.example.invalid/api/auth/session')).status, 400);
+    for (const response of [await signInPost(new Request('https://other.example.invalid/api/auth/signin/github', { method: 'POST' })), await callbackGet(new Request('https://other.example.invalid/api/auth/callback/github'))]) {
+      assert.equal(response.status, 400);
+      assert.equal(response.headers.get('cache-control'), 'private, no-store');
+      assert.deepEqual(await response.json(), { error: 'Invalid console origin' });
+    }
   } finally {
     keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; });
   }
