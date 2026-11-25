@@ -6,6 +6,7 @@ type Guidance = { content: string; encoding: string; type?: string; path?: strin
 type CacheEntry = { etag: string; data: Guidance; tokenKey: string; until: number };
 export type GuidanceCache = Map<GuidanceFilename, CacheEntry>;
 const warmCache: GuidanceCache = new Map();
+const inFlight = new WeakMap<GuidanceCache, Map<string, Promise<Guidance | null>>>();
 
 function validGuidance(value: Guidance, filename: GuidanceFilename): boolean {
   if (value.encoding !== 'base64' || typeof value.content !== 'string' || value.content.length > 64000 || value.type !== 'file' || value.path !== filename || !/^[a-f0-9]{40}$/.test(value.sha ?? '')) return false;
@@ -18,7 +19,24 @@ function validGuidance(value: Guidance, filename: GuidanceFilename): boolean {
 
 export async function readSharedGuidance(filename: GuidanceFilename, token: string | undefined, request: typeof fetch, cache = request === fetch ? warmCache : new Map<GuidanceFilename, CacheEntry>()): Promise<Guidance | null> {
   if (!['AGENTS.md', 'docs/AI-CODE-REVIEW.md'].includes(filename)) throw new Error('Invalid organization guidance path');
-  const tokenKey = token ? createHash('sha256').update(token).digest('hex') : undefined;
+  if (!token) return fetchSharedGuidance(filename, undefined, request, cache);
+  const tokenKey = createHash('sha256').update(token).digest('hex');
+  let pending = inFlight.get(cache);
+  if (!pending) { pending = new Map(); inFlight.set(cache, pending); }
+  const key = filename + ':' + tokenKey;
+  const existing = pending.get(key);
+  if (existing) return existing;
+  const operation = fetchSharedGuidance(filename, token, request, cache, tokenKey);
+  pending.set(key, operation);
+  try { return await operation; }
+  catch (error) {
+    if (cache.get(filename)?.tokenKey === tokenKey) cache.delete(filename);
+    throw error;
+  }
+  finally { pending.delete(key); }
+}
+
+async function fetchSharedGuidance(filename: GuidanceFilename, token: string | undefined, request: typeof fetch, cache: GuidanceCache, tokenKey?: string): Promise<Guidance | null> {
   const entry = tokenKey ? cache.get(filename) : undefined;
   const cached = entry && entry.tokenKey === tokenKey && entry.until > Date.now() ? entry : undefined;
   if (entry && !cached) cache.delete(filename);
