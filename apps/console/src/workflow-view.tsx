@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Badge, Button, Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription, DialogClose } from '@oddmash/ui';
-import { jobElapsedMs, type AgentRole, type PublicTarget } from '@oddmash/agent-operator-contract';
+import { jobElapsedMs, type AgentRole, type PublicTarget, type SkipReason } from '@oddmash/agent-operator-contract';
+import { executionTone } from './execution-status';
 import { korean, translate, type Language, type Message } from './i18n';
 import { type ObservedJob, type WorkflowState, specialistRoles, targetObservations, roleObservations, stateCounts, publicationObservations, publicationPhaseObserved, publicationLink, executionGroups, publicationCounts } from './workflow-model';
 import './workflow.css';
@@ -36,17 +37,15 @@ const words = {
   }
 } as const;
 
-const tones = { running: 'active', queued: 'info', returned: 'success', failed: 'danger', stale: 'warning', skipped: 'neutral', published: 'success' } as const;
 const order: readonly WorkflowState[] = ['running', 'queued', 'failed', 'stale', 'skipped', 'returned', 'published'];
 const targetUrl = (target: PublicTarget) => 'https://github.com/' + target.repository + '/issues/' + target.number;
 const failureReason = (language: Language, reason: string) => Object.hasOwn(korean, reason) ? translate(language, reason as Message) : translate(language, 'unexpected');
-const skipReasons: Record<string, { en: string; ko: string }> = {
+const skipReasons: Record<SkipReason, { en: string; ko: string }> = {
   unavailable: { en: 'Agent unavailable', ko: '에이전트 사용 불가' },
   excluded: { en: 'Excluded by operator controls', ko: '운영 설정에서 제외' },
   'request-budget': { en: 'Request budget exhausted', ko: '요청 한도 소진' },
   'time-budget': { en: 'Time budget exhausted', ko: '시간 한도 소진' },
   'target-changed': { en: 'Target revision changed', ko: '대상 변경됨' },
-  'coordination-disabled': { en: 'Coordination disabled', ko: '협업 검토 비활성' },
   'not-reached': { en: 'Execution stopped before this stage', ko: '해당 단계에 도달하기 전에 실행 종료' }
 };
 const stateLabel = (language: Language, state: WorkflowState, role?: AgentRole) => state === 'returned' && role === 'triage' ? words[language].triageCompleted : words[language][state];
@@ -56,10 +55,10 @@ const JobObservation = ({ job, target, language, observedAt }: { job: ObservedJo
   const w = words[language];
   const t = (key: Message) => translate(language, key);
   const duration = jobElapsedMs(job, observedAt);
-  const state = job.state as WorkflowState;
+  const state = job.state;
   const href = publicationLink(target, job);
   return <article className="workflow-observation">
-    <div className="workflow-observation-heading"><Badge tone={tones[state] ?? 'neutral'}>{stateLabel(language, state, job.role) ?? w.unobserved}</Badge><span>{t('Attempt')} {job.attempt}</span></div>
+    <div className="workflow-observation-heading"><Badge tone={executionTone(state)}>{stateLabel(language, state, job.role) ?? w.unobserved}</Badge><span>{t('Attempt')} {job.attempt}</span></div>
     <dl className="workflow-facts">
       <div><dt>{t('Phase')}</dt><dd>{job.phase ? t(job.phase) : t('Not reported')}</dd></div>
       <div><dt>{t('Queued at')}</dt><dd>{time(job.queuedAt, language)}</dd></div>
@@ -92,7 +91,7 @@ const RoleNode = ({ role, description, jobs, target, observedAt, language, rende
   const w = words[language];
   const records = roleObservations(role, jobs);
   const counts = stateCounts(records);
-  const badges = order.filter(state => counts[state]).map(state => <Badge key={state} tone={tones[state]}>{stateLabel(language, state, role)} {counts[state]}</Badge>);
+  const badges = order.filter(state => counts[state]).map(state => <Badge key={state} tone={executionTone(state)}>{stateLabel(language, state, role)} {counts[state]}</Badge>);
   return <StageDialog title={renderAgent(role)} description={description} language={language} target={target} trigger={<><span className="workflow-node-title">{renderAgent(role)}</span><span className="workflow-node-status">{badges.length ? badges : <Badge tone="neutral">{w.unobserved}</Badge>}</span></>}>
     {records.length ? executionGroups(records).map(group => <section key={group.key}><h4>{w.run} · <code>{group.records[0].correlationId.slice(0, 12)}</code></h4>{group.records.map(job => <JobObservation key={job.correlationId + ':' + job.attempt} job={job} language={language} target={target} observedAt={observedAt}/>)}</section>) : <p>{w.noDetails}</p>}
   </StageDialog>;
