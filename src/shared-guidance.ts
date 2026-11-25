@@ -3,7 +3,7 @@ import { githubRequest } from './github-request.ts';
 
 type GuidanceFilename = 'AGENTS.md' | 'docs/AI-CODE-REVIEW.md';
 type Guidance = { content: string; encoding: string; type?: string; path?: string; sha?: string; size?: number };
-type CacheEntry = { etag: string; data: Guidance };
+type CacheEntry = { etag: string; data: Guidance; tokenKey: string; until: number };
 export type GuidanceCache = Map<GuidanceFilename, CacheEntry>;
 const warmCache: GuidanceCache = new Map();
 
@@ -18,7 +18,10 @@ function validGuidance(value: Guidance, filename: GuidanceFilename): boolean {
 
 export async function readSharedGuidance(filename: GuidanceFilename, token: string | undefined, request: typeof fetch, cache = request === fetch ? warmCache : new Map<GuidanceFilename, CacheEntry>()): Promise<Guidance | null> {
   if (!['AGENTS.md', 'docs/AI-CODE-REVIEW.md'].includes(filename)) throw new Error('Invalid organization guidance path');
-  const cached = token ? cache.get(filename) : undefined;
+  const tokenKey = token ? createHash('sha256').update(token).digest('hex') : undefined;
+  const entry = tokenKey ? cache.get(filename) : undefined;
+  const cached = entry && entry.tokenKey === tokenKey && entry.until > Date.now() ? entry : undefined;
+  if (entry && !cached) cache.delete(filename);
   const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(cached ? { 'If-None-Match': cached.etag } : {}) };
   const response = await githubRequest(request, '/repos/Oddmash/.github/contents/' + filename + '?ref=main', { headers, redirect: 'error', signal: AbortSignal.timeout(30_000) }, true);
   if (response.status === 304 && cached) {
@@ -43,7 +46,7 @@ export async function readSharedGuidance(filename: GuidanceFilename, token: stri
   }
   if (token) {
     const etag = response.headers.get('etag');
-    if (etag && etag.length <= 256) cache.set(filename, { etag, data: value });
+    if (etag && etag.length <= 256) cache.set(filename, { etag, data: value, tokenKey: tokenKey!, until: Date.now() + 600000 });
     else cache.delete(filename);
   }
   return value;

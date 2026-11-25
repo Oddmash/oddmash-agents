@@ -25,7 +25,7 @@ test('authenticated shared guidance uses conditional freshness and does not serv
 });
 
 test('unauthenticated lookup does not reuse a cached authenticated body', async () => {
-  const cache: GuidanceCache = new Map([['AGENTS.md', { etag: '"fixture"', data: { content: 'YWJj', encoding: 'base64' } }]]);
+  const cache: GuidanceCache = new Map([['AGENTS.md', { etag: '"fixture"', data: { content: 'YWJj', encoding: 'base64' }, tokenKey: createHash('sha256').update('fixture-token').digest('hex'), until: Date.now() + 600000 }]]);
   const result = await readSharedGuidance('AGENTS.md', undefined, async (_url, init) => {
     assert.equal(new Headers(init?.headers).has('Authorization'), false);
     assert.equal(new Headers(init?.headers).has('If-None-Match'), false);
@@ -53,7 +53,22 @@ test('guidance authorization requests read-only access solely to the canonical p
 });
 
 test('authenticated cache rejects an invalid cached blob even on 304', async () => {
-  const cache: GuidanceCache = new Map([['AGENTS.md', { etag: '"fixture"', data: { content: 'YWJj', encoding: 'base64', type: 'file', path: 'AGENTS.md', size: 3, sha: 'a'.repeat(40) } }]]);
+  const cache: GuidanceCache = new Map([['AGENTS.md', { etag: '"fixture"', data: { content: 'YWJj', encoding: 'base64', type: 'file', path: 'AGENTS.md', size: 3, sha: 'a'.repeat(40) }, tokenKey: createHash('sha256').update('fixture-token').digest('hex'), until: Date.now() + 600000 }]]);
   await assert.rejects(readSharedGuidance('AGENTS.md', 'fixture-token', async () => new Response(null, { status: 304 }), cache), /integrity unavailable/);
   assert.equal(cache.size, 0);
+});
+
+test('cache validators are isolated by token and absolute age', async () => {
+  const cache: GuidanceCache = new Map();
+  const original = 'fixture-token';
+  const body = { content: 'YWJj', encoding: 'base64', type: 'file', path: 'AGENTS.md', size: 3, sha: createHash('sha1').update('blob 3\0abc').digest('hex') };
+  await readSharedGuidance('AGENTS.md', original, async () => Response.json(body, { headers: { etag: '"fixture"' } }), cache);
+  const request: typeof fetch = async (_url, init) => {
+    assert.equal(new Headers(init?.headers).has('if-none-match'), false);
+    return Response.json(body, { headers: { etag: '"fixture"' } });
+  };
+  await readSharedGuidance('AGENTS.md', 'different-fixture-token', request, cache);
+  const entry = cache.get('AGENTS.md')!;
+  entry.until = Date.now() - 1;
+  await readSharedGuidance('AGENTS.md', 'different-fixture-token', request, cache);
 });
