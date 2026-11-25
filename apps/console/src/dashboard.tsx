@@ -4,7 +4,7 @@ import { jobElapsedMs, type Job, type WorkerSettings, type ModelUsageSummary, ty
 import { createStatusPolling } from './status-polling';
 import { AgentLoading } from './agent-loading';
 import { korean, translate, executionCount, missingCalls, type Language, type Message } from './i18n';
-import { activitySummary, filterActivity, groupActivity, jobStates, type ActivityFilter } from './activity';
+import { activitySummary, filterActivity, groupActivity, reviewOverview, jobStates, type ActivityFilter } from './activity';
 
 type Snapshot = { connected: boolean; jobs: Job[]; usage?: (ModelUsageSummary & { role: AgentRole })[]; settings: WorkerSettings | null; settingsUpdatedAt?: string; observedAt: string };
 const releaseTag = (import.meta as ImportMeta & { env: { VITE_OPERATOR_RELEASE_TAG?: string } }).env.VITE_OPERATOR_RELEASE_TAG;
@@ -77,7 +77,8 @@ export const Dashboard = ({ logout, language, languageControl }: { logout: React
   const { counts, byRole } = activitySummary(jobs);
   const visibleJobs = filterActivity(jobs, filter);
   const groups = groupActivity(visibleJobs);
-  const displayedGroups = view === 'overview' ? groups.slice(0, 5) : groups;
+  const overview = reviewOverview(groups);
+  const displayedGroups = view === 'overview' ? overview.groups : groups.map(group => ({ ...group, total: group.jobs.length }));
   const connected = snapshot?.connected === true;
   return <div className="shell">
     <aside><p className="eyebrow">ODDMASH</p><h1>{t("Agents Console")}</h1><p className="muted">{t("Release:")} {typeof releaseTag === 'string' && /^v\d+\.\d+\.\d+$/.test(releaseTag) ? releaseTag : t("Unknown")}</p><DocsNavigation aria-label={t('Console navigation')} currentId={view} groups={[{ id: 'console', items: views.map(item => ({ id: item, href: '#' + item, label: t(viewLabels[item]) })) }]}/><div className="logout">{languageControl}{logout}</div></aside>
@@ -98,15 +99,15 @@ export const Dashboard = ({ logout, language, languageControl }: { logout: React
         <p className="muted">{t("Agents shown are observed executions. Unreported assignments are not inferred; execution completion is not approval.")}</p>
         <div className="activity-filters"><div className="filter-control"><span>{t("Agent")}</span><Select aria-label={t("Agent")} value={filter.role} options={[{ value: 'all', label: t("All agents") }, ...byRole.map(row => ({ value: row.role, label: names[row.role] }))]} onValueChange={value => setFilter(current => ({ ...current, role: value as ActivityFilter['role'] }))}/></div><div className="filter-control"><span>{t("State")}</span><Select aria-label={t("State")} value={filter.state} options={[{ value: 'all', label: t("All states") }, ...jobStates.map(state => ({ value: state, label: t(state) }))]} onValueChange={value => setFilter(current => ({ ...current, state: value as ActivityFilter['state'] }))}/></div><span className="muted">{connected ? executionCount(language, visibleJobs.length, jobs.length) : t("No live activity source")}</span></div>
         <div className="review-list">{displayedGroups.map(group => <Card key={group.key} className="review-group">
-          <div className="review-heading"><div><p className="muted">{group.target ? group.target.repository : t("Target not reported")}</p><h3>{group.target ? <a href={'https://github.com/' + group.target.repository + '/issues/' + group.target.number} target="_blank" rel="noreferrer">#{group.target.number}</a> : t("Unattributed executions")}</h3></div><span className="muted">{executionCount(language, group.jobs.length, group.jobs.length)}</span></div>
+          <div className="review-heading"><div><p className="muted">{group.target ? group.target.repository : t("Target not reported")}</p><h3>{group.target ? <a href={'https://github.com/' + group.target.repository + '/issues/' + group.target.number} target="_blank" rel="noreferrer">#{group.target.number}</a> : t("Unattributed executions")}</h3></div><span className="muted">{executionCount(language, group.jobs.length, group.total)}</span></div>
           <ul className="review-agents">{group.jobs.map(job => <li key={job.role + ':' + job.correlationId + ':' + job.attempt} className="review-agent">
             <div><AgentIdentity role={job.role} compact/><small>{t(descriptions[job.role])}</small></div>
             <div className="review-phase"><strong>{job.phase ? t(job.phase) : t("Not reported")}</strong><small>{t("Attempt")} {job.attempt} · {formatElapsed(job, language, snapshot?.observedAt)}</small></div>
             <div className="review-state"><Badge tone={job.state === 'running' ? 'accent' : 'neutral'}>{t(job.state)}</Badge>{job.failure && <small>{Object.hasOwn(korean, job.failure) ? t(job.failure as Message) : t("unexpected")}</small>}<small><time dateTime={job.updatedAt}>{new Date(job.updatedAt).toLocaleString(language)}</time></small></div>
           </li>)}</ul>
         </Card>)}</div>
-        {view === 'overview' && groups.length > 5 && <p><a href="#activity">{t("View all executions")}</a></p>}
-        {!groups.length && <Card><EmptyState className="empty">{!connected ? t("Live activity unavailable.") : jobs.length ? t("No executions match these filters.") : t("No recent execution events.")}</EmptyState></Card>}
+        {view === 'overview' && (overview.identifiedCount > 5 || overview.unattributedCount > 0 || overview.groups.some(group => group.total > group.jobs.length)) && <div className="history-summary">{overview.unattributedCount > 0 && <span className="muted">{t("Target not reported")}: {overview.unattributedCount.toLocaleString(language)}</span>}<a href="#activity">{t("View all executions")}</a></div>}
+        {!displayedGroups.length && <Card><EmptyState className="empty">{!connected ? t("Live activity unavailable.") : view === 'overview' && overview.unattributedCount > 0 ? t("No identified review targets.") : jobs.length ? t("No executions match these filters.") : t("No recent execution events.")}</EmptyState></Card>}
       </section>
       <section hidden={view !== 'overview'} aria-labelledby="role-overview"><h2 id="role-overview">{t("Agent activity")}</h2><div className="fleet-list">{byRole.map(row => <div key={row.role} className="fleet-row"><AgentIdentity role={row.role} compact/><span className="muted">{t(descriptions[row.role])}</span><Badge tone={connected && row.active > 0 ? 'accent' : 'neutral'}>{connected && row.latest ? t(row.latest.state) : connected ? t('No observed events') : t('Unavailable')}</Badge><span>{t("Active:")} {connected ? row.active : '—'}</span></div>)}</div></section>
       <section hidden={view !== 'usage'} id="usage"><p className="muted">{t("Observed usage in retained terminal executions, including retries. Missing counts and unobserved calls are not zero-cost; these are token counts, not a billing total.")}</p><div className="agent-grid">{snapshot?.usage?.length ? snapshot.usage.map(row => <Card key={row.role}><h3><AgentIdentity role={row.role}/></h3><p>{t("Observed calls:")} {row.calls}</p><p>{t("Known input tokens:")} {row.inputTokens.toLocaleString(language)} · {missingCalls(language, row.missingInput)}</p><p>{t("Known output tokens:")} {row.outputTokens.toLocaleString(language)} · {missingCalls(language, row.missingOutput)}</p></Card>) : <Card><EmptyState className="empty">{t("No measured model usage is retained yet.")}</EmptyState></Card>}</div></section>
