@@ -1,6 +1,6 @@
 # Operator workspace
 
-The existing root worker remains the production Vercel entrypoint until a separately reviewed migration proves identical webhook, queue, and release behavior. The pnpm workspace already supports independent applications and shared packages. From the root, run `pnpm install --frozen-lockfile --ignore-scripts`, `pnpm test` and `pnpm run typecheck`. Run the local API with `pnpm --filter @oddmash/agents-console dev:api` and the console with `pnpm --filter @oddmash/agents-console dev` in separate terminals; verify its build with `pnpm --filter @oddmash/agents-console build`. Internal packages use workspace dependencies and explicit exports for frontend and test consumers. Server-side function entrypoints and their transitive internal modules use explicit relative source imports so Vercel traces and transpiles the TypeScript files together rather than resolving source-only workspace package exports at runtime. They are private, source-only TypeScript contracts for the supported Node.js 24 worker and TypeScript-aware Vite build; they are not JavaScript library releases or supported external package APIs.
+The existing root Vercel project serves both the worker and the compiled console assets. The webhook, advisory and queue entrypoints remain unchanged; console API routes use their own owner authentication. The pnpm workspace already supports independent applications and shared packages. From the root, run `pnpm install --frozen-lockfile --ignore-scripts`, `pnpm test` and `pnpm run typecheck`. Run the local API with `pnpm --filter @oddmash/agents-console dev:api` and the console with `pnpm --filter @oddmash/agents-console dev` in separate terminals; verify its build with `pnpm --filter @oddmash/agents-console build`. Internal packages use workspace dependencies and explicit exports for frontend and test consumers. Server-side function entrypoints and their transitive internal modules use explicit relative source imports so Vercel traces and transpiles the TypeScript files together rather than resolving source-only workspace package exports at runtime. They are private, source-only TypeScript contracts for the supported Node.js 24 worker and TypeScript-aware Vite build; they are not JavaScript library releases or supported external package APIs.
 
 | Layer | Responsibility |
 | --- | --- |
@@ -11,7 +11,7 @@ The existing root worker remains the production Vercel entrypoint until a separa
 
 ## Release verification
 
-Local type checks and endpoint tests do not prove the deployed function artifact contains every internal module. Keep the existing staged production health and webhook checks mandatory; only promote after they pass for the exact release tag.
+Local type checks and endpoint tests do not prove the deployed function artifact contains every internal module. Keep the existing staged production health and webhook checks mandatory, and verify the console static shell, availability route and unauthenticated status denial; only promote after they pass for the exact release tag.
 
 ## Execution data
 
@@ -21,10 +21,10 @@ The worker emits its existing role-correlated lifecycle events. Events now optio
 
 The worker exposes an internal projection function that selects explicit non-secret model and feature settings and whether required configuration is present. Configured is not proof that credentials work. No public route exposes the projection. The console uses the Hono status API and optional bounded shared storage; it does not read worker environment variables or credentials directly. See the [console setup guide](../apps/console/README.md) for required GitHub OAuth and owner authentication variables, callback configuration, and optional worker/console storage credentials. Without storage, the console shows that telemetry is unconfigured.
 
-## Next phases
+## Activation and next phases
 
 1. Adopt #178 rate-limit diagnostics and #180 API efficiency improvements without widening token permissions.
-2. Activate the implemented Vite + React console with its Hono HTTP API after explicit deployment and GitHub OAuth configuration. Enforce verified maintainer ID and no-store on status endpoints; do not ship worker tokens to the browser. Deploy independently from the worker and configure a bounded event store with separate worker write-capable and console read-only tokens. The console reads at most 500 events within seven days and polls every ten seconds during active work, thirty seconds while idle, and stops while hidden. Verify actual production routing, owner-only auth and telemetry before enabling the store.
+2. Activate the implemented Vite + React console with its Hono HTTP API after explicit deployment and GitHub OAuth configuration. Enforce verified maintainer ID and no-store on status endpoints; do not ship worker tokens to the browser. Use the existing single project and configure a bounded event store with separate worker write-capable and console read-only tokens. The console reads at most 500 events within seven days and polls every ten seconds during active work, thirty seconds while idle, and stops while hidden. Verify actual production routing, owner-only auth and telemetry before enabling the store.
 3. Move worker entrypoints only after testing existing webhook URLs, queue triggers, build roots, release gating and rollback. Keep the existing required verify check and include all workspace package and console tests before production activation.
 
 Related: #169, #178, #180, #181.
