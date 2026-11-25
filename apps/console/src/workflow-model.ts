@@ -1,9 +1,9 @@
-import type { AgentRole, Job, PublicTarget } from '@oddmash/agent-operator-contract';
+import type { AgentRole, Job, JobState, PublicTarget } from '@oddmash/agent-operator-contract';
 
 export const specialistRoles = ['impact', 'qa', 'docs', 'architect', 'release'] as const;
 export type WorkflowRole = AgentRole;
-export type WorkflowState = 'running' | 'queued' | 'returned' | 'failed' | 'stale' | 'skipped' | 'published';
-export type ObservedJob = Job & { skipReason?: string; publication?: { kind: 'review' | 'comment' | 'inline-comment'; at: string; id?: number } };
+export type WorkflowState = JobState;
+export type ObservedJob = Job;
 
 export const workflowRoles: readonly WorkflowRole[] = ['triage', 'reviewer', ...specialistRoles];
 
@@ -16,11 +16,8 @@ export const roleObservations = (role: WorkflowRole, jobs: readonly ObservedJob[
 export const stateCounts = (jobs: readonly ObservedJob[]) => {
   const counts: Partial<Record<WorkflowState, number>> = {};
   for (const job of jobs) {
-    const state: string = job.state;
-    if (['running', 'queued', 'returned', 'failed', 'stale', 'skipped', 'published'].includes(state)) {
-      const key = state as WorkflowState;
-      counts[key] = (counts[key] ?? 0) + 1;
-    }
+    const state = job.state;
+    counts[state] = (counts[state] ?? 0) + 1;
   }
   return counts;
 };
