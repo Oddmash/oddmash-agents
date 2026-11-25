@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { executionContext, executionRole, runAgentExecution } from '../src/agent-execution.ts';
+import { executionContext, executionRole, recordReviewPhase, runAgentExecution } from '../src/agent-execution.ts';
 
 test('retries preserve correlation but keep roles separate', () => {
   const delivery = '12345678-1234-1234-1234-123456789012';
@@ -28,4 +28,18 @@ test('execution records outcome without logging raw errors or result payloads', 
   assert.match(serialized, /"retryCount":1/);
   assert.match(serialized, /"durationMs":1/);
   assert.doesNotMatch(serialized, /private result|private detail/);
+});
+
+test('execution scopes and phases are emitted only from real worker lifecycle', async () => {
+  const events: unknown[] = [];
+  const context = executionContext('reviewer', '', 1, { repository: 'Oddmash/example', number: 7 });
+  await runAgentExecution(context, async () => {
+    recordReviewPhase('Collecting review context');
+    recordReviewPhase('unrecognized fixture-private-detail');
+  }, event => events.push(event));
+  assert.equal(events.length, 3);
+  assert.match(JSON.stringify(events), /"phase":"collecting-context"/);
+  assert.match(JSON.stringify(events), /"repository":"Oddmash\/example"/);
+  assert.doesNotMatch(JSON.stringify(events), /fixture-private-detail/);
+  assert.equal(executionContext('reviewer', '', 1, { repository: 'Oddmash/example', number: 7, private: true }).target, undefined);
 });

@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     return new Response('Unavailable', { status: 503 });
   }
   const delivery = request.headers.get('x-github-delivery') ?? '';
-  const execution = executionContext(executionRole(target), delivery);
+  const execution = executionContext(executionRole(target), delivery, 1, target);
   if (process.env.REVIEWER_QUEUE_ENABLED === 'true') {
     let job;
     try { job = createReviewJob(delivery, target, secret); } catch { return new Response('Bad request', { status: 400 }); }
