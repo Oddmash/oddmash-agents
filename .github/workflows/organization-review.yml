@@ -22,6 +22,9 @@ jobs:
     if: github.ref == 'refs/heads/main' && vars.REVIEWER_APP_ID != '' && vars.REVIEWER_APP_SLUG != '' && vars.REVIEWER_APP_ENABLED == 'true' && (github.event_name != 'schedule' || vars.REVIEWER_EVENT_MODE != 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -32,7 +35,28 @@ jobs:
           node-version: '24'
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm test
+      - name: Find exact-revision CI evidence
+        id: prior
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          import { findGitHubTests } from './scripts/ci-evidence.mjs';
+          const run = await findGitHubTests({
+            repository: process.env.GITHUB_REPOSITORY,
+            head: process.env.GITHUB_SHA,
+            revision: process.env.GITHUB_SHA,
+            event: 'push',
+            branch: 'main',
+            headRepository: Number(process.env.GITHUB_REPOSITORY_ID),
+          }, process.env.GITHUB_TOKEN);
+          if (run) appendFileSync(process.env.GITHUB_OUTPUT, 'run=' + run + '\n');
+          NODE
+      - name: Run tests when exact CI evidence is unavailable
+        if: steps.prior.outputs.run == ''
+        run: pnpm test
       - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
         id: app
         with:
