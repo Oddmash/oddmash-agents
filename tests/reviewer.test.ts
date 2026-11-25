@@ -85,6 +85,21 @@ test('Lead uses related project guidance from the PR base alongside the organiza
   assert.deepEqual(projectReads.sort(), ['/repos/Oddmash/example/contents/AGENTS.md', '/repos/Oddmash/example/contents/src/AGENTS.md']);
 });
 
+test('Lead remains advisory when public organization guidance is temporarily unavailable', async () => {
+  const { request, calls } = mock();
+  const result = await runReview(config, async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/repos/Oddmash/.github/contents/AGENTS.md') return new Response(null, { status: 403 });
+    if (url.pathname.includes('/check-runs')) return Response.json({ check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] });
+    return request(input, init);
+  });
+  assert.ok(calls.some(call => call.url.includes('api.openai.com')));
+  assert.equal(result.assessment, 'COMMENT');
+  assert.equal(result.decision, 'COMMENT');
+  assert.equal(result.issueVerified, false);
+  assert.match(result.report, /Organization guidance could not be retrieved/);
+});
+
 test('Lead withholds a review when the GitHub project guidance read fails', async () => {
   const { request, calls } = mock();
   await assert.rejects(runReview(config, async (input, init) => {
