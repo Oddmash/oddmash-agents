@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { githubRequest, trackGitHubRequests } from '../src/github-request.ts';
+import { githubRequest, trackGitHubRequests } from '../apps/worker/src/github-request.ts';
 
 test('retries a rate-limited read only once', async () => {
   let calls = 0;

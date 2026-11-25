@@ -4,7 +4,7 @@ The existing root Vercel project serves both the worker and the compiled console
 
 | Layer | Responsibility |
 | --- | --- |
-| Root Hono worker (future apps/worker) | GitHub webhook, queue, agent execution, release and policy enforcement |
+| apps/worker | GitHub webhook, queue, agent execution, release and policy enforcement |
 | packages/operator-contract | Sanitized execution events, state projection, safe configuration contract |
 | packages/operator-store | Bounded optional telemetry persistence and read-only status projection |
 | apps/console | Private authenticated read-only operator UI and server-side data access |
@@ -25,6 +25,6 @@ The worker exposes an internal projection function that selects explicit non-sec
 
 1. Adopt #178 rate-limit diagnostics and #180 API efficiency improvements without widening token permissions.
 2. Activate the implemented Vite + React console with its Hono HTTP API after explicit deployment and GitHub OAuth configuration. Enforce verified maintainer ID and no-store on status endpoints; do not ship worker tokens to the browser. Use the existing single project and configure a bounded event store with separate worker write-capable and console read-only tokens. The console reads at most 500 events within seven days and polls every ten seconds during active work, thirty seconds while idle, and stops while hidden. Verify actual production routing, owner-only auth and telemetry before enabling the store.
-3. Move worker entrypoints only after testing existing webhook URLs, queue triggers, build roots, release gating and rollback. Keep the existing required verify check and include all workspace package and console tests before production activation.
+3. Worker source has a canonical location under apps/worker/src; the root api directory remains the Vercel adapter boundary. Preserve existing webhook URLs, queue triggers, build roots, release gating and rollback. Keep the existing required verify check and include all workspace package and console tests before production activation.
 
 Related: #169, #178, #180, #181.

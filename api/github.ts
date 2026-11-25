@@ -1,11 +1,11 @@
-import { workerEndpoint } from '../src/worker-http.ts';
-import { executionContext, executionRole, recordQueued, runAgentExecution } from '../src/agent-execution.ts';
+import { workerEndpoint } from '../apps/worker/src/worker-http.ts';
+import { executionContext, executionRole, recordQueued, runAgentExecution } from '../apps/worker/src/agent-execution.ts';
 import { waitUntil } from '@vercel/functions';
-import { ignoredReviewRequest, route, validSignature } from '../src/webhook.ts';
-import { reviewWebhook } from '../src/webhook-review.ts';
+import { ignoredReviewRequest, route, validSignature } from '../apps/worker/src/webhook.ts';
+import { reviewWebhook } from '../apps/worker/src/webhook-review.ts';
 import { send } from '@vercel/queue';
-import { createReviewJob, leadDeliveryKey, reviewTopic } from '../src/review-job.ts';
-import { runtimeConfig } from '../src/runtime-config.ts';
+import { createReviewJob, leadDeliveryKey, reviewTopic } from '../apps/worker/src/review-job.ts';
+import { runtimeConfig } from '../apps/worker/src/runtime-config.ts';
 
 function health() {
   return Response.json({ service: 'Oddmash Reviewer', status: 'ok' });

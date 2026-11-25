@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reviewFeedback } from '../src/review-feedback.ts';
-import { relatedPaths, reviewFocus } from '../src/review-context.ts';
-import { deletedLines, validateFindings, reviewAssessment } from '../src/core.ts';
-import { deferredRequest } from '../src/webhook-review.ts';
+import { reviewFeedback } from '../apps/worker/src/review-feedback.ts';
+import { relatedPaths, reviewFocus } from '../apps/worker/src/review-context.ts';
+import { deletedLines, validateFindings, reviewAssessment } from '../apps/worker/src/core.ts';
+import { deferredRequest } from '../apps/worker/src/webhook-review.ts';
 import { createHash } from 'node:crypto';
 
 test('bounded relative imports exclude sensitive paths and changed files', () => {

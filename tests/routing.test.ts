@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reviewTarget } from '../src/routing.ts';
+import { reviewTarget } from '../apps/worker/src/routing.ts';
 
 test('routes only explicitly allowed public PRs', () => {
   assert.deepEqual(reviewTarget('Oddmash/oddmash-ui', '25'), { repository: 'Oddmash/oddmash-ui', number: 25 });

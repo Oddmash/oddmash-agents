@@ -1,7 +1,7 @@
-import { leadDeliveryKey } from '../src/review-job.ts';
+import { leadDeliveryKey } from '../apps/worker/src/review-job.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createReviewJob, verifyReviewJob, retryableJobError, retryDelay, publishFailureRecord } from '../src/review-job.ts';
+import { createReviewJob, verifyReviewJob, retryableJobError, retryDelay, publishFailureRecord } from '../apps/worker/src/review-job.ts';
 
 test('queue messages authenticate exact target and delivery without storing credentials', () => {
   const delivery = '12345678-1234-1234-1234-123456789abc';

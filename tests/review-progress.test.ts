@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { progressCheckName, startReviewProgress } from '../src/review-progress.ts';
-import { loadCheckEvidence } from '../src/checks.ts';
+import { progressCheckName, startReviewProgress } from '../apps/worker/src/review-progress.ts';
+import { loadCheckEvidence } from '../apps/worker/src/checks.ts';
 
 test('progress is head-scoped and updates a single check', async () => {
   const calls: { path: string; body: Record<string, unknown> }[] = [];

@@ -1,0 +1,14 @@
+{
+  "name": "@oddmash/agents-worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "dependencies": {
+    "@oddmash/agent-operator-contract": "workspace:*",
+    "@oddmash/agent-operator-store": "workspace:*",
+    "hono": "4.13.17"
+  }
+}

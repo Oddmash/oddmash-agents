@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { acquirePendingReview, withPendingReviewLock, type Review } from '../src/review-lock.ts';
-import { githubApi } from '../src/webhook.ts';
+import { acquirePendingReview, withPendingReviewLock, type Review } from '../apps/worker/src/review-lock.ts';
+import { githubApi } from '../apps/worker/src/webhook.ts';
 
 const path = '/repos/Oddmash/example/pulls/1';
 const head = 'a'.repeat(40);

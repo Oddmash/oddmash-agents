@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { advisoryRoles } from '../src/advisory-agents.ts';
-import { agentSkill, loadProjectGuidance } from '../src/agent-guidance.ts';
-import { privateSensitiveText } from '../src/core.ts';
+import { advisoryRoles } from '../apps/worker/src/advisory-agents.ts';
+import { agentSkill, loadProjectGuidance } from '../apps/worker/src/agent-guidance.ts';
+import { privateSensitiveText } from '../apps/worker/src/core.ts';
 import { githubContentFixture as contents } from './github-content-fixture.ts';
 
 const repository = 'Oddmash/sample';

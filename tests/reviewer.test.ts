@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { confirmBlockingFindings, runReview } from '../src/reviewer.ts';
-import { reviewAssessment, type Finding, type ReviewContext } from '../src/core.ts';
+import { confirmBlockingFindings, runReview } from '../apps/worker/src/reviewer.ts';
+import { reviewAssessment, type Finding, type ReviewContext } from '../apps/worker/src/core.ts';
 import { githubContentFixture } from './github-content-fixture.ts';
 
 const config = { repository: 'Oddmash/example', number: 1, githubToken: 'fixture', openaiKey: 'fixture', model: 'fixture', post: false, allowedRepositories: ['Oddmash/example'] };

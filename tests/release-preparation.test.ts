@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { collectPreparation, generatePreparation, needsReleaseQA, preparationTitle, reusablePreparation } from '../src/release-preparation.ts';
+import { collectPreparation, generatePreparation, needsReleaseQA, preparationTitle, reusablePreparation } from '../apps/worker/src/release-preparation.ts';
 import { githubContentFixture } from './github-content-fixture.ts';
 
 const base = 'a'.repeat(40);

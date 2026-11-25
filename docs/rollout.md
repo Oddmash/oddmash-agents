@@ -12,7 +12,7 @@ Current limits: CLI, manually dispatched Actions, and opt-in scheduled App polli
 
 ## Repository-specific review CI
 
-The default review profile requires the aggregate `verify` job from the trusted GitHub Actions app. Boundra supplements that gate with an explicit profile in `src/checks.ts` covering its example, three Node runtimes, four native platform jobs, and benchmark smoke check. Every named job and aggregate `verify` must be present and successful with the GitHub Actions app identity; missing, queued, failed, skipped, or cancelled required checks never permit approval. Both webhook and scheduled review use this profile. Add or update profiles through a reviewed agent PR when a repository changes its CI matrix. Automatic merge still requires the original aggregate `verify`, branch protection, and all other gates; the profile does not enroll Boundra in auto-merge.
+The default review profile requires the aggregate `verify` job from the trusted GitHub Actions app. Boundra supplements that gate with an explicit profile in `apps/worker/src/checks.ts` covering its example, three Node runtimes, four native platform jobs, and benchmark smoke check. Every named job and aggregate `verify` must be present and successful with the GitHub Actions app identity; missing, queued, failed, skipped, or cancelled required checks never permit approval. Both webhook and scheduled review use this profile. Add or update profiles through a reviewed agent PR when a repository changes its CI matrix. Automatic merge still requires the original aggregate `verify`, branch protection, and all other gates; the profile does not enroll Boundra in auto-merge.
 
 
 ## Infrastructure repository opt-in

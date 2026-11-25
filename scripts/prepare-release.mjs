@@ -1,5 +1,5 @@
 import { appendFileSync } from 'node:fs';
-import { collectPreparation, generatePreparation, renderPreparation, reusablePreparation } from '../src/release-preparation.ts';
+import { collectPreparation, generatePreparation, renderPreparation, reusablePreparation } from '../apps/worker/src/release-preparation.ts';
 
 if (process.env.GITHUB_REPOSITORY !== 'Oddmash/oddmash-agents' || process.env.GITHUB_ACTOR_ID !== '135234546' || process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_REF !== 'refs/heads/main') throw new Error('Unauthorized preparation');
 const token = process.env.GITHUB_TOKEN;

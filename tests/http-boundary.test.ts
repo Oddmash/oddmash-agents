@@ -9,7 +9,7 @@ import { GET as callbackGet } from '../api/auth/callback/github.ts';
 import { GET as authGet } from '../api/auth/[...path].ts';
 import { GET as githubGet } from '../api/github.ts';
 import { POST as advisoryPost } from '../api/advisory.ts';
-import { workerEndpoint } from '../src/worker-http.ts';
+import { workerEndpoint } from '../apps/worker/src/worker-http.ts';
 
 test('deployed worker entrypoint returns its public health contract', async () => {
   const response = await githubGet(new Request('https://localhost/api/github'));

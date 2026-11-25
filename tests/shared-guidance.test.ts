@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readSharedGuidance, type GuidanceCache } from '../src/shared-guidance.ts';
-import { authorizePublicGuidance, type Target } from '../src/webhook.ts';
+import { readSharedGuidance, type GuidanceCache } from '../apps/worker/src/shared-guidance.ts';
+import { authorizePublicGuidance, type Target } from '../apps/worker/src/webhook.ts';
 import { createHash, generateKeyPairSync } from 'node:crypto';
 
 test('authenticated shared guidance uses conditional freshness and does not serve stale data on denial', async () => {

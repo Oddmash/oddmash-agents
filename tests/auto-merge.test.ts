@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eligiblePull, linkedIssue, linkedIssueReference, acceptanceForPull, acceptanceOf, lowRisk, lowRiskReason, repositoryMergeOptIn, mergeCandidate, acceptanceSatisfied, protectedBranch, mergeAuthorized, mergeProof, type MergePull, type Candidate } from '../src/auto-merge.ts';
-import { githubApi, mergeRepositoryAllowed } from '../src/webhook.ts';
+import { eligiblePull, linkedIssue, linkedIssueReference, acceptanceForPull, acceptanceOf, lowRisk, lowRiskReason, repositoryMergeOptIn, mergeCandidate, acceptanceSatisfied, protectedBranch, mergeAuthorized, mergeProof, type MergePull, type Candidate } from '../apps/worker/src/auto-merge.ts';
+import { githubApi, mergeRepositoryAllowed } from '../apps/worker/src/webhook.ts';
 
 const target = { installation: 1, repository: 'Oddmash/juliya', repositoryId: 42 };
 const user = { id: 135234546, login: 'qtaghdi' };

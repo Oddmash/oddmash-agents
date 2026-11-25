@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { advisoryRoles, advisoryCommand } from '../src/advisory-agents.ts';
-import { agentSkill } from '../src/agent-guidance.ts';
-import { dedicatedAdvisoryTarget, route, githubApi } from '../src/webhook.ts';
-import { runAdvisory, validAdvisory } from '../src/advisory.ts';
-import { publishSpecialistFindings } from '../src/specialist-findings.ts';
-import { advisoryConfig, advisoryModelConfig } from '../src/runtime-config.ts';
-import { createReviewJob, verifyReviewJob } from '../src/review-job.ts';
+import { advisoryRoles, advisoryCommand } from '../apps/worker/src/advisory-agents.ts';
+import { agentSkill } from '../apps/worker/src/agent-guidance.ts';
+import { dedicatedAdvisoryTarget, route, githubApi } from '../apps/worker/src/webhook.ts';
+import { runAdvisory, validAdvisory } from '../apps/worker/src/advisory.ts';
+import { publishSpecialistFindings } from '../apps/worker/src/specialist-findings.ts';
+import { advisoryConfig, advisoryModelConfig } from '../apps/worker/src/runtime-config.ts';
+import { createReviewJob, verifyReviewJob } from '../apps/worker/src/review-job.ts';
 import { githubContentFixture } from './github-content-fixture.ts';
 
 const user = { id: 135234546, login: 'qtaghdi', type: 'User' };

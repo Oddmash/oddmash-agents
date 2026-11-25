@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { executionContext, executionRole, recordReviewPhase, runAgentExecution } from '../src/agent-execution.ts';
+import { executionContext, executionRole, recordReviewPhase, runAgentExecution } from '../apps/worker/src/agent-execution.ts';
 
 test('retries preserve correlation but keep roles separate', () => {
   const delivery = '12345678-1234-1234-1234-123456789012';

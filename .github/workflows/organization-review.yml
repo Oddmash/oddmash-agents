@@ -76,4 +76,4 @@ jobs:
           REVIEWER_APP_ID: ${{ vars.REVIEWER_APP_ID }}
           REVIEW_REPOSITORY: ${{ inputs.repository }}
           REVIEW_PR_NUMBER: ${{ inputs.pr_number }}
-        run: node src/organization.ts
+        run: node apps/worker/src/organization.ts

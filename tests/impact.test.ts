@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agentSkill } from '../src/agent-guidance.ts';
-import { githubApi, route, impactCommand } from '../src/webhook.ts';
-import { runImpact, validImpact, impactBody } from '../src/impact.ts';
+import { agentSkill } from '../apps/worker/src/agent-guidance.ts';
+import { githubApi, route, impactCommand } from '../apps/worker/src/webhook.ts';
+import { runImpact, validImpact, impactBody } from '../apps/worker/src/impact.ts';
 import { githubContentFixture } from './github-content-fixture.ts';
 
 const bot = 'oddmash-reviewer[bot]';

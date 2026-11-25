@@ -2,8 +2,8 @@ import { githubContentFixture } from './github-content-fixture.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { acquirePendingReview, attachReviewFindings, attachReviewFindingsWithCoverage, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock, ownsPendingReview, publishCoordinatedFindings, reviewWebhook } from '../src/webhook-review.ts';
-import { githubApi, route } from '../src/webhook.ts';
+import { acquirePendingReview, attachReviewFindings, attachReviewFindingsWithCoverage, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock, ownsPendingReview, publishCoordinatedFindings, reviewWebhook } from '../apps/worker/src/webhook-review.ts';
+import { githubApi, route } from '../apps/worker/src/webhook.ts';
 
 const path = '/repos/Oddmash/example/pulls/1';
 const bot = 'oddmash-reviewer[bot]';
