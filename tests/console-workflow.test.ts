@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Job } from '@oddmash/agent-operator-contract';
-import { targetObservations, roleObservations, publicationObservations, publicationPhaseObserved, publicationLink, stateCounts, specialistRoles } from '../apps/console/src/workflow-model.ts';
+import { targetObservations, roleObservations, publicationObservations, publicationPhaseObserved, publicationLink, stateCounts, specialistRoles, executionGroups } from '../apps/console/src/workflow-model.ts';
 
 const target = { repository: 'Oddmash/example', number: 12 };
 const job: Job = { role: 'reviewer', correlationId: 'a'.repeat(24), attempt: 1, state: 'returned', updatedAt: '2026-01-01T00:00:00Z', target };
@@ -34,4 +34,14 @@ test('publication links distinguish issue comments and inline review comments', 
   assert.equal(publicationLink(target, { ...job, publication: { kind: 'inline-comment', at: job.updatedAt, id: 2 } }), 'https://github.com/Oddmash/example/pull/12#discussion_r2');
   assert.equal(publicationLink(target, { ...job, publication: { kind: 'comment', at: job.updatedAt, id: 3 } }), 'https://github.com/Oddmash/example/issues/12#issuecomment-3');
   assert.equal(publicationLink(target, { ...job, publication: { kind: 'review', at: job.updatedAt, id: -1 } }), undefined);
+});
+
+test('distinct observed executions remain separate with their attempts, and links require matching target', () => {
+  const secondAttempt = { ...job, attempt: 2 };
+  const independent = { ...job, correlationId: 'b'.repeat(24) };
+  const groups = executionGroups([job, independent, secondAttempt]);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups[0].records, [secondAttempt, job]);
+  assert.deepEqual(groups[1].records, [independent]);
+  assert.equal(publicationLink({ ...target, number: 13 }, { ...job, publication: { kind: 'review', at: job.updatedAt, id: 5 } }), undefined);
 });
