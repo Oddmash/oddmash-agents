@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { Badge, Button, Card } from '@oddmash/ui';
-import type { Job, WorkerSettings } from '@oddmash/agent-operator-contract';
+import { isUnfinishedJob, type Job, type WorkerSettings } from '@oddmash/agent-operator-contract';
 
 type Snapshot = { connected: boolean; jobs: Job[]; settings: WorkerSettings | null; settingsUpdatedAt?: string; observedAt: string };
 const names = { reviewer: 'Lead', impact: 'Impact', triage: 'Triage', qa: 'QA', release: 'Release', docs: 'Docs', architect: 'Architect' };
@@ -49,7 +49,7 @@ export function Dashboard({ logout }: { logout: ReactNode }) {
     return () => { disposed = true; if (timer) clearTimeout(timer); request?.abort(); document.removeEventListener('visibilitychange', wake); };
   }, []);
   const jobs = snapshot?.jobs ?? [];
-  const active = jobs.filter(job => job.state === 'running' || job.state === 'queued');
+  const unfinished = jobs.filter(isUnfinishedJob);
   const failed = jobs.filter(job => job.state === 'failed');
   return <div className="shell">
     <aside><p className="eyebrow">ODDMASH</p><h1>Agents Console</h1><nav aria-label="Console navigation"><a href="#overview">Overview</a><a href="#activity">Live activity</a><a href="#settings">Configuration</a></nav><div className="logout">{logout}</div></aside>
@@ -57,7 +57,7 @@ export function Dashboard({ logout }: { logout: ReactNode }) {
       <header><div><p className="eyebrow">OPERATOR WORKSPACE</p><h2>Overview</h2></div><Button variant="secondary" onClick={() => reload.current()}>Refresh</Button></header>
       <p role="status" aria-live="polite" className="muted">{loading ? 'Loading status…' : error || (snapshot?.connected ? 'Connected to worker telemetry' : 'Telemetry storage is not configured.')}</p>
       <section id="overview" className="metrics" aria-label="Overview">
-        <Card><p>Active jobs</p><strong>{snapshot?.connected ? active.length : '—'}</strong></Card>
+        <Card><p>Unfinished jobs</p><strong>{snapshot?.connected ? unfinished.length : '—'}</strong></Card>
         <Card><p>Recent failures</p><strong>{snapshot?.connected ? failed.length : '—'}</strong></Card>
         <Card><p>Configured agents</p><strong>{snapshot?.settings ? snapshot.settings.agents.filter(agent => agent.configured).length : '—'}</strong></Card>
       </section>
