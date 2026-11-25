@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Badge, Button, Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription, DialogClose } from '@oddmash/ui';
 import { jobElapsedMs, type AgentRole, type PublicTarget } from '@oddmash/agent-operator-contract';
 import { korean, translate, type Language, type Message } from './i18n';
-import { type ObservedJob, type WorkflowState, specialistRoles, targetObservations, roleObservations, stateCounts, publicationObservations, publicationPhaseObserved, publicationLink, executionGroups } from './workflow-model';
+import { type ObservedJob, type WorkflowState, specialistRoles, targetObservations, roleObservations, stateCounts, publicationObservations, publicationPhaseObserved, publicationLink, executionGroups, publicationCounts } from './workflow-model';
 import './workflow.css';
 
 const words = {
@@ -102,6 +102,7 @@ export const WorkflowView = ({ target, visibleJobs, observedAt, language, render
   const w = words[language];
   const jobs = targetObservations(target, visibleJobs);
   const publications = publicationObservations(jobs);
+  const counts = publicationCounts(publications);
   const publicationPhase = publicationPhaseObserved(jobs);
   const roleProps = { jobs, target, observedAt, language, renderAgent };
   return <div className="workflow-view">
@@ -112,7 +113,7 @@ export const WorkflowView = ({ target, visibleJobs, observedAt, language, render
         <div className="workflow-stage"><span>{w.lead}</span><RoleNode role="reviewer" description={w.leadNote} {...roleProps}/></div>
         <div className="workflow-stage"><span>{w.specialists}</span>{specialistRoles.map(role => <RoleNode key={role} role={role} description={w.specialistNote} {...roleProps}/>)}</div>
         <div className="workflow-stage"><span>{w.publishing}</span>
-          <StageDialog title={w.publishing} description={w.publicationNote} target={target} language={language} trigger={<><strong>{w.publishing}</strong>{publications.length ? <span className="workflow-node-status">{(['review','inline-comment','comment'] as const).map(kind => { const count = publications.filter(job => job.publication?.kind === kind).length; return count ? <Badge key={kind} tone="success">{kind === 'review' ? w.reviewPublished : kind === 'inline-comment' ? w.inlinePublished : w.commentPublished} {count}</Badge> : null; })}</span> : <Badge tone={publicationPhase ? 'info' : 'neutral'}>{publicationPhase ? w.phaseOnly : w.unobserved}</Badge>}</>}>
+          <StageDialog title={w.publishing} description={w.publicationNote} target={target} language={language} trigger={<><strong>{w.publishing}</strong>{publications.length ? <span className="workflow-node-status">{(['review','inline-comment','comment'] as const).map(kind => { const count = counts[kind]; return count ? <Badge key={kind} tone="success">{kind === 'review' ? w.reviewPublished : kind === 'inline-comment' ? w.inlinePublished : w.commentPublished} {count}</Badge> : null; })}</span> : <Badge tone={publicationPhase ? 'info' : 'neutral'}>{publicationPhase ? w.phaseOnly : w.unobserved}</Badge>}</>}>
             {publications.length ? publications.map(job => <JobObservation key={job.role + ':' + job.correlationId + ':' + job.attempt} job={job} target={target} language={language} observedAt={observedAt}/>) : <p>{publicationPhase ? w.publicationNote : w.noDetails}</p>}
           </StageDialog>
         </div>
