@@ -184,12 +184,13 @@ test('concurrent eligible PR deliveries waiting on CI create one queued check wi
   assert.equal((check?.output as { title: string }).title, 'Waiting for CI');
 });
 
-test('a full neutral webhook review schedules reconciliation for the current PR and retries only with green CI', async t => {
+for (const confirmedEmpty of [false, true]) {
+  test(confirmedEmpty ? 'a confirmed empty webhook review remains neutral without earlier thread reconciliation' : 'a full neutral webhook review schedules reconciliation for the current PR and retries only with green CI', async t => {
   const root = '/repos/Oddmash/example';
   const repository = { id: 7, full_name: 'Oddmash/example', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
   const base = 'b'.repeat(40);
   const pr = { number: 1, state: 'open', draft: false, user: { login: 'fixture', id: 10 }, head: { sha: head },
-    base: { sha: base, repo: repository }, changed_files: 0, title: 'Fixture', labels: [] };
+    base: { sha: base, repo: repository }, changed_files: confirmedEmpty ? 0 : 1, title: 'Fixture', labels: [] };
   const previous = { id: 10, user: { login: bot }, state: 'COMMENTED', commit_id: 'c'.repeat(40), body: '<!-- oddmash-app-review:earlier -->' };
   let current: typeof previous | undefined;
   let green = true, reconciliations = 0;
@@ -237,16 +238,18 @@ test('a full neutral webhook review schedules reconciliation for the current PR 
   await reviewWebhook(target, config);
   assert.equal(current?.state, 'COMMENTED');
   assert.ok(current?.body.includes(`<!-- oddmash-review-base:${base} -->`));
-  assert.ok(current?.body.includes('<!-- oddmash-verified-thread-reconciliation: -->'));
-  assert.equal(reconciliations, 1);
+  assert.equal(current?.body.includes('<!-- oddmash-verified-thread-reconciliation: -->'), !confirmedEmpty);
+  assert.equal(current?.body.includes('No changed files (neutral review)'), confirmedEmpty);
+  assert.equal(reconciliations, confirmedEmpty ? 0 : 1);
   green = false;
   await reviewWebhook(target, config);
-  assert.equal(reconciliations, 1);
+  assert.equal(reconciliations, confirmedEmpty ? 0 : 1);
   green = true;
   await reviewWebhook(target, config);
-  assert.equal(reconciliations, 2);
+  assert.equal(reconciliations, confirmedEmpty ? 0 : 2);
   assert.equal(current?.id, 11);
-});
+  });
+}
 
 test('coordinated reviews publish only after all selected specialists finish', async t => {
   const root = '/repos/Oddmash/example';

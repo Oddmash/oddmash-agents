@@ -4,10 +4,10 @@ export type ChangedFile = { filename: string; previous_filename?: string; patch?
 export type KoreanFinding = { rule: string; evidence: string; recommendation: string; verification: string };
 export type BlockingEvidence = { excerpt: string; impact: string; requirement: string };
 export type Finding = { path: string; line: number; side?: 'LEFT' | 'RIGHT'; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium'; rule: string; evidence: string; recommendation: string; verification: string; blockingEvidence?: BlockingEvidence; suggestion?: string; korean?: KoreanFinding; relatedLocations?: { path: string; line: number }[] };
-export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[]; relatedBaseFiles?: Record<string, string>; changedHeadFiles?: Record<string, string>; focus?: string[]; feedback?: string[] };
+export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[]; relatedBaseFiles?: Record<string, string>; changedHeadFiles?: Record<string, string>; focus?: string[]; feedback?: string[]; confirmedEmpty?: true };
 
 export type ReviewDecision = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
-export type ReviewFollowUp = { advisory: boolean; incompleteCoverage: boolean; invalidEvidence: boolean; maintainerFindings?: boolean };
+export type ReviewFollowUp = { advisory: boolean; incompleteCoverage: boolean; invalidEvidence: boolean; maintainerFindings?: boolean; confirmedEmpty?: true };
 
 export function isMaintainerReviewAuthor(author?: { id: number; login: string }): boolean {
   return author?.id === 135234546 && author.login === 'qtaghdi';
@@ -17,7 +17,12 @@ export function publicationFollowUp(followUp: ReviewFollowUp, assessment: Review
   return assessment === 'REQUEST_CHANGES' && isMaintainerReviewAuthor(author) ? { ...followUp, maintainerFindings: true } : followUp;
 }
 
+function isConfirmedEmpty(context: ReviewContext, findings: Finding[]): boolean {
+  return context.confirmedEmpty === true && context.files.length === 0 && context.omitted.length === 0 && findings.length === 0;
+}
+
 export function reviewFollowUp(context: ReviewContext, findings: Finding[], modelValid: boolean): ReviewFollowUp {
+  if (isConfirmedEmpty(context, findings)) return { advisory: false, incompleteCoverage: false, invalidEvidence: false, confirmedEmpty: true };
   return { advisory: findings.some(finding => !isBlockingFinding(context, finding)), incompleteCoverage: !context.files.length || context.omitted.length > 0, invalidEvidence: !modelValid };
 }
 
@@ -26,6 +31,7 @@ export function reviewOutcome(event: ReviewDecision, followUp?: ReviewFollowUp):
   if (event === 'REQUEST_CHANGES') return { label: 'review: changes requested', title: 'Changes requested' };
   if (followUp?.maintainerFindings) return { label: 'review: needs human', title: 'Actionable findings for maintainer decision' };
   if (!followUp || followUp.incompleteCoverage || followUp.invalidEvidence) return { label: 'review: needs human', title: 'Review coverage or evidence incomplete' };
+  if (followUp.confirmedEmpty) return { label: 'review: follow-up', title: 'No changed files' };
   return { label: 'review: follow-up', title: followUp.advisory ? 'Advisory findings to consider' : 'Review approval pending checks' };
 }
 
@@ -103,7 +109,7 @@ export function patchComplete(file: ChangedFile): boolean {
   return sawHunk && oldRemaining === 0 && newRemaining === 0 && (file.additions === undefined || additions === file.additions) && (file.deletions === undefined || deletions === file.deletions);
 }
 
-export type OmissionReason = 'protected' | 'private-policy' | 'sensitive' | 'image' | 'lockfile' | 'missing-patch' | 'incomplete-patch' | 'budget' | 'file-limit' | 'pagination';
+export type OmissionReason = 'protected' | 'private-policy' | 'sensitive' | 'image' | 'lockfile' | 'missing-patch' | 'incomplete-patch' | 'budget' | 'file-limit' | 'pagination' | 'file-list-metadata';
 export type OmissionDetail = { reason: OmissionReason; path?: string; count?: number };
 
 export function selectFiles(files: ChangedFile[], budget = 45_000, privateReview = false, purpose: 'strict' | 'quality' = 'strict'): { files: ChangedFile[]; omitted: string[]; omissionDetails: OmissionDetail[] } {
@@ -267,7 +273,8 @@ const omissionActions: Record<OmissionReason, [string, string]> = {
   'incomplete-patch': ['GitHub diff is incomplete; inspect the complete file diff and affected behavior.', 'GitHub diff가 불완전합니다. 전체 파일 변경과 영향을 받는 동작을 확인하세요.'],
   budget: ['Review size budget exceeded; inspect the remaining changes and relevant regression tests.', '리뷰 분량 제한을 초과했습니다. 남은 변경 사항과 관련 회귀 테스트를 확인하세요.'],
   'file-limit': ['Review file limit reached; inspect remaining files and their relevant tests.', '리뷰 파일 수 제한에 도달했습니다. 남은 파일과 관련 테스트를 확인하세요.'],
-  pagination: ['Files beyond the fetched page were not reviewed; inspect the remaining Files changed entries.', '조회한 페이지 이후의 파일은 검토되지 않았습니다. Files changed의 나머지 파일을 확인하세요.']
+  pagination: ['Files beyond the fetched page were not reviewed; inspect the remaining Files changed entries.', '조회한 페이지 이후의 파일은 검토되지 않았습니다. Files changed의 나머지 파일을 확인하세요.'],
+  'file-list-metadata': ['GitHub file-list metadata was missing or inconsistent; confirm the complete Files changed listing before approval.', 'GitHub 변경 파일 목록의 메타데이터가 없거나 일치하지 않습니다. 승인 전에 Files changed 전체 목록을 확인하세요.']
 };
 
 function manualReviewLines(details: OmissionDetail[], language: 0 | 1): string[] {
@@ -290,6 +297,9 @@ function manualReviewLines(details: OmissionDetail[], language: 0 | 1): string[]
 
 export function formatReport(context: ReviewContext, findings: Finding[], modelValid = true, omissionDetails: OmissionDetail[] = [], inlineCovered = false): string {
   const lines = [reviewMarker(context)];
+  if (isConfirmedEmpty(context, findings) && omissionDetails.length === 0) return [...lines,
+    'GitHub confirms zero changed files in this PR. There is no source diff to review. No model-based review was required, and no approval or automatic merge authorization was issued.', '',
+    koreanDetails(['GitHub에서 이 PR의 변경 파일이 0개임을 확인했습니다. 코드 변경 사항이 없어 모델 기반 리뷰를 수행하지 않았으며 승인하거나 자동 머지를 허용하지 않았습니다.'])].join('\n');
   if (!findings.length && context.files.length && modelValid) lines.push(`No validated findings in ${context.files.length} reviewed ${context.files.length === 1 ? 'file' : 'files'}.`);
   const blockingCount = findings.filter(f => isBlockingFinding(context, f)).length;
   if (inlineCovered && findings.length) lines.push(`${blockingCount} blocking, ${findings.length - blockingCount} advisory. See the inline review threads for details.`);
@@ -312,6 +322,7 @@ export function formatReport(context: ReviewContext, findings: Finding[], modelV
 export function formatReviewBody(event: ReviewDecision, marker: string, report: string, author?: { id: number; login: string }, followUp?: ReviewFollowUp): string {
   if (event === 'APPROVE') return author?.id === 135234546 && author.login === 'qtaghdi' ? `${marker}\nApproved.` : `${marker}\nThanks for contributing! @qtaghdi, this PR is ready for your review.`;
   if (event === 'REQUEST_CHANGES') return `${marker}\nPlease address the findings before approval.\n\n${report}`;
+  if (followUp?.confirmedEmpty && !followUp.incompleteCoverage && !followUp.invalidEvidence && !followUp.advisory && !followUp.maintainerFindings) return `${marker}\nNo changed files (neutral review).\n\n${report}`;
   const reasons: string[] = [];
   if (followUp?.maintainerFindings) reasons.push('Actionable findings remain. For the verified maintainer author, the reviewer reports them without a formal change request or approval. Manual disposition is required; automatic merge is not available.');
   if (followUp?.advisory) reasons.push('Advisory findings are optional recommendations, not confirmed blockers. After verifying the evidence, the maintainer may accept, defer to a separate issue, or decline with rationale. A repeated review is not required solely to dispose of optional advice on the unchanged head.');

@@ -52,10 +52,11 @@ export function validateConfig(c: Config) {
 export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ report: string; inlineReport: string; posted: boolean; assessment: ReviewDecision; decision: ReviewDecision; followUp: ReviewFollowUp; head: string; issueVerified: boolean; comments: { body: string; path: string; line: number; side: 'LEFT' | 'RIGHT' }[] }> {
   validateConfig(c);
   const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
-  const api = async <T>(path: string, init: RequestInit = {}, optional = false, publicRead = false): Promise<T | null> => {
+  const api = async <T>(path: string, init: RequestInit = {}, optional = false, publicRead = false, observeResponse?: (response: Response) => void): Promise<T | null> => {
     const response = await request(`https://api.github.com${path}`, { ...init, headers: { ...headers, ...(!publicRead && c.githubToken ? { Authorization: `Bearer ${c.githubToken}` } : {}), ...init.headers }, redirect: 'error', signal: AbortSignal.timeout(30_000) });
     if (optional && response.status === 404) return null;
     if (!response.ok) throw new Error(`GitHub request failed (${response.status})`);
+    observeResponse?.(response);
     return await response.json() as T;
   };
   const path = `/repos/${c.repository}`;
@@ -63,17 +64,31 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   const pr = await api<Pull>(prPath);
   const permittedPrivate = c.privateRepositoryId !== undefined && pr?.base.repo.private === true && pr.base.repo.id === c.privateRepositoryId && privateRepositoryAllowed(pr.base.repo.full_name, pr.base.repo.id);
   if (!pr || (pr.base.repo.private ? !permittedPrivate : c.privateRepositoryId !== undefined) || pr.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase() || pr.state !== 'open' || pr.draft || !shaPattern.test(pr.base.sha) || !shaPattern.test(pr.head.sha)) throw new Error('Only open, non-draft, public or explicitly enabled private PRs are eligible');
-  const files = await api<ChangedFile[]>(`${prPath}/files?per_page=100&page=1`);
+  let filePagination = false;
+  const files = await api<ChangedFile[]>(`${prPath}/files?per_page=100&page=1`, {}, false, false, response => { filePagination = Boolean(response.headers.get('link')); });
+  const listedFiles = Array.isArray(files) ? files : [];
+  let inconsistentFileMetadata = !Array.isArray(files) || !Number.isSafeInteger(pr.changed_files) || pr.changed_files < listedFiles.length || (filePagination && pr.changed_files <= listedFiles.length);
+  let confirmedEmpty = false;
+  if (c.incrementalFiles === undefined && pr.changed_files === 0 && Array.isArray(files) && files.length === 0 && !filePagination) {
+    const unchanged = await api<Pull>(prPath);
+    if (!unchanged || unchanged.head.sha !== pr.head.sha || unchanged.base.sha !== pr.base.sha || unchanged.merge_commit_sha !== pr.merge_commit_sha || unchanged.state !== 'open' || unchanged.draft || unchanged.base.repo.id !== pr.base.repo.id || unchanged.base.repo.private !== pr.base.repo.private || unchanged.base.repo.full_name.toLowerCase() !== c.repository.toLowerCase()) throw new Error('PR changed while confirming an empty review');
+    confirmedEmpty = unchanged.changed_files === 0;
+    inconsistentFileMetadata ||= !confirmedEmpty;
+  }
   const privateReview = pr.base.repo.private;
-  const scoped = c.incrementalFiles === undefined ? (files ?? []) : (files ?? []).filter(file => c.incrementalFiles!.includes(file.filename));
-  const selected = selectFiles(scoped ?? [], 45_000, privateReview, 'quality');
+  const scoped = c.incrementalFiles === undefined ? listedFiles : listedFiles.filter(file => c.incrementalFiles!.includes(file.filename));
+  const selected = selectFiles(scoped, 45_000, privateReview, 'quality');
+  if (inconsistentFileMetadata) {
+    selected.omitted.push('GitHub file-list metadata missing or inconsistent');
+    selected.omissionDetails.push({ reason: 'file-list-metadata', count: 0 });
+  }
   if (c.incrementalFiles !== undefined && (files?.length !== scoped?.length || scoped.length !== c.incrementalFiles.length)) {
     selected.omitted.push('Previously reviewed files outside the incremental scope');
   }
   await c.progress?.('Collecting review context', `${selected.files.length} of ${pr.changed_files} changed files selected for review.`);
-  if (pr.changed_files > (files?.length ?? 0)) {
+  if (Number.isSafeInteger(pr.changed_files) && pr.changed_files > listedFiles.length) {
     selected.omitted.push('Additional files beyond the first page');
-    selected.omissionDetails.push({ reason: 'pagination', count: pr.changed_files - (files?.length ?? 0) });
+    selected.omissionDetails.push({ reason: 'pagination', count: pr.changed_files - listedFiles.length });
   }
   const readChecks = (sha: string) => api<CheckEvidence>(`${path}/commits/${sha}/check-runs?per_page=100`, {}, true);
   const checks = await loadCheckEvidence(pr.head.sha, pr.merge_commit_sha, privateReview ? readChecks : publicReviewCheckReader(path, c.number, readChecks, request, { head: pr.head, readPulls: api }));
@@ -123,7 +138,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   }
   const context: ReviewContext = {
     repository: c.repository, number: c.number, head: pr.head.sha, title: privateReview && privateSensitiveText(pr.title) ? '[REDACTED]' : safeText(pr.title).slice(0, 500),
-    files: selected.files, omitted: selected.omitted, guidance, relatedBaseFiles, changedHeadFiles, focus: reviewFocus(c.repository), feedback: reviewFeedback,
+    files: selected.files, omitted: selected.omitted, ...(confirmedEmpty ? { confirmedEmpty: true as const } : {}), guidance, relatedBaseFiles, changedHeadFiles, focus: reviewFocus(c.repository), feedback: reviewFeedback,
     checks: (checks?.check_runs ?? []).map(({ name, status, conclusion }) => ({ name: privateReview && privateSensitiveText(name) ? '[REDACTED]' : safeText(name).slice(0, 150), status, conclusion }))
   };
   const field = { type: 'string' };
