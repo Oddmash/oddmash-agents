@@ -20,4 +20,3 @@ test('console styles are generated deterministically from JSON design tokens', (
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.doesNotMatch(css, /\{\{[^}]+\}\}/);
 });
-
