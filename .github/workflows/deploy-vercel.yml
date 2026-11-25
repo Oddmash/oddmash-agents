@@ -167,6 +167,12 @@ jobs:
           const request = (path, method = 'GET') => fetch(new URL(path, origin), { method, headers: { 'x-vercel-protection-bypass': secret }, redirect: 'error', signal: AbortSignal.timeout(30000) });
           const shell = await request('/');
           if (!shell.ok || !shell.headers.get('content-type')?.includes('text/html') || !(await shell.text()).includes('id="root"')) throw new Error('Console shell unavailable');
+          for (const path of ['/ko', '/en/settings', '/ko/activity', '/en/usage']) {
+            const page = await request(path);
+            if (!page.ok || !page.headers.get('content-type')?.includes('text/html') || !(await page.text()).includes('id="root"')) throw new Error('Localized console shell unavailable: ' + path);
+          }
+          const icon = await request('/oddmash-logo.png');
+          if (!icon.ok || !icon.headers.get('content-type')?.includes('image/png')) throw new Error('Console favicon unavailable');
           const availability = await request('/api/availability');
           if (!availability.ok || typeof (await availability.json()).configured !== 'boolean') throw new Error('Console availability route unavailable');
           const session = await request('/api/auth/session');

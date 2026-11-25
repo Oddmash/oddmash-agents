@@ -1,9 +1,9 @@
-import { useEffect, useState, useRef, type ReactNode } from 'react';
+import { useEffect, useState, useRef, type ReactNode, type MouseEvent } from 'react';
 import { Alert, Avatar, Badge, Button, Card, DocsNavigation, EmptyState, Select } from '@oddmash/ui';
 import { jobElapsedMs, type Job, type WorkerSettings, type ModelUsageSummary, type AgentRole } from '@oddmash/agent-operator-contract';
 import { createStatusPolling } from './status-polling';
 import { AgentLoading } from './agent-loading';
-import { korean, translate, executionCount, missingCalls, type Language, type Message } from './i18n';
+import { korean, translate, executionCount, missingCalls, consoleViews, consoleRoute, localizedUrl, type ConsoleView, type Language, type Message } from './i18n';
 import { activitySummary, filterActivity, groupActivity, reviewOverview, jobStates, type ActivityFilter } from './activity';
 
 type Snapshot = { connected: boolean; jobs: Job[]; usage?: (ModelUsageSummary & { role: AgentRole })[]; settings: WorkerSettings | null; settingsUpdatedAt?: string; observedAt: string };
@@ -21,10 +21,9 @@ const icons = {
 };
 const brandLogo = '/oddmash-logo.png';
 const descriptions: Record<AgentRole, Message> = { reviewer: 'Coordination & code review', impact: 'Product impact', triage: 'Issue triage', qa: 'Quality assurance', release: 'Release notes', docs: 'Documentation', architect: 'Architecture' };
-const views = ['overview', 'activity', 'usage', 'settings'] as const;
-type View = typeof views[number];
+const views = consoleViews;
+type View = ConsoleView;
 const viewLabels: Record<View, Message> = { overview: 'Review workspace', activity: 'Execution history', usage: 'Model usage', settings: 'Configuration' };
-const currentView = (): View => views.find(view => '#' + view === window.location.hash) ?? 'overview';
 const AgentIdentity = ({ role, compact = false }: { role: AgentRole; compact?: boolean }) => {
   return <span className={compact ? 'agent-identity compact' : 'agent-identity'}><Avatar src={icons[role]} className="agent-avatar">{names[role].slice(0, 1)}</Avatar><span>{names[role]}</span></span>;
 }
@@ -36,10 +35,20 @@ function formatElapsed(job: Job, language: Language, observedAt?: string) {
   return elapsed === undefined ? '—' : new Intl.NumberFormat(language, { style: 'unit', unit: 'second', unitDisplay: 'short' }).format(Math.round(elapsed / 1000));
 }
 
-export const Dashboard = ({ logout, language, languageControl }: { logout: ReactNode; language: Language; languageControl: ReactNode }) => {
+export const Dashboard = ({ logout, language, languageControl, view, navigate }: { logout: ReactNode; language: Language; languageControl: ReactNode; view: ConsoleView; navigate: (view: ConsoleView) => void }) => {
   const t = (message: Message) => translate(language, message);
-  const [view, setView] = useState<View>(currentView);
-  useEffect(() => { const change = () => setView(currentView()); window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change); }, []);
+  const href = (next: ConsoleView) => localizedUrl(window.location.href, language, next).href;
+  const follow = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
+    if (!(anchor instanceof HTMLAnchorElement) || anchor.target || anchor.hasAttribute('download')) return;
+    const url = new URL(anchor.href);
+    if (url.origin !== window.location.origin || !/^\/(?:en|ko)(?:\/(?:activity|usage|settings))?$/.test(url.pathname)) return;
+    const next = consoleRoute(url.href);
+    if (next.language !== language) return;
+    event.preventDefault();
+    navigate(next.view);
+  };
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [error, setError] = useState<Message | ''>('');
   const [loading, setLoading] = useState(true);
@@ -83,8 +92,8 @@ export const Dashboard = ({ logout, language, languageControl }: { logout: React
   const overview = reviewOverview(groups);
   const displayedGroups = view === 'overview' ? overview.groups : groups.map(group => ({ ...group, total: group.jobs.length }));
   const connected = snapshot?.connected === true;
-  return <div className="shell">
-    <aside><a className="console-brand" href="#overview" aria-label={t("Agents Console")}><img src={brandLogo} width={38} height={38} alt=""/><span>oddmash<span className="brand-dot">.</span></span></a><p className="muted">{t("Release:")} {typeof releaseTag === 'string' && /^v\d+\.\d+\.\d+$/.test(releaseTag) ? releaseTag : t("Unknown")}</p><DocsNavigation aria-label={t('Console navigation')} currentId={view} groups={[{ id: 'console', items: views.map(item => ({ id: item, href: '#' + item, label: t(viewLabels[item]) })) }]}/><div className="logout">{languageControl}{logout}</div></aside>
+  return <div className="shell" onClick={follow}>
+    <aside><a className="console-brand" href={href("overview")} aria-label={t("Agents Console")}><img src={brandLogo} width={38} height={38} alt=""/><span>oddmash<span className="brand-dot">.</span></span></a><p className="muted">{t("Release:")} {typeof releaseTag === 'string' && /^v\d+\.\d+\.\d+$/.test(releaseTag) ? releaseTag : t("Unknown")}</p><DocsNavigation aria-label={t('Console navigation')} currentId={view} groups={[{ id: 'console', items: views.map(item => ({ id: item, href: href(item), label: t(viewLabels[item]) })) }]}/><div className="logout">{languageControl}{logout}</div></aside>
     <main>
       <header><div><h2>{t(viewLabels[view])}</h2></div><div className="header-actions"><Button variant="secondary" onClick={() => { pollingRef.current?.setPaused(!paused); setPaused(!paused); }}>{t(paused ? "Resume live updates" : "Pause live updates")}</Button><Button variant="secondary" onClick={() => void pollingRef.current?.refresh()}>{t("Refresh")}</Button></div></header>
       <div role="status" aria-live="polite" className="muted status-line">{loading ? null : error ? <Alert tone="danger">{t(error)}{snapshot?.connected ? t(" Showing the last successful snapshot.") : ''}</Alert> : (snapshot?.connected ? t("Connected to worker telemetry") : t("Telemetry storage is not configured."))}</div>
@@ -110,7 +119,7 @@ export const Dashboard = ({ logout, language, languageControl }: { logout: React
             <div className="review-state"><Badge tone={job.state === 'running' ? 'accent' : 'neutral'}>{t(job.state)}</Badge>{job.failure && <small>{Object.hasOwn(korean, job.failure) ? t(job.failure as Message) : t("unexpected")}</small>}<small><time dateTime={job.updatedAt}>{new Date(job.updatedAt).toLocaleString(language)}</time></small></div>
           </li>)}</ul>
         </Card>)}</div>
-        {view === 'overview' && (overview.identifiedCount > 5 || overview.unattributedCount > 0 || overview.groups.some(group => group.total > group.jobs.length)) && <div className="history-summary">{overview.unattributedCount > 0 && <span className="muted">{t("Target not reported")}: {overview.unattributedCount.toLocaleString(language)}</span>}<a href="#activity">{t("View all executions")}</a></div>}
+        {view === 'overview' && (overview.identifiedCount > 5 || overview.unattributedCount > 0 || overview.groups.some(group => group.total > group.jobs.length)) && <div className="history-summary">{overview.unattributedCount > 0 && <span className="muted">{t("Target not reported")}: {overview.unattributedCount.toLocaleString(language)}</span>}<a href={href("activity")}>{t("View all executions")}</a></div>}
         {!displayedGroups.length && <Card><EmptyState className="empty">{!connected ? t("Live activity unavailable.") : view === 'overview' && overview.unattributedCount > 0 ? t("No identified review targets.") : jobs.length ? t("No executions match these filters.") : t("No recent execution events.")}</EmptyState></Card>}
       </section>
       <section hidden={view !== 'overview'} className="fleet-panel" aria-labelledby="role-overview"><h2 id="role-overview">{t("Agent activity")}</h2><div className="fleet-list">{byRole.map(row => <div key={row.role} className="fleet-row"><div><AgentIdentity role={row.role} compact/><small className="muted">{t(descriptions[row.role])}</small></div><div className="fleet-state"><Badge tone={connected && row.active > 0 ? 'accent' : 'neutral'}>{connected && row.latest ? t(row.latest.state) : connected ? t('No observed events') : t('Unavailable')}</Badge><small className="muted">{t("Active:")} {connected ? row.active : '—'}</small></div></div>)}</div></section>
