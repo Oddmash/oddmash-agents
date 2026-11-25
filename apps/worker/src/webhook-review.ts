@@ -8,7 +8,7 @@ import { authorizeCoordinatedAdvisor } from './coordinated-advisory.ts';
 import { runReview } from './reviewer.ts';
 import { startReviewProgress } from './review-progress.ts';
 import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts';
-import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence, type ReviewCheckHead } from './checks.ts';
+import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksMayStart, reviewChecksReady, reviewChecksSuccessful, scopedAdvisoryNote, shouldReconcilePendingChecks, type CheckEvidence, type ReviewCheckHead } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, authorizePublicGuidance, githubApi, commentReceipt, completeCommentReaction, reactToComment, slashRequestContext, type Target } from './webhook.ts';
 import { reconcileReviewThreads, replyToReview, scopedAgentThreadResolution, scopedLeadThreadResolution, shouldReconcileEarlierFindings, threadReconciliationExclusions, threadReconciliationMarker, threadReconciliationScope, threadReconciliationScopeMarker } from './review-discussion.ts';
@@ -197,7 +197,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const mergeStatus = (reason: string, completed = false) => publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'merge', reason, completed);
     const readChecks = (item: Pull) => {
       const read = (sha: string) => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`);
-      return loadCheckEvidence(item.head.sha, item.merge_commit_sha, target.private ? read : publicReviewCheckReader(root, item.number, read, fetch, { head: item.head, readPulls: api }), Number(appId));
+      return loadCheckEvidence(item.head.sha, item.merge_commit_sha, target.private ? read : publicReviewCheckReader(root, item.number, read, fetch, { head: item.head, merge: item.merge_commit_sha, readPulls: api }), Number(appId));
     };
     const reconciliationChecksCurrent = async (snapshot: Pull) => {
       const current = await api<Pull>(path);
@@ -293,14 +293,14 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks, target.recheck);
     if (approved && !canRetryApprovedMerge(approved, marker)) return;
     if (own.some(review => review.body?.includes(marker))) return;
-    if (!reviewChecksSuccessful(checks, repository)) {
+    if (!reviewChecksMayStart(checks, repository)) {
       const ready = reviewChecksReady(checks, repository);
       if (target.requestComment) await acknowledgePendingChecks(api, repository, pr.number, bot, target.requestComment, pr.head.sha, ready ? 'failed' : 'waiting');
       if (ready) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
       const published = await publishWaiting(ready ? 'Review blocked by failed CI' : undefined, checkWaitingSummary(checks, repository));
       if ((published || target.requestComment) && reconcileWaiting) {
         const current = await api<Pull>(path);
-        if (current.head.sha === pr.head.sha && current.state === 'open' && !current.draft && eligibleBase(current) && reviewChecksSuccessful(await readChecks(current), repository)) return reviewOne(current, target, false);
+        if (current.head.sha === pr.head.sha && current.state === 'open' && !current.draft && eligibleBase(current) && reviewChecksMayStart(await readChecks(current), repository)) return reviewOne(current, target, false);
       }
       if (shouldReconcilePendingChecks(checks, target.expectedHead, pr.head.sha, process.env.REVIEWER_QUEUE_ENABLED === 'true', repository)) throw new Error('CI evidence pending');
       return;
@@ -424,7 +424,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const reconciliation = reconcileThreads ? threadReconciliationMarker(result.comments.map(comment => comment.path)) : '';
       const reconciliationScope = reconciliation && incrementalFiles !== undefined ? threadReconciliationScopeMarker(incrementalFiles) : '';
       const scopeNote = `\n\n${reviewBaseMarker(current.base.sha)}` + (reconciliation ? `\n${reconciliation}` : '') + (reconciliationScope ? `\n${reconciliationScope}` : '') + (incrementalFiles !== undefined ? '\n\nIncremental follow-up only. Earlier files were not re-reviewed; request a full review before approval or merge.\n\n증분 검토입니다. 이전 파일은 다시 검토하지 않았으며 승인 또는 머지 전 전체 리뷰가 필요합니다.' : '');
-      let body = formatReviewBody(event, finalMarker, result.report, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote + specialistSummary;
+      let body = formatReviewBody(event, finalMarker, result.report, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote + scopedAdvisoryNote(finalChecks, repository) + specialistSummary;
       const attemptMerge = async (reviewId: number) => {
         if (!candidate) { await mergeStatus(mergeReason); return; }
         if (candidate.pull.head.sha !== result.head || candidate.pull.base.sha !== current.base.sha) { await mergeStatus('candidate changed'); return; }
@@ -457,7 +457,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           beforeAttachment.merge_commit_sha !== current.merge_commit_sha || beforeAttachment.state !== 'open' ||
           beforeAttachment.draft || !eligibleBase(beforeAttachment)) return;
       const attachment = event !== 'APPROVE' ? await attachReviewFindingsWithCoverage(api, path, pendingId, result.head, bot, result.comments) : { attached: 0, covered: true };
-      if (attachment.covered) body = formatReviewBody(event, finalMarker, result.inlineReport, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote + specialistSummary;
+      if (attachment.covered) body = formatReviewBody(event, finalMarker, result.inlineReport, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote + scopedAdvisoryNote(finalChecks, repository) + specialistSummary;
       let publishedReviewId = pendingId;
       if (advisory && !attachment.attached) {
         if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });

@@ -2,7 +2,7 @@ import { githubRequest } from './github-request.ts';
 import { runReview } from './reviewer.ts';
 import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts';
 import { publicRepositories as repositories, reviewTarget } from './routing.ts';
-import { finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, type CheckEvidence, type ReviewCheckHead } from './checks.ts';
+import { finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksAreScopedAdvisory, reviewChecksReady, scopedAdvisoryNote, type CheckEvidence, type ReviewCheckHead } from './checks.ts';
 import { acquirePendingReview, attachReviewFindingsWithCoverage, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, type Review } from './webhook-review.ts';
 
 const target = reviewTarget(process.env.REVIEW_REPOSITORY ?? '', process.env.REVIEW_PR_NUMBER ?? '');
@@ -35,9 +35,9 @@ for (const repository of repositories) {
     if (hasOfficialReview(reviews, bot)) continue;
     const own = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha);
     if (own.some(review => review.state === 'APPROVED' || review.state === 'CHANGES_REQUESTED')) continue;
-    const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, publicReviewCheckReader(root, item.number, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`), fetch, { head: item.head, readPulls: api }));
+    const readChecks = (item: Pull) => loadCheckEvidence(item.head.sha, item.merge_commit_sha, publicReviewCheckReader(root, item.number, sha => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`), fetch, { head: item.head, merge: item.merge_commit_sha, readPulls: api }));
     const checks = await readChecks(pr);
-    if (!reviewChecksReady(checks, repository)) continue;
+    if (!reviewChecksReady(checks, repository) && !reviewChecksAreScopedAdvisory(checks, repository)) continue;
     const marker = reviewFingerprint(repository, pr.number, pr.head.sha, pr.base.sha, checks);
     if (own.some(review => review.body?.includes(marker))) continue;
     if (reviews.some(review => review.user.login === bot && review.state === 'PENDING')) continue;
@@ -57,7 +57,7 @@ for (const repository of repositories) {
     if (latest.length === 100 || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))) continue;
     const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks);
     const attachment = event !== 'APPROVE' ? await attachReviewFindingsWithCoverage(api, path, pendingId, result.head, bot, result.comments) : { attached: 0, covered: true };
-    const body = formatReviewBody(event, finalMarker, attachment.covered ? result.inlineReport : result.report, current.user, followUp);
+    const body = formatReviewBody(event, finalMarker, attachment.covered ? result.inlineReport : result.report, current.user, followUp) + scopedAdvisoryNote(finalChecks, repository);
     const advisory = event === 'COMMENT' ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
     if (advisory && !attachment.attached) {
       if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });

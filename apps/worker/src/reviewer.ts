@@ -94,7 +94,7 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     selected.omissionDetails.push({ reason: 'pagination', count: pr.changed_files - listedFiles.length });
   }
   const readChecks = (sha: string) => api<CheckEvidence>(`${path}/commits/${sha}/check-runs?per_page=100`, {}, true);
-  const checks = await loadCheckEvidence(pr.head.sha, pr.merge_commit_sha, privateReview ? readChecks : publicReviewCheckReader(path, c.number, readChecks, request, { head: pr.head, readPulls: api }));
+  const checks = await loadCheckEvidence(pr.head.sha, pr.merge_commit_sha, privateReview ? readChecks : publicReviewCheckReader(path, c.number, readChecks, request, { head: pr.head, merge: pr.merge_commit_sha, readPulls: api }));
   const guidance: Record<string, string> = {};
   const guidanceBudget = 24_000;
   let organizationBudget = 48_000;
