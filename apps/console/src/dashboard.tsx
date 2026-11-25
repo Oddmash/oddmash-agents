@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { Alert, Avatar, Badge, Button, Card, DocsNavigation, EmptyState, Select } from '@oddmash/ui';
 import { jobElapsedMs, type Job, type WorkerSettings, type ModelUsageSummary, type AgentRole } from '@oddmash/agent-operator-contract';
+import { createStatusPolling } from './status-polling';
 import { AgentLoading } from './agent-loading';
 import { korean, translate, executionCount, missingCalls, type Language, type Message } from './i18n';
 import { activitySummary, filterActivity, groupActivity, jobStates, type ActivityFilter } from './activity';
@@ -40,49 +41,37 @@ export const Dashboard = ({ logout, language, languageControl }: { logout: React
   const [error, setError] = useState<Message | ''>('');
   const [loading, setLoading] = useState(true);
   const [paused, setPaused] = useState(false);
-  const pausedRef = useRef(false);
+  const pollingRef = useRef<ReturnType<typeof createStatusPolling> | null>(null);
   const [filter, setFilter] = useState<ActivityFilter>({ role: 'all', state: 'all' });
-  const reload = useRef<() => void>(() => {});
   useEffect(() => {
-    let disposed = false;
-    let sessionExpired = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let request: AbortController | undefined;
-    async function refresh() {
-      if (disposed || document.hidden || request || sessionExpired) return;
-      request = new AbortController();
-      let delay = 30000;
-      const timeout = setTimeout(() => request?.abort(), 15000);
-      try {
-        const response = await fetch('/api/status', { cache: 'no-store', signal: request.signal });
+    const polling = createStatusPolling({
+      hidden: () => document.hidden,
+      fetchStatus: async signal => {
+        const response = await fetch('/api/status', { cache: 'no-store', signal });
+        if (signal.aborted) throw new Error('Status request cancelled');
         if (response.status === 401) {
-          sessionExpired = true;
-          if (!disposed) { setSnapshot(undefined); setError('Session expired. Sign in again.'); }
-          return;
+          setSnapshot(undefined);
+          setError('Session expired. Sign in again.');
+          return { delayMs: 30000, expired: true };
         }
         if (!response.ok) throw new Error('Status unavailable');
         const data = await response.json() as Snapshot;
-        if (!disposed) { setSnapshot(data); setError(''); }
-        if (data.jobs.some(job => job.state === 'running' || job.state === 'queued')) delay = 10000;
-      } catch {
-        if (!disposed && !document.hidden) setError('Unable to refresh live status. Try again.');
-      } finally {
-        clearTimeout(timeout);
-        request = undefined;
-        if (!disposed) setLoading(false);
-        if (!disposed && !document.hidden && !sessionExpired && !pausedRef.current) timer = setTimeout(() => { if (!pausedRef.current) void refresh(); }, delay);
-      }
-    }
-    function wake() {
-      if (timer) clearTimeout(timer);
-      if (document.hidden) { request?.abort(); return; }
-      if (pausedRef.current) return;
-      void refresh();
-    }
-    reload.current = () => { sessionExpired = false; if (timer) clearTimeout(timer); void refresh(); };
-    document.addEventListener('visibilitychange', wake);
-    void refresh();
-    return () => { disposed = true; if (timer) clearTimeout(timer); request?.abort(); document.removeEventListener('visibilitychange', wake); };
+        if (signal.aborted) throw new Error('Status request cancelled');
+        setSnapshot(data);
+        setError('');
+        return { delayMs: data.jobs.some(job => job.state === 'running' || job.state === 'queued') ? 10000 : 30000 };
+      },
+      onError: () => setError('Unable to refresh live status. Try again.'),
+      onSettled: () => setLoading(false)
+    });
+    pollingRef.current = polling;
+    document.addEventListener('visibilitychange', polling.visibilityChanged);
+    void polling.refresh();
+    return () => {
+      polling.dispose();
+      pollingRef.current = null;
+      document.removeEventListener('visibilitychange', polling.visibilityChanged);
+    };
   }, []);
   const jobs = snapshot?.jobs ?? [];
   const { counts, byRole } = activitySummary(jobs);
@@ -93,7 +82,7 @@ export const Dashboard = ({ logout, language, languageControl }: { logout: React
   return <div className="shell">
     <aside><p className="eyebrow">ODDMASH</p><h1>{t("Agents Console")}</h1><p className="muted">{t("Release:")} {typeof releaseTag === 'string' && /^v\d+\.\d+\.\d+$/.test(releaseTag) ? releaseTag : t("Unknown")}</p><DocsNavigation aria-label={t('Console navigation')} currentId={view} groups={[{ id: 'console', items: views.map(item => ({ id: item, href: '#' + item, label: t(viewLabels[item]) })) }]}/><div className="logout">{languageControl}{logout}</div></aside>
     <main>
-      <header><div><h2>{t(viewLabels[view])}</h2></div><div className="header-actions"><Button variant="secondary" onClick={() => { pausedRef.current = !paused; setPaused(!paused); if (paused) reload.current(); }}>{t(paused ? "Resume live updates" : "Pause live updates")}</Button><Button variant="secondary" onClick={() => reload.current()}>{t("Refresh")}</Button></div></header>
+      <header><div><h2>{t(viewLabels[view])}</h2></div><div className="header-actions"><Button variant="secondary" onClick={() => { pollingRef.current?.setPaused(!paused); setPaused(!paused); }}>{t(paused ? "Resume live updates" : "Pause live updates")}</Button><Button variant="secondary" onClick={() => void pollingRef.current?.refresh()}>{t("Refresh")}</Button></div></header>
       <div role="status" aria-live="polite" className="muted status-line">{loading ? null : error ? <Alert tone="danger">{t(error)}{snapshot?.connected ? t(" Showing the last successful snapshot.") : ''}</Alert> : (snapshot?.connected ? t("Connected to worker telemetry") : t("Telemetry storage is not configured."))}</div>
       {loading && !snapshot && <AgentLoading label={t("Loading status…")}/>}
       <div hidden={!snapshot}>
