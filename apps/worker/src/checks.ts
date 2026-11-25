@@ -37,7 +37,7 @@ const boundraSiteJobs = {
 } as const;
 const boundraScopedProfiles: Readonly<Record<string, string>>[] = [
   boundraSiteJobs,
-  ...['skipped', 'success'].flatMap<Readonly<Record<string, string>>>(notes => [
+  ...['skipped', 'success'].flatMap((notes): Readonly<Record<string, string>>[] => [
     {
       scope: 'success', 'contribution / scope': 'success', verify: 'success',
       'verify-example': 'success', 'verify-runtime': 'skipped',
