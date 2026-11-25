@@ -134,6 +134,8 @@ export const korean = {
   "returned": "실행 종료",
   "failed": "실패",
   "stale": "갱신 지연",
+  "skipped": "검토 건너뜀",
+  "published": "게시 확인",
   "collecting-changes": "변경 수집",
   "collecting-context": "문맥 수집",
   "reviewing": "검토 중",
