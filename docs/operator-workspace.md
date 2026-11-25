@@ -9,6 +9,10 @@ The existing root worker remains the production Vercel entrypoint until a separa
 | packages/operator-store | Bounded optional telemetry persistence and read-only status projection |
 | apps/console | Private authenticated read-only operator UI and server-side data access |
 
+## Release verification
+
+Local type checks and endpoint tests do not prove the deployed function artifact contains every internal module. Keep the existing staged production health and webhook checks mandatory; only promote after they pass for the exact release tag.
+
 ## Execution data
 
 The worker emits its existing role-correlated lifecycle events. Events now optionally include the verified public repository and issue/PR number, and actual review phases when the corresponding work is reached. Private repository names and numbers are omitted. A returned handler is not evidence of an approved or completed review. Projected jobs show returned, failed, queued, running or stale; stale is a UI inference based on elapsed time, not an agent verdict. New attempts replace older state. Unknown fields and invalid identifiers are discarded; no model text, credential, request body or source code is part of the contract.
