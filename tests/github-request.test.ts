@@ -18,7 +18,7 @@ test('does not retry permanent denial, long waits, exhausted quota or writes', a
   const cases: [number, HeadersInit, string][] = [
     [403, {}, 'GET'], [429, { 'retry-after': '60' }, 'GET'],
     [403, { 'retry-after': '1', 'x-ratelimit-remaining': '0' }, 'GET'],
-    [503, {}, 'POST']
+    [503, {}, 'POST'], [500, {}, 'POST'], [500, { 'retry-after': 'invalid' }, 'GET'], [500, { 'x-ratelimit-remaining': '0' }, 'GET']
   ];
   for (const [status, headers, method] of cases) {
     let calls = 0;
@@ -33,6 +33,35 @@ test('recovers from transient read failure', async () => {
   const response = await githubRequest(async () => new Response(null, { status: ++calls === 1 ? 503 : 200 }), '/repos/Oddmash/example/pulls/1/files', {}, false, async () => {});
   assert.equal(response.status, 200);
   assert.equal(calls, 2);
+});
+
+test('retries GitHub 500 check-run reads once and no more', async () => {
+  for (const recovered of [true, false]) {
+    let calls = 0;
+    const delays: number[] = [];
+    const response = await githubRequest(async () => new Response(null, {
+      status: ++calls === 2 && recovered ? 200 : 500
+    }), '/repos/Oddmash/example/commits/fixture/check-runs', {}, false, async ms => { delays.push(ms); });
+    assert.equal(response.status, recovered ? 200 : 500);
+    assert.equal(calls, 2);
+    assert.deepEqual(delays, [250]);
+  }
+});
+
+test('honors short retry-after and aborts before the second GET 500 attempt', async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const delays: number[] = [];
+  const response = await githubRequest(async () => {
+    calls++;
+    return new Response(null, { status: 500, headers: { 'retry-after': '1' } });
+  }, '/repos/Oddmash/example/commits/fixture/check-runs', { signal: controller.signal }, false, async ms => {
+    delays.push(ms);
+    controller.abort();
+  });
+  assert.equal(response.status, 500);
+  assert.equal(calls, 1);
+  assert.deepEqual(delays, [1000]);
 });
 
 test('logs only numeric quota metadata and classified request context', async t => {

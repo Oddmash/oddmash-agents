@@ -49,7 +49,7 @@ function retryDelay(response: Response): number | undefined {
   const status = response.status;
   const retryAfter = response.headers.get('retry-after');
   const limited = status === 429 || (status === 403 && retryAfter !== null);
-  if (!limited && ![502, 503, 504].includes(status)) return;
+  if (!limited && ![500, 502, 503, 504].includes(status)) return;
   if (response.headers.get('x-ratelimit-remaining') === '0') return;
   if (retryAfter === null) return limited ? undefined : 250;
   if (!/^\d+$/.test(retryAfter)) return;
