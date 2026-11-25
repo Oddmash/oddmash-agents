@@ -36,7 +36,7 @@ test('projects only allowlisted fields and never private scope', () => {
 
 test('unfinished job summary includes stale work but not terminal outcomes', () => {
   for (const state of ['queued', 'running', 'stale'] as const) assert.equal(isUnfinishedJob({ state }), true);
-  for (const state of ['returned', 'failed'] as const) assert.equal(isUnfinishedJob({ state }), false);
+  for (const state of ['returned', 'failed', 'skipped', 'published'] as const) assert.equal(isUnfinishedJob({ state }), false);
   const stale = projectJobs([event], Date.parse(event.timestamp) + 361000)[0];
   assert.equal(isUnfinishedJob(stale), true);
 });
@@ -93,4 +93,45 @@ test('phase-only observations cannot invent an execution start or elapsed durati
   const [stale] = projectJobs([event, phase], now + 360000);
   assert.equal(stale.state, 'stale');
   assert.equal(jobElapsedMs(stale, new Date(now + 360000).toISOString()), undefined);
+});
+
+
+test('projects explicit skipped observations without inferring absent roles', () => {
+  const target = { repository: 'Oddmash/example', number: 4 };
+  const skipped = { ...event, role: 'qa', outcome: 'skipped', target, skipReason: 'excluded' };
+  const jobs = projectJobs([skipped], Date.parse(event.timestamp));
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0].role, 'qa');
+  assert.equal(jobs[0].state, 'skipped');
+  assert.equal(jobs[0].skipReason, 'excluded');
+  assert.equal(jobElapsedMs(jobs[0], event.timestamp), undefined);
+  assert.equal(parseExecutionEvent({ ...skipped, skipReason: 'raw fixture detail' }), undefined);
+  assert.equal(parseExecutionEvent({ ...skipped, target: { ...target, private: true } }), undefined);
+});
+
+test('publication proves only the observed mutation, not an execution return', () => {
+  const target = { repository: 'Oddmash/example', number: 4 };
+  const started = { ...event, outcome: 'started', target };
+  const returned = { ...started, outcome: 'returned', timestamp: '2026-11-25T05:00:01.000Z', durationMs: 1000 };
+  const publication = { ...started, outcome: 'published', timestamp: '2026-11-25T05:00:02.000Z', publication: { kind: 'review', id: 57, untrusted: 'fixture' } };
+  const [only] = projectJobs([publication], Date.parse(publication.timestamp));
+  assert.equal(only.state, 'published');
+  assert.equal(only.startedAt, undefined);
+  assert.deepEqual(only.publication, { kind: 'review', id: 57, at: publication.timestamp });
+  const [complete] = projectJobs([publication, returned, started], Date.parse(publication.timestamp));
+  assert.equal(complete.state, 'returned');
+  assert.equal(complete.finishedAt, returned.timestamp);
+  assert.equal(complete.durationMs, 1000);
+  assert.deepEqual(complete.publication, only.publication);
+  const [failed] = projectJobs([started, publication, { ...returned, outcome: 'failed', timestamp: '2026-11-25T05:00:03.000Z' }], Date.parse(publication.timestamp) + 1000);
+  assert.equal(failed.state, 'failed');
+  assert.deepEqual(failed.publication, only.publication);
+  const [retry] = projectJobs([publication, returned, { ...started, attempt: 2 }], Date.parse(publication.timestamp));
+  assert.equal(retry.publication, undefined);
+  assert.equal(parseExecutionEvent({ ...publication, publication: { kind: 'review', id: 0 } }), undefined);
+  assert.equal(parseExecutionEvent({ ...publication, publication: { kind: 'review', id: 1.5 } }), undefined);
+  assert.equal(parseExecutionEvent({ ...publication, publication: { kind: 'unknown', id: 57 } }), undefined);
+  assert.equal(parseExecutionEvent({ ...publication, target: { ...target, private: true } }), undefined);
+  const [mismatched] = projectJobs([started, { ...publication, target: { ...target, number: 5 } }], Date.parse(publication.timestamp));
+  assert.equal(mismatched.publication, undefined);
 });

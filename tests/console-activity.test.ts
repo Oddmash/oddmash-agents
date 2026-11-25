@@ -13,7 +13,7 @@ const jobs: Job[] = [
 
 test('observed role summary distinguishes active, stale, failed and returned', () => {
   const summary = activitySummary(jobs);
-  assert.deepEqual(summary.counts, { queued: 1, running: 1, returned: 1, failed: 1, stale: 1 });
+  assert.deepEqual(summary.counts, { queued: 1, running: 1, returned: 1, failed: 1, stale: 1, skipped: 0, published: 0 });
   assert.equal(summary.byRole.length, 7);
   assert.deepEqual(summary.byRole.find(row => row.role === 'qa'), { role: 'qa', active: 2, failed: 1, stale: 0, latest: jobs[0] });
   assert.equal(summary.byRole.find(row => row.role === 'reviewer')?.active, 0);
@@ -32,7 +32,7 @@ test('filters intersect role and state and preserve source order', () => {
 
 test('empty telemetry does not invent an observation', () => {
   const summary = activitySummary([]);
-  assert.deepEqual(summary.counts, { queued: 0, running: 0, returned: 0, failed: 0, stale: 0 });
+  assert.deepEqual(summary.counts, { queued: 0, running: 0, returned: 0, failed: 0, stale: 0, skipped: 0, published: 0 });
   assert.equal(summary.byRole.length, 7);
   assert.ok(summary.byRole.every(row => row.latest === undefined && row.active === 0));
 });
@@ -92,4 +92,18 @@ test('collapse state is independent of filtered and refreshed repository observa
   assert.equal(filtered.some(row => row.key === 'oddmash/ui'), false);
   assert.equal(collapsed.has('oddmash/ui'), true);
   assert.equal(toggleRepositoryCollapse(collapsed, 'oddmash/ui').has('oddmash/ui'), false);
+});
+
+
+test('counts and filters only observed skipped and publication-only states', () => {
+  const observed = [
+    { ...jobs[0], state: 'skipped' as const, skipReason: 'excluded' as const },
+    { ...jobs[1], state: 'published' as const }
+  ];
+  const { counts, byRole } = activitySummary(observed);
+  assert.equal(counts.skipped, 1);
+  assert.equal(counts.published, 1);
+  assert.equal(counts.returned, 0);
+  assert.equal(byRole.find(role => role.role === 'qa')?.active, 0);
+  assert.equal(filterActivity(observed, { role: 'all', state: 'skipped' }).length, 1);
 });

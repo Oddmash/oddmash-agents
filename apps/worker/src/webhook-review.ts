@@ -1,4 +1,4 @@
-import { executionContext, recordReviewPhase, runAgentExecution } from './agent-execution.ts';
+import { executionContext, publicationRecorder, recordSkippedExecution, recordReviewPhase, runAgentExecution } from './agent-execution.ts';
 import { createHash } from 'node:crypto';
 import { runImpact } from './impact.ts';
 import { runAdvisory } from './advisory.ts';
@@ -177,6 +177,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
   async function reviewOne(pr: Pull, target: Target, reconcileWaiting = true) {
     let api = authorized.api;
     if (pr.draft || pr.state !== 'open' || !eligibleBase(pr) || (target.expectedHead && pr.head.sha !== target.expectedHead)) return;
+    const recordPublication = publicationRecorder({ ...target, number: pr.number });
     const path = `${root}/pulls/${pr.number}`;
     const reviews = await api<Review[]>(`${path}/reviews?per_page=100`);
     if (reviews.length === 100) return;
@@ -372,14 +373,23 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           const scoped = incrementalFiles === undefined ? metadata : metadata.filter(file => incrementalFiles.includes(file.filename));
           const advisoryPaths = automaticAdvisoryPaths(scoped);
           const remaining = { ...budget, elapsedMs: Math.max(0, budget.elapsedMs - (Date.now() - planningStarted)) };
-          const roles = selectAdvisoryRoles(scoped, baselineBudget.maxRequests).filter(role => !controls.excludedRoles.some(excluded => excluded === role)).slice(0, remaining.maxRequests);
+          const plannedRoles = selectAdvisoryRoles(scoped, baselineBudget.maxRequests);
+          const executionTarget = { repository, number: current.number, private: target.private };
+          const enabledRoles = plannedRoles.filter(role => !controls.excludedRoles.some(excluded => excluded === role));
+          const roles = enabledRoles.slice(0, remaining.maxRequests);
+          for (const role of plannedRoles) {
+            if (!enabledRoles.includes(role)) recordSkippedExecution(role, executionTarget, 'excluded');
+            else if (!roles.includes(role)) recordSkippedExecution(role, executionTarget, 'request-budget');
+          }
           if (roles.includes('qa')) {
             roles.splice(roles.indexOf('qa'), 1);
             roles.unshift('qa');
           }
           selectedRoles = roles;
           console.info(roles.length ? 'Coordinated advisors selected: ' + roles.join(', ') : 'Coordinated advisors skipped: no eligible roles');
+          const reachedRoles = new Set<string>();
           await runCoordinatedAdvisories(roles, remaining, async (role, signal) => {
+            const markSkipped = (reason: 'unavailable' | 'target-changed') => { reachedRoles.add(role); recordSkippedExecution(role, executionTarget, reason); };
             const completed = summaries.size ? ` Completed roles: ${[...summaries.keys()].join(', ')}.` : '';
             recordReviewPhase(`Specialist review in progress (${role})`);
             await progress?.update(`Specialist review in progress (${role})`, `Lead is coordinating the latest commit.${completed}`);
@@ -388,16 +398,20 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
               installation: target.installation, repository, repositoryId: target.repositoryId, private: target.private,
               number: current.number, expectedHead: current.head.sha
             }, role, appId, request, overrides);
-            if (!advisor) { console.info('Coordinated advisor unavailable: ' + role); return true; }
+            if (!advisor) { markSkipped('unavailable'); console.info('Coordinated advisor unavailable: ' + role); return true; }
             const latest = await advisor.api<Pull>(path);
-            if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) return false;
+            if (latest.head.sha !== current.head.sha || latest.base.sha !== current.base.sha || latest.state !== 'open' || latest.draft || !eligibleBase(latest)) { markSkipped('target-changed'); return false; }
             const advisoryConfig = { ...advisor.config, automatic: true, incrementalFiles: advisoryPaths, collectSummary: (section: string, publishFindings?: (publicationApi: Api) => Promise<void>) => {
               summaries.set(role, { section, publish: publishFindings ? () => publishFindings(advisor.publicationApi) : undefined });
             } };
-            await runAgentExecution(executionContext(role, ''), () => role === 'impact' ? runImpact(advisor.api, advisor.target, advisoryConfig, request) : runAdvisory(advisor.api, advisor.target, advisoryConfig, request));
+            reachedRoles.add(role);
+            await runAgentExecution(executionContext(role, '', 1, advisor.target), () => role === 'impact' ? runImpact(advisor.api, advisor.target, advisoryConfig, request) : runAdvisory(advisor.api, advisor.target, advisoryConfig, request));
             console.info('Coordinated advisor returned: ' + role);
             return true;
           });
+          for (const role of roles) {
+            if (!reachedRoles.has(role)) recordSkippedExecution(role, executionTarget, remaining.elapsedMs <= 0 ? 'time-budget' : 'not-reached');
+          }
         } else console.info('Coordinated advisors skipped: budget exhausted');
         const latestPull = await api<Pull>(path);
         if (latestPull.head.sha !== current.head.sha || latestPull.base.sha !== current.base.sha ||
@@ -454,6 +468,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if (approved) {
         if (event === 'APPROVE') {
           await api(`${path}/reviews/${approved.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
+          recordPublication('review', approved.id);
           progressResult = completedResult;
           await progress?.finish(progressResult.conclusion, progressResult.title);
           await attemptMerge(approved.id);
@@ -470,7 +485,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if (attachment.covered) body = formatReviewBody(event, finalMarker, result.inlineReport, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote + scopedAdvisoryNote(finalChecks, repository) + specialistSummary;
       let publishedReviewId = pendingId;
       if (advisory && !attachment.attached) {
-        if (advisory.body !== body) await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
+        if (advisory.body !== body) {
+          await api(`${path}/reviews/${advisory.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
+          recordPublication('review', advisory.id);
+        }
       } else {
         const beforeSubmit = await api<Pull>(path);
         if (beforeSubmit.head.sha !== result.head || beforeSubmit.base.sha !== current.base.sha || beforeSubmit.merge_commit_sha !== current.merge_commit_sha || beforeSubmit.state !== 'open' || beforeSubmit.draft || !eligibleBase(beforeSubmit)) return;
@@ -486,9 +504,11 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           if (!specialistSummary && priorSummary) body += specialistHeading + priorSummary;
           await api(`${path}/reviews/${priorDecision.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
           publishedReviewId = priorDecision.id;
+          recordPublication('review', publishedReviewId);
         } else {
           await api(`${path}/reviews/${pendingId}/events`, { method: 'POST', body: JSON.stringify({ event, body }) }).catch(error => { throw new Error('Submit review: ' + (error instanceof Error ? error.message : 'Unexpected error')); });
           submitted = true;
+          recordPublication('review', pendingId);
         }
       }
       requestApproved = event === 'APPROVE';
