@@ -41,3 +41,13 @@ test('does not consolidate blockers, suggestions or distinct source evidence', (
   assert.equal(consolidateAdvisoryFindings(distinct, findings.slice(0, 2)).length, 2);
   assert.equal(consolidateAdvisoryFindings(context, [findings[0], { ...findings[0] }]).length, 2);
 });
+
+test('consolidates reordered named imports but preserves distinct aliases', () => {
+  const reordered = { ...context, files: [
+    { ...files[0], patch: files[0].patch.replace('mountLegacy', 'mountLegacy, unmount') },
+    { ...files[1], patch: files[1].patch.replace('mountLegacy', 'unmount, mountLegacy') }
+  ] };
+  assert.equal(consolidateAdvisoryFindings(reordered, findings.slice(0, 2)).length, 1);
+  const differentAlias = { ...reordered, files: [reordered.files[0], { ...reordered.files[1], patch: reordered.files[1].patch.replace('mountLegacy', 'mountLegacy as other') }] };
+  assert.equal(consolidateAdvisoryFindings(differentAlias, findings.slice(0, 2)).length, 2);
+});
