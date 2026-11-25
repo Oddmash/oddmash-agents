@@ -11,7 +11,7 @@ import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts'
 import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence, type ReviewCheckHead } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, authorizePublicGuidance, githubApi, commentReceipt, completeCommentReaction, reactToComment, slashRequestContext, type Target } from './webhook.ts';
-import { reconcileReviewThreads, replyToReview, scopedLeadThreadResolution, threadReconciliationExclusions, threadReconciliationMarker } from './review-discussion.ts';
+import { reconcileReviewThreads, replyToReview, scopedLeadThreadResolution, shouldReconcileEarlierFindings, threadReconciliationExclusions, threadReconciliationMarker } from './review-discussion.ts';
 import { retryableJobError } from './review-job.ts';
 import { publishAutomationStatus } from './review-status.ts';
 import { actionsQuotaEvidence, actionsWorkflowUrl } from './actions-quota.ts';
@@ -198,6 +198,13 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const read = (sha: string) => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`);
       return loadCheckEvidence(item.head.sha, item.merge_commit_sha, target.private ? read : publicReviewCheckReader(root, item.number, read, fetch, { head: item.head, readPulls: api }), Number(appId));
     };
+    const reconciliationChecksCurrent = async (snapshot: Pull) => {
+      const current = await api<Pull>(path);
+      return current.state === 'open' && !current.draft && eligibleBase(current) &&
+        current.head.sha === snapshot.head.sha && current.base.sha === snapshot.base.sha &&
+        current.merge_commit_sha === snapshot.merge_commit_sha &&
+        reviewChecksSuccessful(await readChecks(current), repository);
+    };
     const retryExistingApproval = async () => {
       if (existingApproval?.state !== 'APPROVED') return;
       let reason = !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
@@ -224,7 +231,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if (!review?.body || !['APPROVED', 'COMMENTED'].includes(review.state) || !review.body.includes(reviewBaseMarker(pr.base.sha))) return;
       const exclusions = threadReconciliationExclusions(review.body);
       if (exclusions && reviewChecksSuccessful(await readChecks(pr), repository)) {
-        await reconcileReviewThreads(api, { ...target, number: pr.number }, config, pr.head.sha, pr.base.sha, fetch, exclusions);
+        await reconcileReviewThreads(api, { ...target, number: pr.number }, config, pr.head.sha, pr.base.sha, fetch, exclusions, () => reconciliationChecksCurrent(pr));
       }
     };
     if (!target.recheck && hasOfficialReview(reviews, bot, pr.head.sha)) {
@@ -408,8 +415,11 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const completedResult = event === 'APPROVE' ? { conclusion: 'success' as const, title: 'Review approved' } : event === 'REQUEST_CHANGES' ? { conclusion: 'failure' as const, title: 'Changes requested' } : { conclusion: 'neutral' as const, title: reviewOutcome(event, followUp).title };
       const proof = incrementalFiles === undefined && event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === current.head.sha && candidate.pull.base.sha === current.base.sha && candidate.pull.merge_commit_sha === current.merge_commit_sha ? `\n\n${mergeProof(candidate)}` : '';
       const hasEarlierReview = Boolean(previous) || hasOfficialReview(own, bot, current.head.sha);
-      const reconcileThreads = !followUp.confirmedEmpty && incrementalFiles === undefined && reviewChecksSuccessful(finalChecks, repository) &&
-        ((event === 'APPROVE' && target.recheck) || (event === 'COMMENT' && hasEarlierReview));
+      const reconcileThreads = shouldReconcileEarlierFindings({
+        confirmedEmpty: Boolean(followUp.confirmedEmpty), fullReview: incrementalFiles === undefined,
+        checksSuccessful: reviewChecksSuccessful(finalChecks, repository), event,
+        earlierReview: hasEarlierReview, explicitRequest: Boolean(target.recheck)
+      });
       const reconciliation = reconcileThreads ? threadReconciliationMarker(result.comments.map(comment => comment.path)) : '';
       const scopeNote = `\n\n${reviewBaseMarker(current.base.sha)}` + (reconciliation ? `\n${reconciliation}` : '') + (incrementalFiles !== undefined ? '\n\nIncremental follow-up only. Earlier files were not re-reviewed; request a full review before approval or merge.\n\n증분 검토입니다. 이전 파일은 다시 검토하지 않았으며 승인 또는 머지 전 전체 리뷰가 필요합니다.' : '');
       let body = formatReviewBody(event, finalMarker, result.report, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote + specialistSummary;
@@ -474,7 +484,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if (reconciliation) {
         recordReviewPhase('Verifying earlier findings');
         await progress?.update('Verifying earlier findings', 'Checking the current commit against open review discussions.');
-        await reconcileReviewThreads(api, { ...target, number: current.number }, config, current.head.sha, current.base.sha, fetch, threadReconciliationExclusions(reconciliation));
+        await reconcileReviewThreads(api, { ...target, number: current.number }, config, current.head.sha, current.base.sha, fetch, threadReconciliationExclusions(reconciliation), () => reconciliationChecksCurrent(current));
       }
       await progress?.finish(progressResult.conclusion, progressResult.title);
       if (event === 'APPROVE' && incrementalFiles === undefined) await attemptMerge(publishedReviewId);
