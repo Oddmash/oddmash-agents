@@ -1,3 +1,4 @@
+import { githubContentFixture } from './github-content-fixture.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
@@ -40,7 +41,8 @@ for (const scenario of ['bare command after CI', 'mention after CI', 'CI complet
       if (endpoint === path) return Response.json(pr);
       if (endpoint === `${root}/pulls`) return Response.json([pr]);
       if (endpoint === `${path}/files`) { ++started; return Response.json([]); }
-      if (endpoint.includes('/contents/')) return new Response(null, { status: 404 });
+      if (endpoint.startsWith('/repos/Oddmash/.github/contents/')) return Response.json(githubContentFixture(endpoint.split('/contents/')[1], 'Organization policy.'));
+    if (endpoint.includes('/contents/')) return new Response(null, { status: 404 });
       if (endpoint === `${root}/commits/${head}/check-runs`) {
         const verify = { name: 'verify', status: 'completed', app: { id: 15368 } };
         const check_runs = [{ ...verify, id: 1, conclusion: 'failure', check_suite: { id: 125 } }];
@@ -205,6 +207,7 @@ for (const confirmedEmpty of [false, true]) {
     if (endpoint === path) return Response.json(pr);
     if (endpoint === root + '/pulls') return Response.json([pr]);
     if (endpoint === path + '/files' || endpoint.endsWith('/comments') || endpoint.endsWith('/labels')) return Response.json([]);
+    if (endpoint.startsWith('/repos/Oddmash/.github/contents/')) return Response.json(githubContentFixture(endpoint.split('/contents/')[1], 'Organization policy.'));
     if (endpoint.includes('/contents/')) return new Response(null, { status: 404 });
     if (endpoint === root + '/commits/' + head + '/check-runs') return Response.json({ total_count: 1, check_runs: [
       { name: 'verify', status: 'completed', conclusion: green ? 'success' : 'failure', app: { id: 15368 } }
@@ -311,6 +314,7 @@ test('coordinated reviews publish only after all selected specialists finish', a
     if (endpoint === root) return Response.json(repository);
     if (endpoint === path) return Response.json(pr);
     if (endpoint === path + '/files') return Response.json(files);
+    if (endpoint.startsWith('/repos/Oddmash/.github/contents/')) return Response.json(githubContentFixture(endpoint.split('/contents/')[1], 'Organization policy.'));
     if (endpoint.includes('/contents/')) return new Response(null, { status: 404 });
     if (endpoint === root + '/commits/' + head + '/check-runs') return Response.json({ total_count: 1, check_runs: [
       { name: 'verify', status: 'completed', conclusion: 'success', app: { id: 15368 } }

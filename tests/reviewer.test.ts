@@ -33,7 +33,10 @@ const mock = (options: { private?: boolean; exhausted?: boolean; findings?: bool
       return Response.json({ check_runs: [] });
     }
     if (url.includes('/contents/')) {
-      if (url.includes('/repos/Oddmash/.github/')) assert.equal(new Headers(init?.headers).has('Authorization'), false);
+      if (url.includes('/repos/Oddmash/.github/')) {
+        assert.equal(new Headers(init?.headers).has('Authorization'), false);
+        return Response.json(githubContentFixture(new URL(url).pathname.split('/contents/')[1], 'Organization policy.'));
+      }
       return new Response('', { status: 404 });
     }
     if (url.includes('/comments?')) return Response.json(postedBody ? [{ body: postedBody }] : []);
@@ -64,6 +67,7 @@ test('Lead uses related project guidance from the PR base alongside the organiza
       const model = JSON.parse(JSON.parse(String(init?.body)).input);
       assert.deepEqual(model.guidance, {
         'Oddmash/.github/AGENTS.md': 'Organization rules.',
+        'Oddmash/.github/docs/AI-CODE-REVIEW.md': 'Organization policy.',
         'Oddmash/example/AGENTS.md': 'Project rules.',
         'Oddmash/example/src/AGENTS.md': 'Source rules.'
       });
@@ -71,7 +75,7 @@ test('Lead uses related project guidance from the PR base alongside the organiza
     if (url.pathname === '/repos/Oddmash/.github/contents/AGENTS.md') {
       assert.equal(url.searchParams.get('ref'), 'main');
       assert.equal(new Headers(init?.headers).has('Authorization'), false);
-      return Response.json({ encoding: 'base64', content: Buffer.from('Organization rules.').toString('base64') });
+      return Response.json(githubContentFixture('AGENTS.md', 'Organization rules.'));
     }
     if (url.pathname.endsWith('/AGENTS.md')) {
       assert.equal(url.searchParams.get('ref'), pr.base.sha);
@@ -273,7 +277,7 @@ test('approved private review uses scoped auth and excludes private sensitive da
       assert.equal(model.issueAcceptance, null);
       return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: [], acceptance: [], allRequirementsMet: false }) }] }] });
     }
-    if (url.includes('/repos/Oddmash/.github/contents/')) { assert.equal(new Headers(init?.headers).has('Authorization'), false); return new Response(null, { status: 404 }); }
+    if (url.includes('/repos/Oddmash/.github/contents/')) { assert.equal(new Headers(init?.headers).has('Authorization'), false); return Response.json(githubContentFixture(new URL(url).pathname.split('/contents/')[1], 'Organization policy.')); }
     assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer fixture');
     if (url.includes('/files?')) return Response.json([
       { filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' },
@@ -309,6 +313,7 @@ test('fully reviewed approved private PR can approve without any merge proof', a
     if (url.includes('api.openai.com')) return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: [], acceptance: [], allRequirementsMet: false }) }] }] });
     if (url.includes('/files?')) return Response.json([{ filename: 'src/ui.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }]);
     if (url.includes('/check-runs?')) { assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer fixture'); return Response.json({ total_count: 1, check_runs: [{ name: 'verify', status: 'completed', conclusion: 'success' }] }); }
+    if (url.includes('/repos/Oddmash/.github/contents/')) return Response.json(githubContentFixture(new URL(url).pathname.split('/contents/')[1], 'Organization policy.'));
     if (url.includes('/contents/')) return new Response(null, { status: 404 });
     if (url.endsWith('/pulls/1')) return Response.json({ ...pr, base: { ...pr.base, repo: { id: 1468154482, private: true, full_name: repository } } });
     throw new Error('Unexpected fixture request');
@@ -375,4 +380,42 @@ test('contradictory zero metadata cannot approve even with valid model output fo
   assert.equal(result.followUp.confirmedEmpty, undefined);
   assert.equal(result.followUp.incompleteCoverage, true);
   assert.match(result.report, /GitHub file-list metadata was missing or inconsistent/);
+});
+
+test('current-sized organization policy files fit independent bounded guidance budgets', async () => {
+  const { request } = mock();
+  const guides = { 'AGENTS.md': 'A'.repeat(20954), 'docs/AI-CODE-REVIEW.md': 'B'.repeat(13116) };
+  const result = await runReview(config, async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname.startsWith('/repos/Oddmash/.github/contents/')) {
+      const name = url.pathname.split('/contents/')[1] as keyof typeof guides;
+      return Response.json(githubContentFixture(name, guides[name]));
+    }
+    if (url.hostname === 'api.openai.com') {
+      const model = JSON.parse(JSON.parse(String(init?.body)).input);
+      assert.equal(model.guidance['Oddmash/.github/AGENTS.md'].length, 20954);
+      assert.equal(model.guidance['Oddmash/.github/docs/AI-CODE-REVIEW.md'].length, 13116);
+    }
+    return request(input, init);
+  });
+  assert.equal(result.followUp.incompleteCoverage, false);
+});
+
+test('missing, malformed or oversized organization policy withholds approval', async () => {
+  const { request } = mock();
+  for (const mode of ['missing', 'malformed', 'oversized']) {
+    const result = await runReview(config, async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/repos/Oddmash/.github/contents/AGENTS.md') {
+        if (mode === 'missing') return new Response(null, { status: 404 });
+        if (mode === 'malformed') return Response.json({ content: 'invalid', encoding: 'base64' });
+        return Response.json(githubContentFixture('AGENTS.md', 'A'.repeat(32001)));
+      }
+      return request(input, init);
+    });
+    assert.equal(result.assessment, 'COMMENT');
+    assert.equal(result.decision, 'COMMENT');
+    assert.equal(result.followUp.incompleteCoverage, true);
+    assert.match(result.report, /Organization guidance could not be retrieved/);
+  }
 });

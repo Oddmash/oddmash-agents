@@ -7,7 +7,7 @@ type CacheEntry = { etag: string; data: Guidance; tokenKey: string; until: numbe
 export type GuidanceCache = Map<GuidanceFilename, CacheEntry>;
 const warmCache: GuidanceCache = new Map();
 
-function validAuthenticatedGuidance(value: Guidance, filename: GuidanceFilename): boolean {
+function validGuidance(value: Guidance, filename: GuidanceFilename): boolean {
   if (value.encoding !== 'base64' || typeof value.content !== 'string' || value.content.length > 64000 || value.type !== 'file' || value.path !== filename || !/^[a-f0-9]{40}$/.test(value.sha ?? '')) return false;
   const encoded = value.content.replace(/\s/g, '');
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) return false;
@@ -25,7 +25,7 @@ export async function readSharedGuidance(filename: GuidanceFilename, token: stri
   const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(cached ? { 'If-None-Match': cached.etag } : {}) };
   const response = await githubRequest(request, '/repos/Oddmash/.github/contents/' + filename + '?ref=main', { headers, redirect: 'error', signal: AbortSignal.timeout(30_000) }, true);
   if (response.status === 304 && cached) {
-    if (validAuthenticatedGuidance(cached.data, filename)) return cached.data;
+    if (validGuidance(cached.data, filename)) return cached.data;
     cache.delete(filename);
     throw new Error('Organization guidance integrity unavailable');
   }
@@ -40,8 +40,11 @@ export async function readSharedGuidance(filename: GuidanceFilename, token: stri
     return null;
   }
   const value: Guidance = { content: data.content, encoding: data.encoding, type: data.type, path: data.path, sha: data.sha, size: data.size };
+  if (!validGuidance(value, filename)) {
+    if (token) { cache.delete(filename); throw new Error('Organization guidance integrity unavailable'); }
+    return null;
+  }
   if (token) {
-    if (!validAuthenticatedGuidance(value, filename)) { cache.delete(filename); throw new Error('Organization guidance integrity unavailable'); }
     const etag = response.headers.get('etag');
     if (etag && etag.length <= 256) cache.set(filename, { etag, data: value, tokenKey: tokenKey!, until: Date.now() + 600000 });
     else cache.delete(filename);
