@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { posix } from 'node:path';
 import { addedLineText, privateSensitiveText, type ChangedFile } from './core.ts';
 import type { AdvisoryRole } from './advisory-agents.ts';
 import type { Target, githubApi } from './webhook.ts';
@@ -7,7 +8,7 @@ type Api = ReturnType<typeof githubApi>;
 type Finding = { path: string; line: number; evidence: string; en: string; ko: string };
 type Role = Exclude<AdvisoryRole, 'triage'>;
 
-export const specialistFindingRules = 'Provide at most three inlineFindings for concrete actionable defects within your role. Use only added lines from the provided patches. For each, copy the exact added source line without the diff prefix as evidence, and describe the defect and why it matters in one concise English and Korean sentence. General advice belongs in the summary. Return an empty array when there is no supported anchor.';
+export const specialistFindingRules = 'Provide at most three inlineFindings for concrete actionable defects within your role. Use only added lines from the provided patches. For each, copy the exact added source line without the diff prefix as evidence, and describe the defect and why it matters in one concise English and Korean sentence. For public API or compatibility claims, inspect all supplied patches together, including public entrypoints, re-exports, aliases and package exports. An internal declaration rename alone is not evidence of a broken public import. When the public contract is not established, put a specific verification suggestion in the summary instead of asserting an inline defect. Do not infer that an alias guarantees complete compatibility. General advice belongs in the summary. Return an empty array when there is no supported anchor.';
 
 export function specialistSchema(summary: { properties: object; required: string[] }) {
   return {
@@ -29,6 +30,50 @@ const safeField = (value: unknown): value is string =>
   typeof value === 'string' && value.length <= 600 && value.trim().length > 0 && !privateSensitiveText(value) && !/[<>\r\n]/.test(value);
 const plain = (value: string) => value.replace(/@/g, '＠').replace(/[\\`*_\[\]()#!|~]/g, '\\$&').replace(/https?:\/\//gi, 'https[:]//');
 
+function renamedType(file: ChangedFile, target: number): { previous: string; current: string } | undefined {
+  let position = 0;
+  let previous: string | undefined;
+  for (const line of (file.patch ?? '').split('\n')) {
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (hunk) { position = Number(hunk[1]); previous = undefined; continue; }
+    if (!position) continue;
+    if (line.startsWith('-')) {
+      previous = /^-\s*export\s+type\s+([A-Za-z_$][\w$]*)\s*=/.exec(line)?.[1];
+      continue;
+    }
+    if (line.startsWith('+') && position === target) {
+      const current = /^\+\s*export\s+type\s+([A-Za-z_$][\w$]*)\s*=/.exec(line)?.[1];
+      if (previous && current && previous !== current) return { previous, current };
+      return;
+    }
+    if (line.startsWith('+') || line.startsWith(' ')) position++;
+    previous = undefined;
+  }
+}
+
+function matchingTypeAlias(file: ChangedFile, originalPath: string, rename: { previous: string; current: string }): boolean {
+  if (!/\.[cm]?tsx?$/.test(file.filename) || file.filename === originalPath) return false;
+  for (const hunk of (file.patch ?? '').split(/^@@ .*@@.*$/m).slice(1)) {
+    const source = hunk.split('\n').filter(line => line.startsWith(' ') || line.startsWith('+')).map(line => line.slice(1)).join('\n');
+    for (const match of source.matchAll(/(?:^|\n)\s*export\s+(type\s+)?\{([^{}]*)\}\s+from\s+(['"])(\.[^'"\n]*)\3/g)) {
+      const importedPath = posix.normalize(posix.join(posix.dirname(file.filename), match[4]));
+      if (importedPath !== originalPath && importedPath !== originalPath.replace(/\.[cm]?tsx?$/, '')) continue;
+      for (const specifier of match[2].split(',')) {
+        const alias = /^\s*(type\s+)?([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)\s*$/.exec(specifier);
+        if (alias && (match[1] || alias[1]) && alias[2] === rename.current && alias[3] === rename.previous) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function contradictedMissingAlias(finding: Finding, file: ChangedFile, files: ChangedFile[]): boolean {
+  if (!/\b(?:without|missing|no)\s+(?:an?\s+)?(?:matching\s+)?(?:type\s+)?(?:compatibility\s+)?(?:alias|re-export)\b/i.test(finding.en)) return false;
+  const rename = renamedType(file, finding.line);
+  if (!rename || !(finding.en.match(/[A-Za-z_$][\w$]*/g) ?? []).includes(rename.previous)) return false;
+  return files.some(candidate => matchingTypeAlias(candidate, file.filename, rename));
+}
+
 function validateFindings(report: object, files: ChangedFile[]): Finding[] {
   const value = (report as { inlineFindings?: unknown }).inlineFindings;
   if (!Array.isArray(value)) return [];
@@ -39,6 +84,7 @@ function validateFindings(report: object, files: ChangedFile[]): Finding[] {
     const file = files.find(file => file.filename === item.path);
     const line = file && addedLineText(file.patch ?? '', item.line);
     if (!line?.trim() || line !== item.evidence || findings.some(f => f.path === item.path && f.line === item.line)) continue;
+    if (file && contradictedMissingAlias(item, file, files)) continue;
     findings.push(item);
   }
   return findings;
