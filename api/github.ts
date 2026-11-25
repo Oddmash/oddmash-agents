@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     try { job = createReviewJob(delivery, target, secret); } catch { return new Response('Bad request', { status: 400 }); }
     try { await send(reviewTopic, job, { idempotencyKey: leadDeliveryKey(target, delivery), retentionSeconds: 86400 }); }
     catch { console.error('Reviewer queue publish failed'); return new Response('Unavailable', { status: 503 }); }
-    recordQueued(execution);
+    await recordQueued(execution);
     if (target.requestComment) console.info('Reviewer comment request queued');
     return new Response('Accepted', { status: 202 });
   }

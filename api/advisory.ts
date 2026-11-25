@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     try { job = createReviewJob(delivery, target, config.secret); } catch { return new Response('Bad request', { status: 400 }); }
     try { await send(reviewTopic, job, { idempotencyKey: `${role}:${delivery}`, retentionSeconds: 86400 }); }
     catch { return new Response('Unavailable', { status: 503 }); }
-    recordQueued(execution);
+    await recordQueued(execution);
   } else waitUntil(runAgentExecution(execution, () => reviewWebhook(target, config)).catch(() => console.error('Advisory job failed')));
   return new Response('Accepted', { status: 202 });
 }

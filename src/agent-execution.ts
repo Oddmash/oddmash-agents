@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { publicTarget, type AgentRole, type ExecutionPhase, type ExecutionOutcome, type PublicTarget } from '../packages/operator-contract/src/index.ts';
+import { operatorStoreConfig, writeOperatorEvent } from '../packages/operator-store/src/index.ts';
+import { operatorSettings } from './runtime-config.ts';
 import type { Target } from './webhook.ts';
 
 export type { AgentRole } from '../packages/operator-contract/src/index.ts';
@@ -31,8 +33,16 @@ export function executionEvent(context: ExecutionContext, outcome: ExecutionOutc
   return { event: 'oddmash_agent_execution', ...context, retryCount: context.attempt - 1, timestamp: new Date(now).toISOString(), outcome, ...(durationMs === undefined ? {} : { durationMs: Math.max(0, durationMs) }), ...(phase ? { phase } : {}), ...(outcome === 'failed' ? { failure: failureCategory(error) } : {}) };
 }
 
-export function recordQueued(context: ExecutionContext) {
-  console.info(JSON.stringify(executionEvent(context, 'queued', Date.now())));
+async function persistEvent(event: ReturnType<typeof executionEvent>) {
+  const config = operatorStoreConfig(process.env.OPERATOR_STORE_URL, process.env.OPERATOR_STORE_WRITE_TOKEN);
+  if (!config) return;
+  try { await writeOperatorEvent(config, event, operatorSettings()); } catch { console.warn('Operator telemetry unavailable'); }
+}
+
+export async function recordQueued(context: ExecutionContext) {
+  const event = executionEvent(context, 'queued', Date.now());
+  console.info(JSON.stringify(event));
+  await persistEvent(event);
 }
 
 const activeExecution = new AsyncLocalStorage<{ context: ExecutionContext; emit: (event: ReturnType<typeof executionEvent>) => void; clock: () => number }>();
@@ -49,17 +59,21 @@ export function recordReviewPhase(title: string) {
   if (active && phase) active.emit(executionEvent(active.context, 'phase', active.clock(), undefined, undefined, phase));
 }
 
-export async function runAgentExecution<T>(context: ExecutionContext, action: () => Promise<T>, emit = (event: ReturnType<typeof executionEvent>) => console.info(JSON.stringify(event)), clock = Date.now): Promise<T> {
+export async function runAgentExecution<T>(context: ExecutionContext, action: () => Promise<T>, emit?: (event: ReturnType<typeof executionEvent>) => void, clock = Date.now): Promise<T> {
+  const pending: Promise<void>[] = [];
+  const publish = emit ?? ((event: ReturnType<typeof executionEvent>) => { console.info(JSON.stringify(event)); pending.push(persistEvent(event)); });
   const start = clock();
-  emit(executionEvent(context, 'started', start));
+  publish(executionEvent(context, 'started', start));
   try {
-    const result = await activeExecution.run({ context, emit, clock }, action);
+    const result = await activeExecution.run({ context, emit: publish, clock }, action);
     const end = clock();
-    emit(executionEvent(context, 'returned', end, end - start));
+    publish(executionEvent(context, 'returned', end, end - start));
     return result;
   } catch (error) {
     const end = clock();
-    emit(executionEvent(context, 'failed', end, end - start, error));
+    publish(executionEvent(context, 'failed', end, end - start, error));
     throw error;
+  } finally {
+    await Promise.allSettled(pending);
   }
 }

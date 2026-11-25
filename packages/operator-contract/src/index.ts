@@ -57,3 +57,18 @@ export function projectJobs(inputs: readonly unknown[], now: number, staleAfterM
   }
   return [...jobs.values()].map(job => ['queued', 'running'].includes(job.state) && now - Date.parse(job.updatedAt) > staleAfterMs ? { ...job, state: 'stale' as const } : job).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
+
+export function parseWorkerSettings(input: unknown): WorkerSettings | undefined {
+  if (!input || typeof input !== 'object') return;
+  const value = input as Record<string, unknown>;
+  if (typeof value.queueEnabled !== 'boolean' || typeof value.coordinatedAdvisoriesEnabled !== 'boolean' || !Array.isArray(value.agents) || value.agents.length !== roles.length) return;
+  const agents: AgentSettings[] = [];
+  for (const role of roles) {
+    const matches = value.agents.filter(item => item && typeof item === 'object' && item.role === role);
+    if (matches.length !== 1) return;
+    const agent = matches[0];
+    if (typeof agent.enabled !== 'boolean' || typeof agent.configured !== 'boolean' || typeof agent.autoMerge !== 'boolean') return;
+    agents.push({ role, enabled: agent.enabled, configured: agent.configured, model: modelName(agent.model), autoMerge: role === 'reviewer' && agent.autoMerge });
+  }
+  return { queueEnabled: value.queueEnabled, coordinatedAdvisoriesEnabled: value.coordinatedAdvisoriesEnabled, agents };
+}
