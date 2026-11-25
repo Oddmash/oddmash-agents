@@ -1,4 +1,6 @@
 export const korean = {
+  "Keep draft and reload revision": "입력 유지하고 최신 버전 불러오기",
+  "Latest revision loaded. Review your draft before saving.": "최신 버전을 불러왔습니다. 저장 전 입력값을 확인하세요.",
   "Runtime controls": "운영 제어",
   "Restrict optional coordinated reviews. Deployment permissions, configured agents and approval gates remain unchanged.": "선택적인 협업 검토만 제어합니다. 배포 권한, 에이전트 등록 및 승인 정책은 변경되지 않습니다.",
   "Runtime controls unavailable.": "운영 제어를 불러올 수 없습니다.",
