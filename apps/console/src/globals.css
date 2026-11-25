@@ -196,3 +196,18 @@ aside > p.muted { margin: 6px 0 26px; }
   .fleet-row { grid-template-columns: minmax(0,1fr) auto; }
   .fleet-row > :nth-child(2) { grid-row: auto; }
 }
+
+.runtime-controls { margin: 20px 0 24px; }
+.runtime-controls > p { margin: 0 0 16px; font-size: 14px; }
+.runtime-controls fieldset { min-width: 0; border: 0; border-top: 1px solid var(--border); padding: 12px 0 16px; margin: 0; }
+.runtime-controls legend { font-size: 14px; font-weight: 600; padding-inline-end: 12px; }
+.control-check { display: flex; align-items: center; gap: 9px; min-height: 44px; cursor: pointer; }
+.control-check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.role-checks, .control-actions { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.control-inputs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.control-inputs label { display: grid; gap: 8px; font-size: 13px; color: var(--muted); min-width: 0; }
+.control-inputs input { width: 100%; min-height: 44px; background: var(--background); border: 1px solid var(--border); color: var(--text); border-radius: 7px; padding: 8px 12px; font: inherit; }
+.control-inputs input:focus-visible, .control-check input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.control-actions { margin: 12px 0; }
+.control-notice { margin: 12px 0; }
+@media (max-width: 600px) { .control-inputs { grid-template-columns: minmax(0,1fr); } }

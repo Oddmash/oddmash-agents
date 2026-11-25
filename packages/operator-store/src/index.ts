@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { defaultControls, parseControlsRecord, parseOperatorControls, type ControlsRecord, type OperatorControls } from '../../operator-contract/src/controls.ts';
 import { parseExecutionEvent, parseWorkerSettings, projectJobs, projectModelUsage, type ExecutionEvent, type WorkerSettings, type Job } from '../../operator-contract/src/index.ts';
 
 type StoreConfig = { url: string; token: string };
@@ -47,4 +49,38 @@ export async function readOperatorStatus(config: StoreConfig | undefined, reques
   const parsedSettings = parseWorkerSettings(record?.settings);
   const recordedAt = typeof record?.recordedAt === 'string' && Number.isFinite(Date.parse(record.recordedAt)) && Date.parse(record.recordedAt) <= now + 60000 && now - Date.parse(record.recordedAt) <= retention * 1000 ? new Date(record.recordedAt).toISOString() : undefined;
   return { connected: true, jobs: projectJobs(valid, now), usage: projectModelUsage(valid), settings: recordedAt ? parsedSettings ?? null : null, ...(recordedAt && parsedSettings ? { settingsUpdatedAt: recordedAt } : {}), observedAt };
+}
+
+const controlsKey = 'oddmash:operator:controls:v1';
+const auditKey = 'oddmash:operator:controls-audit:v1';
+
+export async function readOperatorControls(config: StoreConfig, request = fetch): Promise<ControlsRecord> {
+  const [value] = await pipeline(config, [['GET', controlsKey]], request);
+  if (value === null) return { revision: null, controls: defaultControls(), updatedAt: null };
+  const parsed = parseControlsRecord(decode(value));
+  if (!parsed) throw new Error('Operator controls unavailable');
+  return parsed;
+}
+
+const saveControlsScript = `
+local previous = redis.call('GET', KEYS[1])
+if previous then
+  local current = cjson.decode(previous)
+  if current.revision ~= ARGV[1] then return 0 end
+elseif ARGV[1] ~= '' then return 0 end
+redis.call('SET', KEYS[1], ARGV[2])
+redis.call('LPUSH', KEYS[2], ARGV[3])
+redis.call('LTRIM', KEYS[2], 0, 49)
+return 1
+`;
+
+export async function saveOperatorControls(config: StoreConfig, expectedRevision: string | null, controls: OperatorControls, ownerId: string, request = fetch): Promise<ControlsRecord | null> {
+  const safe = parseOperatorControls(controls);
+  if (!safe || !/^[1-9]\d*$/.test(ownerId) || expectedRevision !== null && !/^[a-f0-9-]{36}$/.test(expectedRevision)) throw new Error('Invalid controls');
+  const record = { revision: randomUUID(), controls: safe, updatedAt: new Date().toISOString() };
+  const audit = { ...record, ownerId };
+  const [result] = await pipeline(config, [['EVAL', saveControlsScript, 2, controlsKey, auditKey, expectedRevision ?? '', JSON.stringify(record), JSON.stringify(audit)]], request);
+  if (result === 0) return null;
+  if (result !== 1) throw new Error('Operator controls unavailable');
+  return record;
 }

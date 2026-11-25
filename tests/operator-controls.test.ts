@@ -1,0 +1,40 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { defaultControls, parseOperatorControls, restrictAdvisoryBudget } from '../packages/operator-contract/src/controls.ts';
+import { operatorStoreConfig, readOperatorControls, saveOperatorControls } from '../packages/operator-store/src/index.ts';
+
+const config = operatorStoreConfig('https://fixture.upstash.io', 'fixture-token')!;
+test('operator restrictions cannot increase deployment or review budgets', () => {
+  const base = { maxRequests: 3, elapsedMs: 45000 };
+  assert.deepEqual(restrictAdvisoryBudget(base, defaultControls()), base);
+  assert.deepEqual(restrictAdvisoryBudget(base, { ...defaultControls(), maxRequests: 5, maxMs: 120000 }), base);
+  assert.deepEqual(restrictAdvisoryBudget(base, { ...defaultControls(), maxRequests: 2, maxMs: 15000 }), { maxRequests: 2, elapsedMs: 15000 });
+  assert.deepEqual(restrictAdvisoryBudget(base, { ...defaultControls(), paused: true }), { maxRequests: 0, elapsedMs: 0 });
+});
+test('operator controls reject unsupported role and authority fields', () => {
+  const value = defaultControls();
+  assert.equal(parseOperatorControls({ ...value, autoMerge: true }), undefined);
+  assert.equal(parseOperatorControls({ ...value, excludedRoles: ['reviewer'] }), undefined);
+  assert.equal(parseOperatorControls({ ...value, excludedRoles: ['qa', 'qa'] }), undefined);
+  assert.equal(parseOperatorControls({ ...value, maxRequests: 6 }), undefined);
+  assert.equal(parseOperatorControls({ ...value, maxMs: -1 }), undefined);
+  assert.deepEqual(parseOperatorControls({ ...value, excludedRoles: ['qa', 'impact'] })?.excludedRoles, ['impact', 'qa']);
+});
+test('controls store returns default or validated records and writes atomic revision/audit commands', async () => {
+  assert.deepEqual(await readOperatorControls(config, async () => Response.json([{ result: null }])), { revision: null, controls: defaultControls(), updatedAt: null });
+  let persisted: string | undefined;
+  const record = await saveOperatorControls(config, null, { ...defaultControls(), paused: true }, '123', async (_url, init) => {
+    const command = JSON.parse(String(init?.body))[0];
+    assert.equal(command[0], 'EVAL');
+    assert.equal(command[2], 2);
+    assert.equal(command[5], '');
+    persisted = command[6];
+    assert.equal(JSON.parse(command[7]).ownerId, '123');
+    assert.doesNotMatch(String(init?.body), /fixture-token/);
+    return Response.json([{ result: 1 }]);
+  });
+  assert.equal(record?.controls.paused, true);
+  assert.deepEqual(await readOperatorControls(config, async () => Response.json([{ result: persisted }])), record);
+  assert.equal(await saveOperatorControls(config, null, defaultControls(), '123', async () => Response.json([{ result: 0 }])), null);
+  await assert.rejects(readOperatorControls(config, async () => Response.json([{ result: 'invalid' }])));
+});

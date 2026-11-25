@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { runImpact } from './impact.ts';
 import { runAdvisory } from './advisory.ts';
 import { sameFindingText, verifiedReviewer } from './specialist-findings.ts';
+import { defaultControls, restrictAdvisoryBudget } from '../../../packages/operator-contract/src/controls.ts';
+import { operatorStoreConfig, readOperatorControls } from '../../../packages/operator-store/src/index.ts';
 import { advisoryModelConfig } from './runtime-config.ts';
 import { authorizeCoordinatedAdvisor } from './coordinated-advisory.ts';
 import { runReview } from './reviewer.ts';
@@ -353,7 +355,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       let selectedRoles: readonly string[] = [];
       if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED !== 'true') console.info('Coordinated advisors disabled');
       if (coordinatedAdvisoriesEnabled(target, process.env.REVIEWER_AUTO_ADVISORY_ENABLED, incrementalFiles !== undefined)) {
-        const budget = automaticAdvisoryBudget(process.env, Date.now() - executionStarted);
+        const controlStore = operatorStoreConfig(process.env.OPERATOR_STORE_URL, process.env.OPERATOR_STORE_READ_TOKEN);
+        const controls = controlStore ? await readOperatorControls(controlStore).then(record => record.controls).catch(() => ({ ...defaultControls(), paused: true })) : defaultControls();
+        const baselineBudget = automaticAdvisoryBudget(process.env, Date.now() - executionStarted);
+        const budget = restrictAdvisoryBudget(baselineBudget, controls);
         if (budget.maxRequests > 0 && budget.elapsedMs > 0) {
           const planningStarted = Date.now();
           const planningSignal = AbortSignal.timeout(budget.elapsedMs);
@@ -362,7 +367,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           const scoped = incrementalFiles === undefined ? metadata : metadata.filter(file => incrementalFiles.includes(file.filename));
           const advisoryPaths = automaticAdvisoryPaths(scoped);
           const remaining = { ...budget, elapsedMs: Math.max(0, budget.elapsedMs - (Date.now() - planningStarted)) };
-          const roles = selectAdvisoryRoles(scoped, remaining.maxRequests);
+          const roles = selectAdvisoryRoles(scoped, baselineBudget.maxRequests).filter(role => !controls.excludedRoles.some(excluded => excluded === role)).slice(0, remaining.maxRequests);
           if (roles.includes('qa')) {
             roles.splice(roles.indexOf('qa'), 1);
             roles.unshift('qa');

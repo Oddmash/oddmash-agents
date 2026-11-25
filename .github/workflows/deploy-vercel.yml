@@ -119,7 +119,7 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import { existsSync } from 'node:fs';
-          const expected = ['static/index.html', 'functions/api/github.func/.vc-config.json', 'functions/api/advisory.func/.vc-config.json', 'functions/api/review-jobs.func/.vc-config.json', 'functions/api/status.func/.vc-config.json', 'functions/api/availability.func/.vc-config.json', 'functions/api/auth/signin/github.func/.vc-config.json', 'functions/api/auth/callback/github.func/.vc-config.json'];
+          const expected = ['static/index.html', 'functions/api/github.func/.vc-config.json', 'functions/api/advisory.func/.vc-config.json', 'functions/api/review-jobs.func/.vc-config.json', 'functions/api/status.func/.vc-config.json', 'functions/api/controls.func/.vc-config.json', 'functions/api/availability.func/.vc-config.json', 'functions/api/auth/signin/github.func/.vc-config.json', 'functions/api/auth/callback/github.func/.vc-config.json'];
           for (const entry of expected) if (!existsSync('.vercel/output/' + entry)) throw new Error('Missing combined deployment artifact: ' + entry);
           NODE
       - name: Stage production
@@ -181,6 +181,8 @@ jobs:
             const response = await request(path, method);
             if (![400, 503].includes(response.status) || !response.headers.get('cache-control')?.includes('no-store') || !response.headers.get('content-type')?.includes('application/json')) throw new Error('Console provider route unavailable or accepted noncanonical staging origin');
           }
+          const controls = await request('/api/controls');
+          if (controls.status !== 401 || !controls.headers.get('cache-control')?.includes('no-store')) throw new Error('Console controls failed unauthenticated denial');
           const status = await request('/api/status');
           if (status.status !== 401 || !status.headers.get('cache-control')?.includes('no-store')) throw new Error('Console status failed unauthenticated denial');
           NODE
