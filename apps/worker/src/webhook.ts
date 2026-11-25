@@ -1,4 +1,4 @@
-import { githubRequest } from './github-request.ts';
+import { assertAuthorizationQuota, githubRequest, type AuthorizationQuotaIdentity } from './github-request.ts';
 import { createHmac, timingSafeEqual, createSign } from 'node:crypto';
 import { advisoryCommand, advisoryProfiles, isAdvisoryRole, type AdvisoryRole } from './advisory-agents.ts';
 
@@ -162,12 +162,20 @@ export function appJwt(appId: string, privateKey: string, now = Math.floor(Date.
   return input + '.' + createSign('RSA-SHA256').update(input).sign(privateKey.replace(/\\n/g, '\n')).toString('base64url');
 }
 
-export function githubApi(token: string, request: typeof fetch = fetch) {
+export function githubApi(token: string, request: typeof fetch = fetch, identity?: AuthorizationQuotaIdentity) {
   return async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await githubRequest(request, path, { ...init, headers: { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15_000) });
+    const response = await githubRequest(request, path, { ...init, headers: { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15_000) }, false, undefined, { identity });
     if (!response.ok) throw new Error('GitHub request failed (' + response.status + ')');
     return response.status === 204 ? undefined as T : await response.json() as T;
   };
+}
+
+export function githubAppApi(appId: string, key: string, request: typeof fetch = fetch) {
+  return githubApi(appJwt(appId, key), request, { appId });
+}
+
+export function githubInstallationApi(token: string, appId: string, installationId: number, request: typeof fetch = fetch) {
+  return githubApi(token, request, typeof token === 'string' && token.length > 0 ? { appId, installationId } : undefined);
 }
 
 export async function reactToComment(api: ReturnType<typeof githubApi>, repository: string, comment: { kind: 'inline' | 'issue'; id: number }, content: 'eyes' | '+1') {
@@ -200,12 +208,13 @@ export async function completeCommentReaction(api: ReturnType<typeof githubApi>,
 }
 
 export async function authorize(target: Target, appId: string, key: string, request: typeof fetch = fetch, progress = false) {
-  const jwtApi = githubApi(appJwt(appId, key), request);
+  const jwtApi = githubAppApi(appId, key, request);
+  assertAuthorizationQuota({ appId, installationId: target.installation }, 'repository-identity', request);
   const installation = await jwtApi<{ account: { login: string }; suspended_at: string | null }>('/app/installations/' + target.installation);
   if (installation.account.login.toLowerCase() !== 'oddmash' || installation.suspended_at) throw new Error('Installation not eligible');
   const permissions = target.advisory || target.impact ? { contents: 'read', pull_requests: target.advisory === 'triage' ? 'read' : 'write', checks: 'read', issues: 'write' } : progress ? { checks: 'write' } : { contents: 'read', pull_requests: 'write', checks: 'read', issues: target.requestComment?.kind === 'issue' || target.reply?.kind === 'conversation' ? 'write' : 'read' };
   const result = await jwtApi<{ token: string }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [target.repositoryId], permissions }) });
-  const api = githubApi(result.token, request);
+  const api = githubInstallationApi(result.token, appId, target.installation, request);
   const repository = await api<Repository>('/repos/' + target.repository);
   if (!reviewableOddmash(repository) || repository.private !== Boolean(target.private) || repository.id !== target.repositoryId || repository.full_name !== target.repository) throw new Error('Repository not eligible');
   return { api, token: result.token };
@@ -220,12 +229,13 @@ export async function authorizePublicGuidance(target: Target, appId: string, key
   const cached = request === fetch ? guidanceTokens.get(cacheKey) : undefined;
   if (cached && cached.until > Date.now()) return cached.token;
   const acquire = async () => {
-    const jwtApi = githubApi(appJwt(appId, key), request);
+    const jwtApi = githubAppApi(appId, key, request);
+    assertAuthorizationQuota({ appId, installationId: target.installation }, 'repository-identity', request);
     const installation = await jwtApi<{ account: { login: string }; suspended_at: string | null }>('/app/installations/' + target.installation);
     if (installation.account.login.toLowerCase() !== 'oddmash' || installation.suspended_at) return undefined;
     const scoped = await jwtApi<{ token: string; expires_at: string; permissions: { contents?: string } }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [guidanceRepositoryId], permissions: { contents: 'read' } }) });
     if (!scoped.token || scoped.permissions.contents !== 'read' || !Number.isFinite(Date.parse(scoped.expires_at)) || Date.parse(scoped.expires_at) <= Date.now() + 120000) return undefined;
-    const api = githubApi(scoped.token, request);
+    const api = githubInstallationApi(scoped.token, appId, target.installation, request);
     const repo = await api<Repository>('/repos/Oddmash/.github');
     if (repo.id !== guidanceRepositoryId || repo.full_name !== 'Oddmash/.github' || repo.private !== false || repo.owner.login.toLowerCase() !== 'oddmash') return undefined;
     const until = Math.min(Date.parse(scoped.expires_at) - 120000, Date.now() + 600000);
@@ -252,7 +262,7 @@ export function mergeRepositoryAllowed(target: Target): boolean {
 
 export async function authorizeMerge(target: Target, appId: string, key: string, request: typeof fetch = fetch) {
   if (!mergeRepositoryAllowed(target)) throw new Error('Merge target not eligible');
-  const jwtApi = githubApi(appJwt(appId, key), request);
+  const jwtApi = githubAppApi(appId, key, request);
   const installation = await jwtApi<{ account: { login: string }; suspended_at: string | null }>('/app/installations/' + target.installation);
   if (installation.account.login.toLowerCase() !== 'oddmash' || installation.suspended_at) throw new Error('Installation not eligible');
   const result = await jwtApi<{ token: string; permissions: { contents?: string } }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [target.repositoryId], permissions: { contents: 'write' } }) });
