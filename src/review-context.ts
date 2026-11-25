@@ -4,7 +4,7 @@ import type { ChangedFile } from './core.ts';
 export function reviewFocus(repository: string): string[] {
   const common = ['Correctness, regression, error handling and test coverage'];
   const name = repository.toLowerCase();
-  if (name.endsWith('/kowrap')) return [...common, 'Unicode, line breaking, SSR, browser compatibility and DOM performance'];
+  if (name.endsWith('/juliya')) return [...common, 'Unicode, line breaking, SSR, browser compatibility and DOM performance'];
   if (name.endsWith('/oddmash-ui')) return [...common, 'Keyboard interaction, accessibility, responsive states, design tokens and SSR'];
   if (name.endsWith('/interaction-inspector')) return [...common, 'Event lifecycle, cleanup, focus handling and extension compatibility'];
   if (/\/(?:cash-out|overtime-prototype)$/.test(name)) return [...common, 'Game state transitions, input, lifecycle and multiplayer consistency'];
