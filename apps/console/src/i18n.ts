@@ -104,3 +104,15 @@ export const translate = (language: Language, message: Message): string => langu
 export const chooseLanguage = (value: string | null | undefined): Language => value?.toLowerCase().split('-')[0] === 'ko' ? 'ko' : 'en';
 export const executionCount = (language: Language, visible: number, total: number): string => language === 'ko' ? `전체 ${total.toLocaleString(language)}건 중 ${visible.toLocaleString(language)}건` : `${visible.toLocaleString(language)} of ${total.toLocaleString(language)} executions`;
 export const missingCalls = (language: Language, count: number): string => language === 'ko' ? `${count.toLocaleString(language)}건 미측정` : `missing in ${count.toLocaleString(language)} calls`;
+
+export const localizedUrl = (href: string, language: Language): URL => {
+  const url = new URL(href);
+  url.searchParams.set('lang', language);
+  return url;
+};
+
+export const localizedCallback = (origin: string, hash: string, language: Language): string => {
+  const url = localizedUrl(origin, language);
+  if (['#overview', '#activity', '#usage', '#settings'].includes(hash)) url.hash = hash;
+  return url.href;
+};
