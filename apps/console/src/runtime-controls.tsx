@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card } from '@oddmash/ui';
 import { defaultControls, optionalRoles, type ControlsRecord, type OperatorControls, type OptionalRole } from '@oddmash/agent-operator-contract';
-import { displayLimit, validControlLimits, controlsDirty, reviewRetainedDraft } from './control-draft';
+import { displayLimit, readLimitInput, validControlLimits, controlsDirty, reviewRetainedDraft } from './control-draft';
 import { ConsoleSkeleton } from './console-skeleton';
 import { translate, type Language, type Message } from './i18n';
 
@@ -65,8 +65,8 @@ export const RuntimeControls = ({ language, defaults }: { language: Language; de
           <div className="role-checks">{optionalRoles.map(role => <label key={role} className="control-check"><input type="checkbox" checked={!draft.excludedRoles.includes(role)} disabled={draft.paused} onChange={event => setDraft({ ...draft, excludedRoles: optionalRoles.filter(item => item === role ? !event.target.checked : draft.excludedRoles.includes(item)) })}/>{roleNames[role]}</label>)}</div>
         </fieldset>
         <fieldset disabled={busy}><legend>{t("Review limits")}</legend>
-          <div className="control-inputs"><label>{t("Maximum requests")}<input type="number" min="0" max={defaults.maxRequests ?? 5} step="1" placeholder={t("Unknown")} value={emptyLimit === 'requests' ? '' : displayLimit(draft.maxRequests, defaults.maxRequests)} onBlur={() => setEmptyLimit(null)} onChange={event => { const empty = event.target.value === '' && !event.target.validity.badInput; setEmptyLimit(empty ? 'requests' : null); setDraft({ ...draft, maxRequests: empty ? null : event.target.valueAsNumber }); }}/></label>
-          <label>{t("Maximum seconds")}<input type="number" min="0" max={defaults.maxMs === undefined ? 120 : defaults.maxMs / 1000} step="0.001" placeholder={t("Unknown")} value={emptyLimit === 'seconds' ? '' : displayLimit(draft.maxMs, defaults.maxMs, 1000)} onBlur={() => setEmptyLimit(null)} onChange={event => { const empty = event.target.value === '' && !event.target.validity.badInput; setEmptyLimit(empty ? 'seconds' : null); setDraft({ ...draft, maxMs: empty ? null : Math.round(event.target.valueAsNumber * 1000) }); }}/></label></div>
+          <div className="control-inputs"><label>{t("Maximum requests")}<input type="number" min="0" max={defaults.maxRequests ?? 5} step="1" placeholder={t("Unknown")} value={emptyLimit === 'requests' ? '' : displayLimit(draft.maxRequests, defaults.maxRequests)} onBlur={() => setEmptyLimit(null)} onChange={event => { const empty = event.target.value === '' && !event.target.validity.badInput; setEmptyLimit(empty ? 'requests' : null); setDraft({ ...draft, maxRequests: readLimitInput(event.target.value, event.target.valueAsNumber, event.target.validity.badInput) }); }}/></label>
+          <label>{t("Maximum seconds")}<input type="number" min="0" max={defaults.maxMs === undefined ? 120 : defaults.maxMs / 1000} step="0.001" placeholder={t("Unknown")} value={emptyLimit === 'seconds' ? '' : displayLimit(draft.maxMs, defaults.maxMs, 1000)} onBlur={() => setEmptyLimit(null)} onChange={event => { const empty = event.target.value === '' && !event.target.validity.badInput; setEmptyLimit(empty ? 'seconds' : null); setDraft({ ...draft, maxMs: readLimitInput(event.target.value, event.target.valueAsNumber, event.target.validity.badInput, 1000) }); }}/></label></div>
         </fieldset>
         <p className="muted">{t("Clear a limit to inherit its deployment default. Save to apply to future jobs only.")}</p>
         {!valid && <Alert tone="danger">{t("Enter valid limits within the deployment defaults.")}</Alert>}
