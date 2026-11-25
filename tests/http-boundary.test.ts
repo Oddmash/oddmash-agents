@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { authorizedSessionId } from '../apps/console/auth-policy.ts';
 import { consoleApi } from '../apps/console/auth.ts';
+import { GET as statusGet } from '../api/status.ts';
+import { GET as availabilityGet } from '../api/availability.ts';
+import { GET as authGet } from '../api/auth/[...path].ts';
 import { GET as githubGet } from '../api/github.ts';
 import { POST as advisoryPost } from '../api/advisory.ts';
 import { workerEndpoint } from '../src/worker-http.ts';
@@ -10,6 +13,24 @@ test('deployed worker entrypoint returns its public health contract', async () =
   const response = await githubGet(new Request('https://localhost/api/github'));
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { service: 'Oddmash Reviewer', status: 'ok' });
+});
+
+test('root console functions preserve fail-closed routes separately from worker health', async () => {
+  const previous = process.env.AUTH_SECRET;
+  delete process.env.AUTH_SECRET;
+  try {
+    const origin = 'https://console.example.invalid';
+    const availability = await availabilityGet(new Request(origin + '/api/availability'));
+    assert.deepEqual(await availability.json(), { configured: false });
+    const status = await statusGet(new Request(origin + '/api/status'));
+    assert.equal(status.status, 401);
+    assert.equal(status.headers.get('cache-control'), 'private, no-store');
+    assert.equal((await authGet(new Request(origin + '/api/auth/session'))).status, 503);
+    assert.equal((await statusGet(new Request(origin + '/api/github'))).status, 404);
+    assert.equal((await githubGet(new Request(origin + '/api/github'))).status, 200);
+  } finally {
+    if (previous === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = previous;
+  }
 });
 
 test('Hono worker preserves method, path and raw webhook request', async () => {
