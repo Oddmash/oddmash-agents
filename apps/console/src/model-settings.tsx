@@ -16,6 +16,7 @@ const messages = {
   "Choose approved models before saving.": "저장하기 전에 승인된 모델을 선택하세요.",
   "Discard draft and reload saved settings": "입력을 취소하고 최신 저장 설정 불러오기",
   "Model settings saved for future jobs.": "이후 실행에 적용할 모델 설정을 저장했습니다.",
+  "Unable to reload saved model settings. Your draft is retained.": "저장된 모델 설정을 불러오지 못했습니다. 입력값은 유지됩니다.",
   "Unable to save model settings. Your draft is retained.": "모델 설정을 저장하지 못했습니다. 입력값은 유지됩니다.",
   "Model settings changed in another session. Reload before saving.": "다른 세션에서 모델 설정이 변경되었습니다. 입력을 유지하고 최신 설정을 확인하세요.",
 } as const;
@@ -75,7 +76,7 @@ export const ModelSettings = ({ language }: { language: Language }) => {
       const record = await response.json() as OperatorModelsResponse;
       const recovery = reconcileModelDraft(record, draft, discard);
       setSaved(recovery.saved); setDraft(recovery.draft); setConflict(false); setReview(recovery.needsReview); setNotice('');
-    } catch { setNotice('Unable to save model settings. Your draft is retained.'); }
+    } catch { setNotice('Unable to reload saved model settings. Your draft is retained.'); }
     finally { setBusy(false); }
   };
 
