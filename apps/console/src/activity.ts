@@ -84,3 +84,11 @@ export function toggleRepositoryCollapse(previous: ReadonlySet<string>, key: str
   else next.add(key);
   return next;
 }
+
+export function metricFilter(state: ActivityFilter['state']): ActivityFilter {
+  return { role: 'all', state };
+}
+
+export function historyNeedsRepository(view: string, filter: ActivityFilter): boolean {
+  return view === 'activity' && (!filter.repository || filter.repository === 'all');
+}
