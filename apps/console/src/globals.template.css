@@ -59,9 +59,21 @@ section { margin: var(--om-semantic-space-xl) 0 var(--console-length-36); scroll
 .activity .om-table time { white-space: nowrap; }
 .activity .om-table small { display: block; color: var(--muted); }
 .empty { color: var(--muted); border: 0; }
-.login { max-width: var(--console-length-520); margin: 12vh auto; padding: var(--console-length-40); }
-.login h1 { font-size: var(--console-length-38); letter-spacing: var(--console-letter-spacing-tight-40); }
-.login .language-control { width: min(100%,var(--console-length-170)); margin-left: auto; }
+.login { position: relative; isolation: isolate; min-height: 100dvh; display: grid; place-items: center; padding: var(--om-semantic-space-xl); }
+.login::before { content: ''; position: absolute; z-index: -1; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 40%, var(--text), transparent 66%); opacity: var(--console-login-glow-opacity); }
+.login-panel { display: grid; gap: var(--om-semantic-space-xl); width: min(100%,var(--console-length-520)); min-width: 0; padding: clamp(var(--om-semantic-space-xl),5vw,var(--console-length-48)); background: var(--panel); border: var(--om-semantic-border-width) solid var(--border); border-radius: var(--om-semantic-radius-lg); }
+.login-brand { display: flex; align-items: center; gap: var(--om-semantic-space-sm); font-size: var(--console-length-24); font-weight: var(--console-font-weight-740); letter-spacing: var(--console-letter-spacing-tight-60); }
+.login-mark { width: var(--console-length-40); height: var(--console-length-40); object-fit: contain; border-radius: var(--om-semantic-radius-sm); }
+.login-intro { display: grid; gap: var(--om-semantic-space-sm); }
+.login-intro p, .login h1, .login-restriction, .login-actions p { margin: 0; }
+.login h1 { font-size: clamp(var(--console-length-30),5vw,var(--console-length-38)); line-height: var(--console-line-height-compact); letter-spacing: var(--console-letter-spacing-tight-40); overflow-wrap: anywhere; }
+.login-intro p, .login-restriction { color: var(--muted); }
+.login-kicker { font-size: var(--console-length-13); font-weight: var(--console-font-weight-600); }
+.login-actions { display: grid; gap: var(--om-semantic-space-sm); min-width: 0; }
+.login-action { width: 100%; min-height: var(--console-length-44); }
+.login-progress:empty { height: 0; margin: calc(-1 * var(--om-semantic-space-sm)) 0 0; }
+.login-progress, .login-restriction { font-size: var(--console-length-13); }
+.login-restriction { padding-top: var(--om-semantic-space-lg); border-top: var(--om-semantic-border-width) solid var(--border); }
 .login-button { min-height: var(--console-length-44); }
 @media (max-width: {{breakpoint:shell-stack}}) {
   .shell { display: block; }
@@ -74,7 +86,7 @@ section { margin: var(--om-semantic-space-xl) 0 var(--console-length-36); scroll
   .logout .om-select-dropdown > [role=listbox] { inset: calc(100% + var(--console-length-4)) 0 auto; }
   .shell > main { padding: var(--om-semantic-space-xl) var(--om-semantic-space-lg); }
   header h2 { font-size: var(--console-length-24); }
-  .login { margin: 5vh auto; padding: var(--om-semantic-space-xl); }
+  .login { padding: var(--om-semantic-space-lg); }
 }
 @media (max-width: {{breakpoint:filter-stack}}) {
   .activity-filters .filter-control { min-width: 0; flex: 1; }
