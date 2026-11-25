@@ -1,3 +1,4 @@
+import { modelName, type WorkerSettings } from '../packages/operator-contract/src/index.ts';
 import { advisoryRoles, isAdvisoryRole, type AdvisoryRole } from './advisory-agents.ts';
 
 export function advisoryModelConfig(role: AdvisoryRole, fallback: { openaiKey: string; model: string }) {
@@ -16,4 +17,21 @@ export function advisoryConfig(role: unknown) {
 export function runtimeConfig() {
   const config = { appId: process.env.REVIEWER_APP_ID ?? '', key: process.env.REVIEWER_APP_PRIVATE_KEY ?? '', slug: process.env.REVIEWER_APP_SLUG ?? '', openaiKey: process.env.OPENAI_API_KEY ?? '', model: process.env.OPENAI_MODEL ?? 'gpt-5.4', autoMerge: process.env.REVIEWER_AUTO_MERGE_ENABLED === 'true' };
   return process.env.REVIEWER_APP_ENABLED === 'true' && config.appId && config.key && config.slug && config.openaiKey ? config : null;
+}
+
+export function operatorSettings(): WorkerSettings {
+  const lead = runtimeConfig();
+  return {
+    queueEnabled: process.env.REVIEWER_QUEUE_ENABLED === 'true',
+    coordinatedAdvisoriesEnabled: process.env.REVIEWER_AUTO_ADVISORY_ENABLED === 'true',
+    agents: [
+      { role: 'reviewer', enabled: process.env.REVIEWER_APP_ENABLED === 'true', configured: Boolean(lead), model: modelName(process.env.OPENAI_MODEL ?? 'gpt-5.4'), autoMerge: lead?.autoMerge === true },
+      ...advisoryRoles.map(role => ({
+        role, enabled: process.env[`${role.toUpperCase()}_APP_ENABLED`] === 'true',
+        configured: Boolean(advisoryConfig(role)),
+        model: modelName(advisoryModelConfig(role, { openaiKey: '', model: process.env.OPENAI_MODEL ?? 'gpt-5.4' }).model),
+        autoMerge: false
+      }))
+    ]
+  };
 }

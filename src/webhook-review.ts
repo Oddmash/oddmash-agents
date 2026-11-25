@@ -1,4 +1,4 @@
-import { executionContext, runAgentExecution } from './agent-execution.ts';
+import { executionContext, recordReviewPhase, runAgentExecution } from './agent-execution.ts';
 import { createHash } from 'node:crypto';
 import { runImpact } from './impact.ts';
 import { runAdvisory } from './advisory.ts';
@@ -150,7 +150,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           'impact' | 'qa' | 'release' | 'docs' | 'architect' | undefined;
         if (!role || !thread.body.split('\n').includes(`<!-- oddmash-specialist:${role} -->`)) return;
         const advisor = await authorizeCoordinatedAdvisor(target, role, appId);
-        if (advisor) await runAgentExecution(executionContext(role, ''), () => replyToReview(advisor.api, advisor.target,
+        if (advisor) await runAgentExecution(executionContext(role, '', 1, advisor.target), () => replyToReview(advisor.api, advisor.target,
           { slug: `oddmash-${role}`, openaiKey: advisor.config.openaiKey, model: advisor.config.model, specialist: role }));
         return;
       }
@@ -315,6 +315,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if ((!target.recheck && hasOfficialReview(acquired, bot, pr.head.sha)) || (requestTag && acquired.some(review => review.user.login === bot && review.body?.includes(requestTag)))) return;
       eyesId = target.requestComment ? await reactToComment(api, repository, target.requestComment, 'eyes') : undefined;
       progress = await progressFor();
+      recordReviewPhase('Collecting changes');
       await progress?.update('Collecting changes', 'Preparing the current commit review.');
       try {
         const active = await api<Pull>(path);
@@ -333,7 +334,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const comparison = !target.recheck && previous?.state === 'APPROVED' && /^[a-f0-9]{40}$/i.test(previous.commit_id) && previous.body?.includes(reviewBaseMarker(pr.base.sha)) ? await api<CompareEvidence>(`${root}/compare/${previous.commit_id}...${pr.head.sha}?per_page=100`).catch(() => undefined) : undefined;
       const incrementalFiles = !target.recheck ? incrementalPaths(previous, pr.head.sha, pr.base.sha, comparison) : undefined;
       const requestContext = await slashRequestContext(api, target, 'review');
-      const result = await runReview({ requestContext, repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: incrementalFiles === undefined ? candidate?.acceptance : undefined, incrementalFiles, privateRepositoryId: target.private ? target.repositoryId : undefined, progress: progress?.update }).catch(async error => {
+      const result = await runReview({ requestContext, repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: incrementalFiles === undefined ? candidate?.acceptance : undefined, incrementalFiles, privateRepositoryId: target.private ? target.repositoryId : undefined, progress: async (title, summary) => { recordReviewPhase(title); await progress?.update(title, summary); } }).catch(async error => {
         await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', error instanceof Error ? error.message : 'review processing failed');
         throw error;
       });
@@ -361,6 +362,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           console.info(roles.length ? 'Coordinated advisors selected: ' + roles.join(', ') : 'Coordinated advisors skipped: no eligible roles');
           await runCoordinatedAdvisories(roles, remaining, async (role, signal) => {
             const completed = summaries.size ? ` Completed roles: ${[...summaries.keys()].join(', ')}.` : '';
+            recordReviewPhase(`Specialist review in progress (${role})`);
             await progress?.update(`Specialist review in progress (${role})`, `Lead is coordinating the latest commit.${completed}`);
             const request = boundedRequest(signal);
             const advisor = await authorizeCoordinatedAdvisor({
@@ -400,6 +402,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         return;
       }
       const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks, target.recheck);
+      recordReviewPhase('Publishing review');
       await progress?.update('Publishing review', 'Rechecking the current commit and submitting the result.');
       const completedResult = event === 'APPROVE' ? { conclusion: 'success' as const, title: 'Review approved' } : event === 'REQUEST_CHANGES' ? { conclusion: 'failure' as const, title: 'Changes requested' } : { conclusion: 'neutral' as const, title: reviewOutcome(event, followUp).title };
       const proof = incrementalFiles === undefined && event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === current.head.sha && candidate.pull.base.sha === current.base.sha && candidate.pull.merge_commit_sha === current.merge_commit_sha ? `\n\n${mergeProof(candidate)}` : '';
@@ -468,6 +471,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       requestApproved = event === 'APPROVE';
       progressResult = completedResult;
       if (reconciliation) {
+        recordReviewPhase('Verifying earlier findings');
         await progress?.update('Verifying earlier findings', 'Checking the current commit against open review discussions.');
         await reconcileReviewThreads(api, { ...target, number: current.number }, config, current.head.sha, current.base.sha, fetch, threadReconciliationExclusions(reconciliation));
       }

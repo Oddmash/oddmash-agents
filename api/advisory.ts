@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   const delivery = request.headers.get('x-github-delivery') ?? '';
   const target = dedicatedAdvisoryTarget(request.headers.get('x-github-event'), payload, role, config.slug, delivery);
   if (!target) return new Response('Ignored', { status: 200 });
-  const execution = executionContext(role, delivery);
+  const execution = executionContext(role, delivery, 1, target);
   if (process.env.REVIEWER_QUEUE_ENABLED === 'true') {
     let job;
     try { job = createReviewJob(delivery, target, config.secret); } catch { return new Response('Bad request', { status: 400 }); }
