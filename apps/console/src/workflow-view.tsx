@@ -18,7 +18,7 @@ const words = {
     queued: 'Queued', running: 'In progress', failed: 'Failed', stale: 'Stale', skipped: 'Skipped',
     noDetails: 'No retained observations for this stage in the current selection.',
     skip: 'Skip reason', publication: 'Published result', noResult: 'No publication evidence',
-    review: 'Review', comment: 'Comment', detail: 'Execution details'
+    review: 'Review', comment: 'Comment', inlineComment: 'Inline comment', detail: 'Execution details'
   },
   ko: {
     workflow: '리뷰 워크플로우', note: '작업 흐름 템플릿 · 현재 선택에서 관측된 기록이며 하나의 순차 실행을 보장하지 않습니다.',
@@ -32,12 +32,12 @@ const words = {
     queued: '대기 중', running: '진행 중', failed: '검토 실패', stale: '갱신 지연', skipped: '검토 건너뜀',
     noDetails: '현재 선택에서 이 단계의 보관 기록이 없습니다.',
     skip: '건너뜀 사유', publication: '게시 결과', noResult: '게시 기록 없음',
-    review: '리뷰', comment: '댓글', detail: '실행 상세'
+    review: '리뷰', comment: '댓글', inlineComment: '인라인 댓글', detail: '실행 상세'
   }
 } as const;
 
-const tones = { running: 'active', queued: 'info', returned: 'success', failed: 'danger', stale: 'warning', skipped: 'neutral' } as const;
-const order: readonly WorkflowState[] = ['running', 'queued', 'failed', 'stale', 'skipped', 'returned'];
+const tones = { running: 'active', queued: 'info', returned: 'success', failed: 'danger', stale: 'warning', skipped: 'neutral', published: 'success' } as const;
+const order: readonly WorkflowState[] = ['running', 'queued', 'failed', 'stale', 'skipped', 'returned', 'published'];
 const targetUrl = (target: PublicTarget) => 'https://github.com/' + target.repository + '/issues/' + target.number;
 const failureReason = (language: Language, reason: string) => Object.hasOwn(korean, reason) ? translate(language, reason as Message) : translate(language, 'unexpected');
 const skipReasons: Record<string, { en: string; ko: string }> = {
@@ -46,7 +46,8 @@ const skipReasons: Record<string, { en: string; ko: string }> = {
   'request-budget': { en: 'Request budget exhausted', ko: '요청 한도 소진' },
   'time-budget': { en: 'Time budget exhausted', ko: '시간 한도 소진' },
   'target-changed': { en: 'Target revision changed', ko: '대상 변경됨' },
-  'coordination-disabled': { en: 'Coordination disabled', ko: '협업 검토 비활성' }
+  'coordination-disabled': { en: 'Coordination disabled', ko: '협업 검토 비활성' },
+  'not-reached': { en: 'Execution stopped before this stage', ko: '해당 단계에 도달하기 전에 실행 종료' }
 };
 const stateLabel = (language: Language, state: WorkflowState, role?: AgentRole) => state === 'returned' && role === 'triage' ? words[language].triageCompleted : words[language][state];
 const time = (value: string | undefined, language: Language) => value ? new Date(value).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'medium' }) : '—';
@@ -68,7 +69,7 @@ const JobObservation = ({ job, target, language, observedAt }: { job: ObservedJo
       <div><dt>{t('Elapsed')}</dt><dd>{duration === undefined ? '—' : new Intl.NumberFormat(language, { style: 'unit', unit: 'second', maximumFractionDigits: 1 }).format(duration / 1000)}</dd></div>
       {job.failure && <div><dt>{w.failed}</dt><dd>{failureReason(language, job.failure)}</dd></div>}
       {job.skipReason && <div><dt>{w.skip}</dt><dd>{skipReasons[job.skipReason]?.[language] ?? t('Not reported')}</dd></div>}
-      <div><dt>{w.publication}</dt><dd>{job.publication ? <>{job.publication.kind === 'review' ? w.review : w.comment} · {time(job.publication.at, language)} {href && <a href={href} target="_blank" rel="noreferrer">{w.target}</a>}</> : w.noResult}</dd></div>
+      <div><dt>{w.publication}</dt><dd>{job.publication ? <>{job.publication.kind === 'review' ? w.review : job.publication.kind === 'inline-comment' ? w.inlineComment : w.comment} · {time(job.publication.at, language)} {href && <a href={href} target="_blank" rel="noreferrer">{w.target}</a>}</> : w.noResult}</dd></div>
     </dl>
     {job.phaseHistory?.length ? <ol className="phase-history">{job.phaseHistory.map((phase, index) => <li key={phase.timestamp + ':' + index}><span>{t(phase.phase)}</span><time dateTime={phase.timestamp}>{time(phase.timestamp, language)}</time></li>)}</ol> : null}
   </article>;
