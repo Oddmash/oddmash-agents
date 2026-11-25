@@ -252,4 +252,3 @@ aside > p.muted { margin: var(--console-length-6) 0 var(--console-length-26); }
   .execution-summary .review-state { grid-column: 2; grid-row: 1 / span 2; }
 }
 @media (prefers-reduced-motion: reduce) { .activity-spinner { animation: none; } }
-
