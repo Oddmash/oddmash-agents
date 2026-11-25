@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { modelName, parseExecutionEvent, projectJobs, publicTarget } from '@oddmash/agent-operator-contract';
+import { isUnfinishedJob, modelName, parseExecutionEvent, projectJobs, publicTarget } from '@oddmash/agent-operator-contract';
 
 const event = { event: 'oddmash_agent_execution', role: 'reviewer', correlationId: 'a'.repeat(24), attempt: 1, timestamp: '2026-11-25T05:00:00.000Z', outcome: 'queued' };
 
@@ -32,4 +32,11 @@ test('projects only allowlisted fields and never private scope', () => {
   assert.doesNotMatch(JSON.stringify(parsed), /fixture-value/);
   assert.equal(modelName('fixture-value'), null);
   assert.equal(modelName('gpt-5.4'), 'gpt-5.4');
+});
+
+test('unfinished job summary includes stale work but not terminal outcomes', () => {
+  for (const state of ['queued', 'running', 'stale'] as const) assert.equal(isUnfinishedJob({ state }), true);
+  for (const state of ['returned', 'failed'] as const) assert.equal(isUnfinishedJob({ state }), false);
+  const stale = projectJobs([event], Date.parse(event.timestamp) + 361000)[0];
+  assert.equal(isUnfinishedJob(stale), true);
 });
