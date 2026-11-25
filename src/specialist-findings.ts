@@ -74,7 +74,8 @@ function matchingTypeAlias(file: ChangedFile, originalPath: string, rename: { pr
 function contradictedMissingAlias(finding: Finding, file: ChangedFile, files: ChangedFile[]): boolean {
   if (!/\b(?:without|missing|no)\s+(?:an?\s+)?(?:matching\s+)?(?:type\s+)?(?:compatibility\s+)?(?:alias|re-export)\b/i.test(finding.en)) return false;
   const rename = renamedType(file, finding.line);
-  if (!rename || !(finding.en.match(/[A-Za-z_$][\w$]*/g) ?? []).includes(rename.previous)) return false;
+  const identifiers: readonly string[] = finding.en.match(/[A-Za-z_$][\w$]*/g) ?? [];
+  if (!rename || !identifiers.includes(rename.previous)) return false;
   return files.some(candidate => matchingTypeAlias(candidate, file.filename, rename));
 }
 
