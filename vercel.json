@@ -20,5 +20,7 @@
   },
   "git": {
     "deploymentEnabled": false
-  }
+  },
+  "buildCommand": "pnpm --filter @oddmash/agents-console build",
+  "outputDirectory": "apps/console/dist"
 }
