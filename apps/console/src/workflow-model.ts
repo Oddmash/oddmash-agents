@@ -2,8 +2,8 @@ import type { AgentRole, Job, PublicTarget } from '@oddmash/agent-operator-contr
 
 export const specialistRoles = ['impact', 'qa', 'docs', 'architect', 'release'] as const;
 export type WorkflowRole = AgentRole;
-export type WorkflowState = 'running' | 'queued' | 'returned' | 'failed' | 'stale' | 'skipped';
-export type ObservedJob = Job & { skipReason?: string; publication?: { kind: 'review' | 'comment'; at: string; id?: number } };
+export type WorkflowState = 'running' | 'queued' | 'returned' | 'failed' | 'stale' | 'skipped' | 'published';
+export type ObservedJob = Job & { skipReason?: string; publication?: { kind: 'review' | 'comment' | 'inline-comment'; at: string; id?: number } };
 
 export const workflowRoles: readonly WorkflowRole[] = ['triage', 'reviewer', ...specialistRoles];
 
@@ -17,7 +17,7 @@ export const stateCounts = (jobs: readonly ObservedJob[]) => {
   const counts: Partial<Record<WorkflowState, number>> = {};
   for (const job of jobs) {
     const state: string = job.state;
-    if (['running', 'queued', 'returned', 'failed', 'stale', 'skipped'].includes(state)) {
+    if (['running', 'queued', 'returned', 'failed', 'stale', 'skipped', 'published'].includes(state)) {
       const key = state as WorkflowState;
       counts[key] = (counts[key] ?? 0) + 1;
     }
@@ -31,5 +31,5 @@ export const publicationPhaseObserved = (jobs: readonly ObservedJob[]) => jobs.s
 export function publicationLink(target: PublicTarget, job: ObservedJob): string | undefined {
   const result = job.publication;
   if (!result || !Number.isSafeInteger(result.id) || (result.id ?? 0) <= 0) return;
-  return 'https://github.com/' + target.repository + (result.kind === 'review' ? '/pull/' + target.number + '#pullrequestreview-' : '/issues/' + target.number + '#issuecomment-') + result.id;
+  return 'https://github.com/' + target.repository + (result.kind === 'review' ? '/pull/' + target.number + '#pullrequestreview-' : result.kind === 'inline-comment' ? '/pull/' + target.number + '#discussion_r' : '/issues/' + target.number + '#issuecomment-') + result.id;
 }
