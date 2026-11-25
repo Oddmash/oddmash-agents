@@ -211,3 +211,7 @@ aside > p.muted { margin: 6px 0 26px; }
 .control-actions { margin: 12px 0; }
 .control-notice { margin: 12px 0; }
 @media (max-width: 600px) { .control-inputs { grid-template-columns: minmax(0,1fr); } }
+
+.conflict-review { border: 1px solid var(--border); background: var(--background); padding: 16px; border-radius: 8px; margin: 12px 0; }
+.conflict-review p { margin: 6px 0; color: var(--muted); }
+.conflict-review button { margin-top: 10px; }

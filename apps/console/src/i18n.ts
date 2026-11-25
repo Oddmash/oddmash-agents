@@ -1,4 +1,9 @@
 export const korean = {
+  "Latest saved settings": "최근 저장된 설정",
+  "Deployment default": "배포 기본값",
+  "Use my draft": "내 입력값 적용",
+  "Draft confirmed. Save to apply your changes.": "입력값을 확인했습니다. 저장하면 변경이 적용됩니다.",
+  "Unable to reload saved revision. Your draft is retained.": "저장된 버전을 불러오지 못했습니다. 입력값은 유지됩니다.",
   "Keep draft and reload revision": "입력 유지하고 최신 버전 불러오기",
   "Latest revision loaded. Review your draft before saving.": "최신 버전을 불러왔습니다. 저장 전 입력값을 확인하세요.",
   "Runtime controls": "운영 제어",

@@ -4,7 +4,7 @@ import GitHub from '@auth/core/providers/github';
 import { authorizedSessionId, isAuthorizedOwner } from './auth-policy.ts';
 import { operatorStoreConfig, readOperatorStatus, readOperatorControls, saveOperatorControls } from '../../packages/operator-store/src/index.ts';
 
-import { parseOperatorControls } from '../../packages/operator-contract/src/controls.ts';
+import { handleControlWrite } from './control-request.ts';
 
 function owner(id: unknown) { return isAuthorizedOwner(id, process.env.CONSOLE_OWNER_GITHUB_ID); }
 
@@ -71,31 +71,8 @@ consoleApi.post('/api/controls', verifyAuth(), async c => {
   const config = operatorStoreConfig(process.env.OPERATOR_STORE_URL, process.env.OPERATOR_STORE_WRITE_TOKEN);
   if (!config) return c.json({ error: 'Controls unavailable' }, 503);
   try {
-    const length = Number(c.req.header('content-length') ?? 0);
-    if (!Number.isFinite(length) || length > 2048) return c.json({ error: 'Invalid controls' }, 400);
-    const reader = c.req.raw.body?.getReader();
-    if (!reader) return c.json({ error: 'Invalid controls' }, 400);
-    const decoder = new TextDecoder();
-    let raw = '', bytes = 0;
-    try {
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        bytes += chunk.value.byteLength;
-        if (bytes > 2048) { await reader.cancel(); return c.json({ error: 'Invalid controls' }, 400); }
-        raw += decoder.decode(chunk.value, { stream: true });
-      }
-      raw += decoder.decode();
-    } finally { reader.releaseLock(); }
-    let input: unknown;
-    try { input = JSON.parse(raw); } catch { return c.json({ error: 'Invalid controls' }, 400); }
-    if (!input || typeof input !== 'object' || Array.isArray(input)) return c.json({ error: 'Invalid controls' }, 400);
-    const body = input as Record<string, unknown>;
-    const controls = parseOperatorControls(body.controls);
-    const revision = body.revision;
-    if (Object.keys(body).length !== 2 || !controls || revision !== null && (typeof revision !== 'string' || !/^[a-f0-9-]{36}$/.test(revision))) return c.json({ error: 'Invalid controls' }, 400);
-    const result = await saveOperatorControls(config, revision as string | null, controls, String(id));
-    return result ? c.json(result) : c.json({ error: 'Controls changed; reload' }, 409);
+    const result = await handleControlWrite(c.req.raw, (revision, controls) => saveOperatorControls(config, revision, controls, String(id)));
+    return c.json(result.body, result.status);
   } catch { return c.json({ error: 'Controls unavailable' }, 503); }
 });
 consoleApi.onError((error, c) => {

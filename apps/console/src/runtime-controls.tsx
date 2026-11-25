@@ -13,10 +13,11 @@ export const RuntimeControls = ({ language }: { language: Language }) => {
   const [notice, setNotice] = useState<Message | ''>('');
   const [failed, setFailed] = useState<'unavailable' | 'unauthorized' | ''>('');
   const [conflict, setConflict] = useState(false);
+  const [needsReview, setNeedsReview] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    setSaved(undefined); setDraft(undefined); setNotice(''); setFailed(''); setConflict(false);
+    setSaved(undefined); setDraft(undefined); setNotice(''); setFailed(''); setConflict(false); setNeedsReview(false);
     fetch('/api/controls', { cache: 'no-store', signal: controller.signal })
       .then(response => { if (response.status === 401 || response.status === 403) throw new Error('unauthorized'); if (!response.ok) throw new Error('Controls unavailable'); return response.json() as Promise<ControlsRecord>; })
       .then(record => { if (!controller.signal.aborted) { setSaved(record); setDraft(record.controls); } })
@@ -25,7 +26,7 @@ export const RuntimeControls = ({ language }: { language: Language }) => {
   }, [retry]);
   const dirty = Boolean(saved && draft && JSON.stringify(saved.controls) !== JSON.stringify(draft));
   const save = async () => {
-    if (!saved || !draft || busy || !dirty || conflict) return;
+    if (!saved || !draft || busy || !dirty || conflict || needsReview) return;
     setBusy(true); setNotice('');
     try {
       const response = await fetch('/api/controls', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: saved.revision, controls: draft }), cache: 'no-store' });
@@ -46,7 +47,7 @@ export const RuntimeControls = ({ language }: { language: Language }) => {
       if (!response.ok) throw new Error('Controls unavailable');
       const record = await response.json() as ControlsRecord;
       setSaved(record); setConflict(false); setNotice('Latest revision loaded. Review your draft before saving.');
-    } catch { setNotice('Unable to save runtime controls. Your draft is retained.'); }
+    } catch { setNotice('Unable to reload saved revision. Your draft is retained.'); }
     finally { setBusy(false); }
   };
   return <Card className="settings-panel runtime-controls">
@@ -63,7 +64,8 @@ export const RuntimeControls = ({ language }: { language: Language }) => {
           <label>{t("Maximum seconds (blank uses deployment default)")}<input type="number" min="0" max="120" step="1" value={draft.maxMs === null ? '' : draft.maxMs / 1000} onChange={event => setDraft({ ...draft, maxMs: event.target.value === '' ? null : event.target.valueAsNumber * 1000 })}/></label></div>
         </fieldset>
         <p className="muted">{t("Limits are capped by deployment settings. Changes apply to future jobs only.")}</p>
-        <div className="control-actions"><Button type="submit" disabled={!dirty || busy || conflict}>{t(busy ? "Saving…" : "Save changes")}</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => setDraft(defaultControls())}>{t("Restore defaults")}</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => setRetry(value => value + 1)}>{t("Reload saved settings")}</Button>{conflict && <Button type="button" variant="secondary" disabled={busy} onClick={() => void reloadRevision()}>{t("Keep draft and reload revision")}</Button>}</div>
+        {needsReview && saved && <div className="conflict-review"><h3>{t("Latest saved settings")}</h3><p>{t("Pause coordinated specialists")}: {t(saved.controls.paused ? "Enabled" : "Disabled")}</p><p>{t("Participation")}: {optionalRoles.filter(role => !saved.controls.excludedRoles.includes(role)).map(role => roleNames[role]).join(', ') || t("Disabled")}</p><p>{t("Review limits")}: {saved.controls.maxRequests ?? t("Deployment default")} / {saved.controls.maxMs === null ? t("Deployment default") : saved.controls.maxMs / 1000 + 's'}</p><Button type="button" variant="secondary" disabled={busy} onClick={() => { setNeedsReview(false); setNotice('Draft confirmed. Save to apply your changes.'); }}>{t("Use my draft")}</Button></div>}
+        <div className="control-actions"><Button type="submit" disabled={!dirty || busy || conflict || needsReview}>{t(busy ? "Saving…" : "Save changes")}</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => setDraft(defaultControls())}>{t("Restore defaults")}</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => setRetry(value => value + 1)}>{t("Reload saved settings")}</Button>{conflict && <Button type="button" variant="secondary" disabled={busy} onClick={() => void reloadRevision()}>{t("Keep draft and reload revision")}</Button>}</div>
         {notice && <p role="status" className="control-notice">{t(notice)}</p>}
         {saved?.updatedAt && <small className="muted">{t("Updated")}: {new Date(saved.updatedAt).toLocaleString(language)}</small>}
       </form>}

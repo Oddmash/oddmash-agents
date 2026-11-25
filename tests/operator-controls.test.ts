@@ -38,3 +38,18 @@ test('controls store returns default or validated records and writes atomic revi
   assert.equal(await saveOperatorControls(config, null, defaultControls(), '123', async () => Response.json([{ result: 0 }])), null);
   await assert.rejects(readOperatorControls(config, async () => Response.json([{ result: 'invalid' }])));
 });
+
+test('canonical control write handler preserves the revision and signals conflict', async () => {
+  const { handleControlWrite } = await import('../apps/console/control-request.ts');
+  const controls = { ...defaultControls(), maxRequests: 2 };
+  const request = () => new Request('https://console.example.test/api/controls', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ controls, revision: null }) });
+  const response = await handleControlWrite(request(), async (revision, value) => {
+    assert.equal(revision, null);
+    assert.deepEqual(value, controls);
+    return { revision: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', controls: value, updatedAt: '2026-01-01T00:00:00Z' };
+  });
+  assert.equal(response.status, 200);
+  assert.equal(await handleControlWrite(request(), async () => null).then(value => value.status), 409);
+  const invalid = new Request('https://console.example.test/api/controls', { method: 'POST', body: JSON.stringify({ controls: { ...controls, autoMerge: true }, revision: null }) });
+  assert.equal((await handleControlWrite(invalid, async () => { throw new Error('must not write'); })).status, 400);
+});
