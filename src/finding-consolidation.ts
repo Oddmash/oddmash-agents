@@ -3,7 +3,7 @@ import { sameFindingText } from './specialist-findings.ts';
 
 function repeatedEvidenceKey(line: string): string {
   const namedImport = /\bimport\s*\{([^{}]+)\}\s*from\s*['"]([^'"\r\n]+)['"]/.exec(line);
-  if (namedImport) return 'import:' + namedImport[1].trim().replace(/\s+/g, ' ') + ':' + namedImport[2];
+  if (namedImport) return 'import:' + namedImport[1].split(',').map(specifier => specifier.trim().replace(/\s+/g, ' ')).filter(Boolean).sort().join(',') + ':' + namedImport[2];
   const normalized = line.trim();
   return normalized.length >= 30 ? 'line:' + normalized : '';
 }
