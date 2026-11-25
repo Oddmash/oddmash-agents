@@ -77,3 +77,11 @@ export function parseWorkerSettings(input: unknown): WorkerSettings | undefined 
 export function isUnfinishedJob(job: Pick<Job, 'state'>): boolean {
   return job.state === 'queued' || job.state === 'running' || job.state === 'stale';
 }
+
+export function jobElapsedMs(job: Job, observedAt: string): number | undefined {
+  if (job.durationMs !== undefined) return job.durationMs;
+  if (!isUnfinishedJob(job)) return undefined;
+  const start = Date.parse(job.startedAt ?? job.updatedAt);
+  const now = Date.parse(observedAt);
+  return Number.isFinite(start) && Number.isFinite(now) ? Math.max(0, now - start) : undefined;
+}
