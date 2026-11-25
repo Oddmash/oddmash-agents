@@ -1,5 +1,6 @@
 import { checksPassed, isMaintainerReviewAuthor, type ReviewDecision } from './core.ts';
 import { progressCheckName } from './review-progress.ts';
+import { githubRequest } from './github-request.ts';
 export type Check = { id?: number; name: string; status: string; conclusion: string | null; app?: { id: number }; check_suite?: { id: number } };
 export type CheckEvidence = { total_count?: number; check_runs: Check[]; workflowPending?: boolean };
 type WorkflowRun = {
@@ -26,7 +27,7 @@ export function publicReviewCheckReader(root: string, number: number, read: (sha
     if (!candidates.length) return evidence;
 
     // Lead's installation token does not have Actions permission. This reader is only used for public repositories.
-    const runs = await request(`https://api.github.com${root}/actions/runs?head_sha=${sha}&per_page=100`, {
+    const runs = await githubRequest(request, `${root}/actions/runs?head_sha=${sha}&per_page=100`, {
       headers: { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
       redirect: 'error', signal: AbortSignal.timeout(5000)
     }).then(response => response.ok ? response.json() as Promise<WorkflowRuns> : null).catch(() => null);
