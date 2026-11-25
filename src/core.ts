@@ -109,7 +109,7 @@ export function patchComplete(file: ChangedFile): boolean {
   return sawHunk && oldRemaining === 0 && newRemaining === 0 && (file.additions === undefined || additions === file.additions) && (file.deletions === undefined || deletions === file.deletions);
 }
 
-export type OmissionReason = 'protected' | 'private-policy' | 'sensitive' | 'image' | 'lockfile' | 'missing-patch' | 'incomplete-patch' | 'budget' | 'file-limit' | 'pagination' | 'file-list-metadata';
+export type OmissionReason = 'protected' | 'private-policy' | 'sensitive' | 'image' | 'lockfile' | 'missing-patch' | 'incomplete-patch' | 'budget' | 'file-limit' | 'pagination' | 'file-list-metadata' | 'guidance-unavailable';
 export type OmissionDetail = { reason: OmissionReason; path?: string; count?: number };
 
 export function selectFiles(files: ChangedFile[], budget = 45_000, privateReview = false, purpose: 'strict' | 'quality' = 'strict'): { files: ChangedFile[]; omitted: string[]; omissionDetails: OmissionDetail[] } {
@@ -274,6 +274,7 @@ const omissionActions: Record<OmissionReason, [string, string]> = {
   budget: ['Review size budget exceeded; inspect the remaining changes and relevant regression tests.', '리뷰 분량 제한을 초과했습니다. 남은 변경 사항과 관련 회귀 테스트를 확인하세요.'],
   'file-limit': ['Review file limit reached; inspect remaining files and their relevant tests.', '리뷰 파일 수 제한에 도달했습니다. 남은 파일과 관련 테스트를 확인하세요.'],
   pagination: ['Files beyond the fetched page were not reviewed; inspect the remaining Files changed entries.', '조회한 페이지 이후의 파일은 검토되지 않았습니다. Files changed의 나머지 파일을 확인하세요.'],
+  'guidance-unavailable': ['Organization guidance could not be retrieved; verify the applicable policy before approval.', '조직 지침을 가져오지 못했습니다. 승인 전에 적용 정책을 확인하세요.'],
   'file-list-metadata': ['GitHub file-list metadata was missing or inconsistent; confirm the complete Files changed listing before approval.', 'GitHub 변경 파일 목록의 메타데이터가 없거나 일치하지 않습니다. 승인 전에 Files changed 전체 목록을 확인하세요.']
 };
 
