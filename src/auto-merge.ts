@@ -57,7 +57,7 @@ export async function repositoryMergeOptIn(api: Api, repository: string): Promis
 }
 
 const sourceRoots: Record<string, RegExp> = {
-  'Oddmash/kowrap': /^(?:src|site\/(?:app|components|lib))\//,
+  'Oddmash/juliya': /^(?:src|site\/(?:app|components|lib))\//,
   'Oddmash/oddmash-ui': /^(?:src|demo)\//,
   'Oddmash/interaction-inspector': /^(?:src|demo)\//,
   'Oddmash/Vertactics': /^apps\/(?:editor\/src|landing\/app)\//,
@@ -65,7 +65,7 @@ const sourceRoots: Record<string, RegExp> = {
   'Oddmash/oddmash-website': /^dist\/(?:[^/]+)$/,
 };
 const testRoots: Record<string, RegExp> = {
-  'Oddmash/kowrap': /^(?:test|site\/test)\//,
+  'Oddmash/juliya': /^(?:test|site\/test)\//,
   'Oddmash/oddmash-ui': /^tests\//,
   'Oddmash/interaction-inspector': /^tests\//,
   'Oddmash/Vertactics': /^apps\/editor\/tests\//,
