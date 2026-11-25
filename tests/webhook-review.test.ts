@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { acquirePendingReview, attachReviewFindings, attachReviewFindingsWithCoverage, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock, ownsPendingReview, reviewWebhook } from '../src/webhook-review.ts';
+import { acquirePendingReview, attachReviewFindings, attachReviewFindingsWithCoverage, canRetryApprovedMerge, existingAdvisoryReview, hasOfficialReview, reviewFingerprint, expiredWebhookLock, ownsPendingReview, publishCoordinatedFindings, reviewWebhook } from '../src/webhook-review.ts';
 import { githubApi, route } from '../src/webhook.ts';
 
 const path = '/repos/Oddmash/example/pulls/1';
@@ -355,7 +355,7 @@ test('coordinated reviews publish only after all selected specialists finish', a
   const target = { installation: 3, repository: repository.full_name, repositoryId: repository.id, number: 1, expectedHead: head };
   const config = { appId: '42', key, slug: 'oddmash-reviewer', openaiKey: 'lead', model: 'fixture' };
   await reviewWebhook(target, config);
-  assert.deepEqual(events, ['assessed lead', 'assessed qa', 'assessed docs', 'published lead', 'published qa', 'published docs']);
+  assert.deepEqual(events, ['assessed lead', 'assessed qa', 'assessed docs', 'published qa', 'published docs', 'published lead']);
   events.length = 0;
   const recheck = { ...target, recheck: 'fixture-recheck' };
   await reviewWebhook(recheck, config);
@@ -489,4 +489,30 @@ test('simultaneous pending reviews elect only the oldest owned lock and fail clo
   assert.equal(ownsPendingReview([lock(42), { ...lock(44), body: 'unrelated pending review' }], bot, head, 42), false);
   assert.equal(ownsPendingReview([lock(42), { ...lock(44), commit_id: 'b'.repeat(40) }], bot, head, 42), false);
   assert.equal(ownsPendingReview(Array.from({ length: 100 }, (_, i) => lock(i + 42)), bot, head, 42), false);
+});
+
+
+test('specialist publication failure falls back to Lead and grouped advice retains coverage', async () => {
+  const anchor = { path: 'docs/example.md', line: 1, side: 'RIGHT' as const };
+  const text = 'Verify the standalone example uses the published public export.';
+  const finding = { ...anchor, body: `<!-- oddmash-finding:${'a'.repeat(24)} -->\n**ADVISORY / MEDIUM: ${text}**` };
+  let specialistPublished = false;
+  let leadAttachments = 0;
+  const api = githubApi('fixture-token', async url => {
+    const endpoint = new URL(String(url)).pathname;
+    if (endpoint === path + '/comments') return Response.json(specialistPublished ? [
+      { ...anchor, commit_id: head, user: { login: 'oddmash-docs[bot]', type: 'Bot' }, body: `<!-- oddmash-finding:${'b'.repeat(24)} -->\n${text}` }
+    ] : []);
+    if (endpoint === path + '/reviews/42') return Response.json({ id: 42, node_id: 'PRR_fixture', state: 'PENDING', user: { login: bot }, commit_id: head, body: '<!-- oddmash-review-lock -->' });
+    assert.equal(endpoint, '/graphql');
+    leadAttachments++;
+    return Response.json({ data: { finding0: { thread: { id: 'fixture' } } } });
+  });
+  await publishCoordinatedFindings([{ publish: async () => { throw new Error('fixture failure'); } }]);
+  assert.deepEqual(await attachReviewFindingsWithCoverage(api, path, 42, head, bot, [finding]), { attached: 1, covered: true });
+  await publishCoordinatedFindings([{ publish: async () => { specialistPublished = true; } }]);
+  assert.deepEqual(await attachReviewFindingsWithCoverage(api, path, 42, head, bot, [finding]), { attached: 0, covered: true });
+  const grouped = { ...finding, body: finding.body + '\n<!-- oddmash-grouped-finding -->\nRelated: README.md' };
+  assert.deepEqual(await attachReviewFindingsWithCoverage(api, path, 42, head, bot, [grouped]), { attached: 1, covered: true });
+  assert.equal(leadAttachments, 2);
 });

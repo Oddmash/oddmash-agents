@@ -125,6 +125,7 @@ const pathFor = (target: Target) => `/repos/${target.repository}/pulls/${target.
 const eligiblePull = (pr: Pull, target: Target) => pr.state === 'open' && !pr.draft && pr.base.repo.full_name === target.repository && pr.base.repo.id === target.repositoryId && pr.base.repo.private === Boolean(target.private) && sha.test(pr.head.sha) && sha.test(pr.base.sha) && (!target.expectedHead || pr.head.sha === target.expectedHead);
 
 async function correctionPatch(api: Api, target: Target, original: Comment, path: string, head: string): Promise<ChangedFile | undefined> {
+  if (original.body.includes('<!-- oddmash-grouped-finding -->')) return;
   const before = originalHead(original);
   if (!before || !sha.test(before) || before === head) return;
   const result = await api<{ status: string; merge_base_commit?: { sha: string }; files?: ChangedFile[] }>(`/repos/${target.repository}/compare/${before}...${head}?per_page=1&page=1`)
