@@ -16,7 +16,6 @@ const messages = {
   "Model settings saved for future jobs.": "이후 실행에 적용할 모델 설정을 저장했습니다.",
   "Unable to save model settings. Your draft is retained.": "모델 설정을 저장하지 못했습니다. 입력값은 유지됩니다.",
   "Model settings changed in another session. Reload before saving.": "다른 세션에서 모델 설정이 변경되었습니다. 입력을 유지하고 최신 설정을 확인하세요.",
-  "Reload latest model settings or discard your local choices.": "최신 모델 설정을 불러오거나 내 변경을 취소하세요.",
 } as const;
 
 export const ModelSettings = ({ language }: { language: Language }) => {
@@ -24,24 +23,24 @@ export const ModelSettings = ({ language }: { language: Language }) => {
   const [saved, setSaved] = useState<OperatorModelsResponse>();
   const [draft, setDraft] = useState<ModelOverrides>();
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<'unavailable' | 'unauthorized' | ''>('');
   const [retry, setRetry] = useState(0);
   const [conflict, setConflict] = useState(false);
   const [review, setReview] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<keyof typeof messages | ''>('');
   const dirty = !!(saved && draft && modelRoles.some(role => saved.overrides[role] !== draft[role]));
   const valid = !!(draft && saved && approvedModelOverrides(draft, saved.policy));
   const approvedAlternates = !!(saved && modelRoles.some(role => saved.policy[role].allowed.length));
 
   useEffect(() => {
     const controller = new AbortController();
-    setFailed(false);
+    setFailed('');
     setSaved(undefined);
     setDraft(undefined);
     fetch('/api/models', { signal: controller.signal, cache: 'no-store' })
-      .then(response => { if (!response.ok) throw new Error('Model settings unavailable'); return response.json() as Promise<OperatorModelsResponse>; })
+      .then(response => { if (response.status === 401 || response.status === 403) throw new Error('unauthorized'); if (!response.ok) throw new Error('Model settings unavailable'); return response.json() as Promise<OperatorModelsResponse>; })
       .then(value => { if (!controller.signal.aborted) { setSaved(value); setDraft(value.overrides); setNotice(''); setConflict(false); setReview(false); } })
-      .catch(() => { if (!controller.signal.aborted) setFailed(true); });
+      .catch(error => { if (!controller.signal.aborted) setFailed(error instanceof Error && error.message === 'unauthorized' ? 'unauthorized' : 'unavailable'); });
     return () => controller.abort();
   }, [retry]);
 
@@ -57,11 +56,11 @@ export const ModelSettings = ({ language }: { language: Language }) => {
     setBusy(true); setNotice('');
     try {
       const response = await fetch('/api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: saved.revision, overrides: draft }), cache: 'no-store' });
-      if (response.status === 409) { setConflict(true); setNotice(t('Model settings changed in another session. Reload before saving.')); return; }
+      if (response.status === 409) { setConflict(true); setNotice('Model settings changed in another session. Reload before saving.'); return; }
       if (!response.ok) throw new Error('Model settings unavailable');
       const record = await response.json() as OperatorModelsResponse;
-      setSaved(record); setDraft(record.overrides); setNotice(t('Model settings saved for future jobs.'));
-    } catch { setNotice(t('Unable to save model settings. Your draft is retained.')); }
+      setSaved(record); setDraft(record.overrides); setNotice('Model settings saved for future jobs.');
+    } catch { setNotice('Unable to save model settings. Your draft is retained.'); }
     finally { setBusy(false); }
   };
 
@@ -73,14 +72,14 @@ export const ModelSettings = ({ language }: { language: Language }) => {
       if (!response.ok) throw new Error('Model settings unavailable');
       const record = await response.json() as OperatorModelsResponse;
       setSaved(record); setConflict(false); setReview(true); setNotice('');
-    } catch { setNotice(t('Unable to save model settings. Your draft is retained.')); }
+    } catch { setNotice('Unable to save model settings. Your draft is retained.'); }
     finally { setBusy(false); }
   };
 
   return <Card className="settings-panel runtime-controls">
     <h3>{t('Agent models')}</h3>
     <p className="muted">{t('Choose a deployment-approved model for future webhook and queued jobs. Defaults follow deployment configuration.')}</p>
-    {failed ? <><Alert tone="danger">{t('Model selection unavailable.')}</Alert><Button variant="secondary" onClick={() => setRetry(value => value + 1)}>{translate(language, 'Refresh')}</Button></> : !saved || !draft ? <ConsoleSkeleton view="controls" language={language}/> : <>
+    {failed ? <><Alert tone="danger">{failed === 'unauthorized' ? translate(language, 'Session expired. Sign in again.') : t('Model selection unavailable.')}</Alert><Button variant="secondary" onClick={() => setRetry(value => value + 1)}>{translate(language, 'Refresh')}</Button></> : !saved || !draft ? <ConsoleSkeleton view="controls" language={language}/> : <>
       {!approvedAlternates && <p className="muted">{t('No alternate models are approved for this deployment.')}</p>}
       <fieldset disabled={busy}>
         <legend>{t('Agent models')}</legend>
@@ -110,7 +109,7 @@ export const ModelSettings = ({ language }: { language: Language }) => {
         }}>{translate(language, 'Discard changes')}</Button>}
         {!dirty && !conflict && !review && <Button variant="secondary" disabled={busy} onClick={() => setRetry(n => n + 1)}>{translate(language, 'Reload saved settings')}</Button>}
       </div>
-      {notice && <p role="status" className="control-notice">{notice}</p>}
+      {notice && <p role="status" className="control-notice">{t(notice)}</p>}
       {saved.updatedAt && <small className="muted">{translate(language, 'Updated')}: {new Date(saved.updatedAt).toLocaleString(language)}</small>}
     </>}
   </Card>;
