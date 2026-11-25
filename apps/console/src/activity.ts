@@ -22,3 +22,15 @@ export function activitySummary(jobs: readonly Job[]) {
 export function filterActivity(jobs: readonly Job[], filter: ActivityFilter): Job[] {
   return jobs.filter(job => (filter.role === 'all' || job.role === filter.role) && (filter.state === 'all' || job.state === filter.state));
 }
+
+export function groupActivity(jobs: readonly Job[]) {
+  const groups = new Map<string, { key: string; target: Job['target']; jobs: Job[] }>();
+  const priority = (job: Job) => job.state === 'running' || job.state === 'queued' ? 0 : job.state === 'failed' || job.state === 'stale' ? 1 : 2;
+  for (const job of jobs) {
+    const key = job.target ? job.target.repository.toLowerCase() + '#' + job.target.number : 'unreported';
+    const group = groups.get(key) ?? { key, target: job.target, jobs: [] };
+    group.jobs.push(job);
+    groups.set(key, group);
+  }
+  return [...groups.values()].map(group => ({ ...group, jobs: group.jobs.sort((a, b) => priority(a) - priority(b) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt)) })).sort((a, b) => priority(a.jobs[0]) - priority(b.jobs[0]) || Date.parse(b.jobs[0].updatedAt) - Date.parse(a.jobs[0].updatedAt));
+}
