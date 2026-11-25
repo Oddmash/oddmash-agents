@@ -1,7 +1,7 @@
 import { roles, type AgentRole, type Job, type JobState } from '@oddmash/agent-operator-contract';
 
 export const jobStates = ['queued', 'running', 'returned', 'failed', 'stale'] as const;
-export type ActivityFilter = { role: AgentRole | 'all'; state: JobState | 'all' };
+export type ActivityFilter = { role: AgentRole | 'all'; state: JobState | 'all'; repository?: string; day?: string };
 
 export function activitySummary(jobs: readonly Job[]) {
   const counts = { queued: 0, running: 0, returned: 0, failed: 0, stale: 0 };
@@ -20,7 +20,7 @@ export function activitySummary(jobs: readonly Job[]) {
 }
 
 export function filterActivity(jobs: readonly Job[], filter: ActivityFilter): Job[] {
-  return jobs.filter(job => (filter.role === 'all' || job.role === filter.role) && (filter.state === 'all' || job.state === filter.state));
+  return jobs.filter(job => (filter.role === 'all' || job.role === filter.role) && (filter.state === 'all' || job.state === filter.state) && (!filter.repository || filter.repository === 'all' || repositoryKey(job) === filter.repository) && (!filter.day || filter.day === 'all' || localDay(job.updatedAt) === filter.day));
 }
 
 export function groupActivity(jobs: readonly Job[]) {
@@ -50,4 +50,30 @@ export function reviewOverview(groups: ReturnType<typeof groupActivity>, limit =
     identifiedCount: identified.length,
     unattributedCount: groups.filter(group => !group.target).reduce((total, group) => total + group.jobs.length, 0)
   };
+}
+
+export const repositoryKey = (job: Job) => job.target?.repository.toLowerCase() ?? 'unreported';
+
+export function localDay(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return '';
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+}
+
+export function activityDays(jobs: readonly Job[]): string[] {
+  return [...new Set(jobs.map(job => localDay(job.updatedAt)).filter(Boolean))].sort().reverse();
+}
+
+export function repositoryActivity(jobs: readonly Job[]) {
+  const repositories = new Map<string, { key: string; repository?: string; jobs: Job[]; active: number; failed: number; latest: number }>();
+  for (const job of jobs) {
+    const key = repositoryKey(job);
+    const row = repositories.get(key) ?? { key, repository: job.target?.repository, jobs: [], active: 0, failed: 0, latest: 0 };
+    row.jobs.push(job);
+    if (job.state === 'running' || job.state === 'queued') row.active++;
+    if (job.state === 'failed') row.failed++;
+    row.latest = Math.max(row.latest, Date.parse(job.updatedAt));
+    repositories.set(key, row);
+  }
+  return [...repositories.values()].sort((a, b) => Number(!a.repository) - Number(!b.repository) || b.active - a.active || b.latest - a.latest || a.key.localeCompare(b.key));
 }
