@@ -110,3 +110,9 @@ export const localizedUrl = (href: string, language: Language): URL => {
   url.searchParams.set('lang', language);
   return url;
 };
+
+export const localizedCallback = (origin: string, hash: string, language: Language): string => {
+  const url = localizedUrl(origin, language);
+  if (['#overview', '#activity', '#usage', '#settings'].includes(hash)) url.hash = hash;
+  return url.href;
+};
