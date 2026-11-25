@@ -35,6 +35,24 @@ const boundraSiteJobs = {
   'verify-example': 'skipped', 'verify-runtime': 'skipped', 'verify-cli-platforms': 'skipped',
   'benchmark-smoke': 'skipped', 'release-notes': 'skipped'
 } as const;
+const boundraScopedProfiles: Readonly<Record<string, string>>[] = [
+  boundraSiteJobs,
+  ...['skipped', 'success'].flatMap((notes): Readonly<Record<string, string>>[] => [
+    {
+      scope: 'success', 'contribution / scope': 'success', verify: 'success',
+      'verify-example': 'success', 'verify-runtime': 'skipped',
+      'verify-cli-platforms (ubuntu-24.04)': 'success', 'verify-cli-platforms (macos-15)': 'success',
+      'verify-cli-platforms (macos-15-intel)': 'success', 'verify-cli-platforms (windows-2025)': 'success',
+      'benchmark-smoke': 'success', 'release-notes': notes
+    },
+    {
+      scope: 'success', 'contribution / scope': 'success', verify: 'success',
+      'verify-example': 'success', 'verify-cli-platforms': 'skipped', 'benchmark-smoke': 'skipped',
+      'verify-runtime (20)': 'success', 'verify-runtime (22)': 'success', 'verify-runtime (24)': 'success',
+      'release-notes': notes
+    }
+  ])
+];
 const boundraPagesJobs = { validate: 'success', deploy: 'skipped' } as const;
 
 const publicJson = <T>(request: typeof fetch, path: string): Promise<T | null> =>
@@ -50,27 +68,27 @@ const suiteMatches = (checks: Check[], suite: number, expected: Readonly<Record<
     jobs.filter(job => (job.name === name || job.name === prefix + ' / ' + name) && job.status === 'completed' && job.conclusion === conclusion).length === 1);
 };
 
-async function verifiedBoundraSiteScope(root: string, number: number, sha: string, evidence: CheckEvidence, request: typeof fetch, source?: PullSource): Promise<boolean> {
+async function verifiedBoundraScope(root: string, number: number, sha: string, evidence: CheckEvidence, request: typeof fetch, source?: PullSource): Promise<boolean> {
   if (root !== '/repos/' + boundraRepository || !source || source.head.repo?.id !== boundraRepositoryId ||
       source.head.repo.owner?.login !== 'Oddmash' || !source.head.ref || !source.merge || !/^[a-f0-9]{40}$/.test(source.merge) ||
       !/^[a-f0-9]{40}$/.test(source.head.sha) || ![source.head.sha, source.merge].includes(sha) ||
       evidence.workflowPending || evidence.total_count !== evidence.check_runs.length) return false;
   const suites = [...new Set(evidence.check_runs.flatMap(check =>
     check.app?.id === actionsApp && Number.isSafeInteger(check.check_suite?.id) && check.check_suite!.id > 0 ? [check.check_suite!.id] : []))];
-  const ci = suites.filter(suite => suiteMatches(evidence.check_runs, suite, boundraSiteJobs, 'CI'));
+  const ci = suites.filter(suite => boundraScopedProfiles.some(profile => suiteMatches(evidence.check_runs, suite, profile, 'CI')));
   const pages = suites.filter(suite => suiteMatches(evidence.check_runs, suite, boundraPagesJobs, 'Deploy Pages'));
-  if (ci.length !== 1 || pages.length !== 1 || ci[0] === pages[0]) return false;
+  if (!ci.length || !pages.length) return false;
   const runs = await publicJson<WorkflowRuns>(request, root + '/actions/runs?head_sha=' + source.head.sha + '&per_page=100');
   if (!Array.isArray(runs?.workflow_runs) || runs.total_count !== runs.workflow_runs.length) return false;
-  const isLatest = (workflow: number, suite: number) => {
+  const isLatest = (workflow: number, candidates: number[]) => {
     const related = runs.workflow_runs.filter(run => run.workflow_id === workflow && run.head_sha === source.head.sha && run.event === 'pull_request');
     if (!related.length || related.some(run => !Number.isSafeInteger(run.run_number) || run.pull_requests?.length !== 1 ||
       run.pull_requests[0].number !== number || run.head_repository?.id !== boundraRepositoryId || run.head_branch !== source.head.ref)) return false;
     const latest = Math.max(...related.map(run => run.run_number));
     const current = related.filter(run => run.run_number === latest);
-    return current.length === 1 && current[0].check_suite_id === suite && current[0].status === 'completed' && current[0].conclusion === 'success';
+    return current.length === 1 && candidates.includes(current[0].check_suite_id) && current[0].status === 'completed' && current[0].conclusion === 'success';
   };
-  if (!isLatest(boundraCI, ci[0]) || !isLatest(boundraPages, pages[0])) return false;
+  if (!isLatest(boundraCI, ci) || !isLatest(boundraPages, pages)) return false;
   const blobs = await Promise.all(Object.entries(boundraScopeContract).map(async ([path, expected]) => {
     const item = await publicJson<{ type?: string; sha?: string }>(request, root + '/contents/' + path + '?ref=' + source.merge);
     return item?.type === 'file' && item.sha === expected;
@@ -89,7 +107,7 @@ export function reviewChecksMayStart(evidence: CheckEvidence, repository?: strin
 
 export const scopedAdvisoryNote = (evidence: CheckEvidence, repository?: string): string =>
   reviewChecksAreScopedAdvisory(evidence, repository)
-    ? '\n\nSite-only CI scope verified against the pinned workflow contract. This is an advisory review only; full-matrix approval and automatic merge remain unavailable.\n\n검증된 사이트 전용 CI 범위입니다. 참고 리뷰만 제공하며 전체 매트릭스 승인 및 자동 머지는 적용되지 않습니다.'
+    ? '\n\nApplicable CI scope verified against the pinned workflow contract. This is an advisory review only; full-matrix approval and automatic merge remain unavailable.\n\n검증된 적용 대상 CI 범위입니다. 참고 리뷰만 제공하며 전체 매트릭스 승인 및 자동 머지는 적용되지 않습니다.'
     : '';
 
 
@@ -100,7 +118,7 @@ export function publicReviewCheckReader(root: string, number: number, read: (sha
     const actions = evidence.check_runs.filter(check => check.app?.id === actionsApp && check.check_suite?.id);
     const candidates = actions.filter(check => check.status === 'completed' && ['cancelled', 'failure'].includes(check.conclusion ?? ''));
     if (!candidates.length) {
-      if (!await verifiedBoundraSiteScope(root, number, sha, evidence, request, source)) return evidence;
+      if (!await verifiedBoundraScope(root, number, sha, evidence, request, source)) return evidence;
       const scoped = { ...evidence };
       scopedBoundraReviews.add(scoped);
       return scoped;
@@ -152,7 +170,7 @@ export function publicReviewCheckReader(root: string, number: number, read: (sha
     }
     const check_runs = evidence.check_runs.filter(check => check.app?.id !== actionsApp || !superseded.has(check.check_suite?.id ?? 0));
     const result = { total_count: check_runs.length, check_runs, ...(workflowPending ? { workflowPending } : {}) };
-    if (await verifiedBoundraSiteScope(root, number, sha, result, request, source)) scopedBoundraReviews.add(result);
+    if (await verifiedBoundraScope(root, number, sha, result, request, source)) scopedBoundraReviews.add(result);
     return result;
   };
 }

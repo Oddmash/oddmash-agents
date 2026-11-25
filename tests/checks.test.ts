@@ -279,6 +279,49 @@ test('Boundra site-only exact-head scoped CI can start only an advisory review; 
   assert.equal(reviewChecksAreScopedAdvisory({ ...scoped }, scopedRepository), false);
 });
 
+test('Boundra verified CLI and runtime scopes start neutral review without full matrix approval', async () => {
+  for (const notes of ['skipped', 'success']) {
+    for (const cli of [true, false]) {
+      const jobs = scopedJobs.filter(job => job.name !== (cli ? 'verify-cli-platforms' : 'verify-runtime')).map(job => {
+        if (job.name === 'verify-example' || (cli && job.name === 'benchmark-smoke')) return { ...job, conclusion: 'success' };
+        if (job.name === 'release-notes') return { ...job, conclusion: notes };
+        return job;
+      });
+      const matrix = cli
+        ? ['ubuntu-24.04', 'macos-15', 'macos-15-intel', 'windows-2025'].map(os => 'verify-cli-platforms (' + os + ')')
+        : ['20', '22', '24'].map(node => 'verify-runtime (' + node + ')');
+      jobs.push(...matrix.map(name => scopeJob(10, name, 'success')));
+      const evidence = await evaluateScoped({ jobs });
+      assert.equal(reviewChecksMayStart(evidence, scopedRepository), true);
+      assert.equal(reviewChecksSuccessful(evidence, scopedRepository), false);
+      assert.equal(finalReviewEvent('APPROVE', evidence, scopedRepository), 'COMMENT');
+      assert.equal(shouldReconcilePendingChecks(evidence, scopedHead, scopedHead, true, scopedRepository), false);
+      for (const name of matrix) {
+        const incomplete = await evaluateScoped({ jobs: jobs.filter(job => job.name !== name) });
+        assert.equal(reviewChecksMayStart(incomplete, scopedRepository), false);
+        assert.equal(finalReviewEvent('APPROVE', incomplete, scopedRepository), null);
+      }
+    }
+  }
+});
+
+test('Boundra scoped review selects the latest successful associated suite', async () => {
+  const latestCI: Check[] = scopedJobs.filter(job => job.check_suite?.id === 10 && job.name !== 'verify-runtime').map(job => ({
+    ...job, check_suite: { id: 12 }, conclusion: job.name === 'verify-example' ? 'success' : job.conclusion
+  }));
+  latestCI.push(...['20', '22', '24'].map(node => scopeJob(12, 'verify-runtime (' + node + ')', 'success')));
+  const latestPages = scopedJobs.filter(job => job.check_suite?.id === 11).map(job => ({ ...job, check_suite: { id: 13 } }));
+  const jobs = [...scopedJobs, ...latestCI, ...latestPages];
+  const runs = [...scopedRuns, { ...scopedRuns[0], run_number: 214, check_suite_id: 12 }, { ...scopedRuns[1], run_number: 214, check_suite_id: 13 }];
+  const evidence = await evaluateScoped({ jobs, runs });
+  assert.equal(reviewChecksAreScopedAdvisory(evidence, scopedRepository), true);
+  assert.equal(finalReviewEvent('APPROVE', evidence, scopedRepository), 'COMMENT');
+  const incompleteLatest = await evaluateScoped({ jobs: jobs.filter(job => !(job.check_suite?.id === 12 && job.name === 'verify')), runs });
+  assert.equal(reviewChecksMayStart(incompleteLatest, scopedRepository), false);
+  const incompletePages = await evaluateScoped({ jobs: jobs.filter(job => !(job.check_suite?.id === 13 && job.name === 'validate')), runs });
+  assert.equal(reviewChecksMayStart(incompletePages, scopedRepository), false);
+});
+
 test('Boundra scoped review refuses missing, pending, untrusted or mixed suite evidence', async () => {
   const variations = [
     scopedJobs.slice(1),
