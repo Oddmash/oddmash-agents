@@ -2,8 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { authorizedSessionId } from '../apps/console/auth-policy.ts';
 import { consoleApi } from '../apps/console/auth.ts';
+import { GET as githubGet } from '../api/github.ts';
 import { POST as advisoryPost } from '../api/advisory.ts';
 import { workerEndpoint } from '../src/worker-http.ts';
+
+test('deployed worker entrypoint returns its public health contract', async () => {
+  const response = await githubGet(new Request('https://localhost/api/github'));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { service: 'Oddmash Reviewer', status: 'ok' });
+});
 
 test('Hono worker preserves method, path and raw webhook request', async () => {
   const app = workerEndpoint('/api/github', async request => new Response(await request.text(), { status: 202 }), () => Response.json({ ok: true }));
