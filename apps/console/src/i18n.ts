@@ -119,14 +119,28 @@ export const chooseLanguage = (value: string | null | undefined): Language => va
 export const executionCount = (language: Language, visible: number, total: number): string => language === 'ko' ? `전체 ${total.toLocaleString(language)}건 중 ${visible.toLocaleString(language)}건` : `${visible.toLocaleString(language)} of ${total.toLocaleString(language)} executions`;
 export const missingCalls = (language: Language, count: number): string => language === 'ko' ? `${count.toLocaleString(language)}건 미측정` : `missing in ${count.toLocaleString(language)} calls`;
 
-export const localizedUrl = (href: string, language: Language): URL => {
+export const consoleViews = ['overview', 'activity', 'usage', 'settings'] as const;
+export type ConsoleView = typeof consoleViews[number];
+export function consoleRoute(href: string): { language?: Language; view: ConsoleView } {
+  const url = new URL(href, 'https://console.invalid');
+  const parts = url.pathname.split('/').filter(Boolean);
+  const locale = parts[0] === 'en' || parts[0] === 'ko' ? parts[0] : undefined;
+  const candidate = locale ? parts[1] : parts[0];
+  const validPath = locale ? parts.length <= 2 : parts.length <= 1;
+  const view = validPath && consoleViews.includes(candidate as ConsoleView) ? candidate as ConsoleView
+    : parts.length === 0 && consoleViews.includes(url.hash.slice(1) as ConsoleView) ? url.hash.slice(1) as ConsoleView : 'overview';
+  const queryLocale = url.searchParams.get('lang');
+  return { language: locale ?? (queryLocale === 'en' || queryLocale === 'ko' ? queryLocale : undefined), view };
+}
+export const localizedUrl = (href: string, language: Language, view = consoleRoute(href).view): URL => {
   const url = new URL(href);
-  url.searchParams.set('lang', language);
+  url.pathname = '/' + language + (view === 'overview' ? '' : '/' + view);
+  url.searchParams.delete('lang');
+  url.hash = '';
   return url;
 };
-
-export const localizedCallback = (origin: string, hash: string, language: Language): string => {
-  const url = localizedUrl(origin, language);
-  if (['#overview', '#activity', '#usage', '#settings'].includes(hash)) url.hash = hash;
-  return url.href;
+export const localizedCallback = (origin: string, route: string, language: Language): string => {
+  const url = new URL(origin);
+  const safeView = route.startsWith('#') || /^\/(?:en|ko)(?:\/(?:overview|activity|usage|settings))?\/?$/.test(route) ? consoleRoute(route).view : 'overview';
+  return localizedUrl(url.href, language, safeView).href;
 };

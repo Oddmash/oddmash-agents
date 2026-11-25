@@ -22,5 +22,15 @@
     "deploymentEnabled": false
   },
   "buildCommand": "pnpm --filter @oddmash/agents-console build",
-  "outputDirectory": "apps/console/dist"
+  "outputDirectory": "apps/console/dist",
+  "rewrites": [
+    {
+      "source": "/:locale(en|ko)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/:locale(en|ko)/:view(overview|activity|usage|settings)",
+      "destination": "/index.html"
+    }
+  ]
 }
