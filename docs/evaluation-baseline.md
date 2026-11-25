@@ -1,13 +1,13 @@
 # Evaluation baseline: 2026-11-23
 
-Six public PRs were sampled from recent Oddmash activity. Review submissions and inline discussions were read; two disputed findings were independently checked against the source at the reviewed commit. These are observations, not a complete precision/recall benchmark.
+Six public PRs were sampled from recent Oddmash activity. Review submissions and inline discussions were read; two disputed findings were independently checked against the source at the reviewed commit. These are observations, not a complete precision/recall benchmark. The historical Kowrap PR names are retained; their links use the current Juliya repository.
 
 | PR | Observed review | Ground truth |
 | --- | --- | --- |
 | [oddmash-ui#30](https://github.com/Oddmash/oddmash-ui/pull/30) | Advisory about disabled pointer activation | Dismissed: the shared selection function guards disabled items before side effects. Verified against the reviewed head. |
 | [interaction-inspector#14](https://github.com/Oddmash/interaction-inspector/pull/14) | Blocking warning about raw ARIA export, then approval | Dismissed: the export uses a token allowlist and normalization helper. Verified against the reviewed head. |
-| [kowrap#29](https://github.com/Oddmash/kowrap/pull/29) | Approved | Not independently adjudicated. |
-| [kowrap#27](https://github.com/Oddmash/kowrap/pull/27) | Changes requested | Not independently adjudicated. |
+| [kowrap#29](https://github.com/Oddmash/juliya/pull/29) | Approved | Not independently adjudicated. |
+| [kowrap#27](https://github.com/Oddmash/juliya/pull/27) | Changes requested | Not independently adjudicated. |
 | [Vertactics#103](https://github.com/Oddmash/Vertactics/pull/103) | Approved | Not independently adjudicated. |
 | [oddmash-ui#25](https://github.com/Oddmash/oddmash-ui/pull/25) | Human approval | Not an agent evaluation. |
 
