@@ -11,7 +11,7 @@ import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts'
 import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence, type ReviewCheckHead } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, authorizePublicGuidance, githubApi, commentReceipt, completeCommentReaction, reactToComment, slashRequestContext, type Target } from './webhook.ts';
-import { reconcileReviewThreads, replyToReview, scopedLeadThreadResolution, shouldReconcileEarlierFindings, threadReconciliationExclusions, threadReconciliationMarker, threadReconciliationScope, threadReconciliationScopeMarker } from './review-discussion.ts';
+import { reconcileReviewThreads, replyToReview, scopedAgentThreadResolution, scopedLeadThreadResolution, shouldReconcileEarlierFindings, threadReconciliationExclusions, threadReconciliationMarker, threadReconciliationScope, threadReconciliationScopeMarker } from './review-discussion.ts';
 import { retryableJobError } from './review-job.ts';
 import { publishAutomationStatus } from './review-status.ts';
 import { actionsQuotaEvidence, actionsWorkflowUrl } from './actions-quota.ts';
@@ -131,7 +131,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
   const authorized = await authorize(target, appId, key);
   const { api, token: githubToken } = authorized;
   if (target.advisoryIdentity && target.reply) {
-    await replyToReview(api, target, { slug, openaiKey, model, specialist: target.advisoryIdentity });
+    await replyToReview(api, target, { slug, openaiKey, model, specialist: target.advisoryIdentity,
+      resolve: scopedAgentThreadResolution(target, appId, key, slug, process.env.REVIEWER_SCOPED_THREAD_RESOLVE_ENABLED === 'true') });
     return;
   }
   if (target.impact) { await runImpact(authorized.api, target, { bot, ...advisoryModelConfig('impact', { model, openaiKey }) }); return; }
@@ -151,11 +152,11 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         if (!role || !thread.body.split('\n').includes(`<!-- oddmash-specialist:${role} -->`)) return;
         const advisor = await authorizeCoordinatedAdvisor(target, role, appId);
         if (advisor) await runAgentExecution(executionContext(role, '', 1, advisor.target), () => replyToReview(advisor.api, advisor.target,
-          { slug: `oddmash-${role}`, openaiKey: advisor.config.openaiKey, model: advisor.config.model, specialist: role }));
+          { slug: `oddmash-${role}`, openaiKey: advisor.config.openaiKey, model: advisor.config.model, specialist: role, resolve: advisor.resolve }));
         return;
       }
     }
-    const resolve = scopedLeadThreadResolution(target, appId, key, slug, {
+    const resolve = scopedAgentThreadResolution(target, appId, key, slug, process.env.REVIEWER_SCOPED_THREAD_RESOLVE_ENABLED === 'true') ?? scopedLeadThreadResolution(target, appId, key, slug, {
       ui: process.env.REVIEWER_UI_THREAD_RESOLVE_ENABLED,
       skills: process.env.REVIEWER_SKILLS_THREAD_RESOLVE_ENABLED
     });
