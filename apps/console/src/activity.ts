@@ -32,5 +32,22 @@ export function groupActivity(jobs: readonly Job[]) {
     group.jobs.push(job);
     groups.set(key, group);
   }
-  return [...groups.values()].map(group => ({ ...group, jobs: group.jobs.sort((a, b) => priority(a) - priority(b) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt)) })).sort((a, b) => priority(a.jobs[0]) - priority(b.jobs[0]) || Date.parse(b.jobs[0].updatedAt) - Date.parse(a.jobs[0].updatedAt));
+  return [...groups.values()].map(group => ({ ...group, jobs: group.jobs.sort((a, b) => priority(a) - priority(b) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt)) })).sort((a, b) => Number(!a.target) - Number(!b.target) || priority(a.jobs[0]) - priority(b.jobs[0]) || Date.parse(b.jobs[0].updatedAt) - Date.parse(a.jobs[0].updatedAt));
+}
+
+export function reviewOverview(groups: ReturnType<typeof groupActivity>, limit = 5) {
+  const identified = groups.filter(group => group.target);
+  return {
+    groups: identified.slice(0, limit).map(group => {
+      const seen = new Set<Job['role']>();
+      const jobs = group.jobs.filter(job => {
+        if (seen.has(job.role)) return false;
+        seen.add(job.role);
+        return true;
+      });
+      return { ...group, jobs, total: group.jobs.length };
+    }),
+    identifiedCount: identified.length,
+    unattributedCount: groups.filter(group => !group.target).reduce((total, group) => total + group.jobs.length, 0)
+  };
 }

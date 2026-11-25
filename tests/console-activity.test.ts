@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Job } from '@oddmash/agent-operator-contract';
-import { activitySummary, filterActivity, groupActivity } from '../apps/console/src/activity.ts';
+import { activitySummary, filterActivity, groupActivity, reviewOverview } from '../apps/console/src/activity.ts';
 
 const jobs: Job[] = [
   { role: 'qa', correlationId: 'a'.repeat(24), attempt: 2, state: 'running', updatedAt: '2026-01-01T00:03:00Z' },
@@ -47,4 +47,22 @@ test('groups observed jobs by repository and target number, prioritizing active 
   assert.ok(groups.some(group => group.target === undefined && group.jobs[0] === jobs[2]));
   assert.ok(groups.some(group => group.target?.repository === 'Oddmash/agents'));
   assert.deepEqual(groupActivity([]), []);
+});
+
+test('review overview prioritizes identified targets and summarizes repeated roles', () => {
+  const lead = { ...jobs[2], state: 'running' as const, target: { repository: 'Oddmash/ui', number: 3 } };
+  const older = { ...lead, correlationId: 'f'.repeat(24), state: 'returned' as const, updatedAt: '2026-01-01T00:10:00Z' };
+  const qa = { ...jobs[0], target: lead.target };
+  const unknown = { ...jobs[4], updatedAt: '2026-01-01T00:11:00Z' };
+  const grouped = groupActivity([unknown, older, qa, lead]);
+  assert.ok(grouped[0].target);
+  assert.equal(grouped.at(-1)?.target, undefined);
+  assert.equal(grouped[0].jobs.length, 3);
+  const overview = reviewOverview(grouped);
+  assert.equal(overview.unattributedCount, 1);
+  assert.equal(overview.identifiedCount, 1);
+  assert.equal(overview.groups[0].total, 3);
+  assert.deepEqual(overview.groups[0].jobs.map(job => job.role).sort(), ['qa', 'reviewer']);
+  assert.equal(overview.groups[0].jobs.find(job => job.role === 'reviewer'), lead);
+  assert.deepEqual(reviewOverview(groupActivity([unknown])).groups, []);
 });
