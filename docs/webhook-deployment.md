@@ -46,3 +46,16 @@ The separately gated merge policy covers all five public product repositories an
 ## Private review data boundary
 
 Only the five explicitly approved private repository identities are eligible. Review uses a repository-scoped Contents read, Pull requests write and Checks read token. Eligible changed patches and bounded selected guidance are sent to the configured OpenAI API with `store: false`; approved private repositories can be eligible only under the same deterministic merge gates and stricter data filtering, including issue acceptance text. Credential-like values, sensitive configuration and workflow paths, deployment and auth-related files, data dumps and renamed sensitive paths are excluded; omitted filenames are not sent. The filter is conservative and is not a guarantee against all sensitive content. Incomplete coverage requires maintainer review. Do not add secrets to source or guidance.
+
+## Owner model settings
+
+The console's Agent models card stages one optional override for each existing role. Save applies the choice to subsequent authenticated webhook and queue jobs only, including coordinated specialists. It does not change GitHub App identities, API keys, repo eligibility, review authority, token/request limits, auto-merge, queue settings, or manually dispatched CLI and Actions models. The settings overview's worker model snapshot remains deployment configuration; the Agent models card shows the choices saved for future jobs.
+
+Alternates are opt-in per role. Configure the following plain-text Vercel production variables with a comma-separated list of model IDs approved for that role and compatible with its existing Responses API and structured-output contract:
+
+- `REVIEWER_OPERATOR_ALLOWED_MODELS` for Lead.
+- `IMPACT_OPERATOR_ALLOWED_MODELS`, `TRIAGE_OPERATOR_ALLOWED_MODELS`, `QA_OPERATOR_ALLOWED_MODELS`, `RELEASE_OPERATOR_ALLOWED_MODELS`, `DOCS_OPERATOR_ALLOWED_MODELS`, and `ARCHITECT_OPERATOR_ALLOWED_MODELS` for the matching specialists.
+
+Before approving a model, verify availability with the existing role's OpenAI project, structured output and cost limits. No model is implicitly approved from another role's configuration. The console shows the actual deployment default (role-specific `<ROLE>_OPENAI_MODEL` or shared `OPENAI_MODEL`) even when no alternates are configured. The operator can inherit the default without saving its model ID. A revoked model is no longer effective; the worker falls back to the deployment default and the next save must remove or replace revoked choices. Unavailable model settings also fall back to the deployment model. There is no automatic retry with another model on a provider failure, preserving existing request budgets.
+
+Model settings use the existing authenticated owner API boundary, exact revision comparison and a separate bounded 50-entry audit list. They are stored separately from participation and budget controls, so older releases ignore them. Remove alternates from deployment configuration to revoke console selection. Roll back to an earlier reviewed release if needed; its worker will use deployment configuration. Never put credentials or arbitrary identifiers in approved model lists.
