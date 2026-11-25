@@ -180,14 +180,14 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
     findings = validateFindings(raw, context.files, privateReview);
     modelValid = Array.isArray(raw) && raw.length === findings.length;
     await c.progress?.('Validating findings', 'Checking review results against the collected evidence.');
-    if (modelValid && !organizationGuidanceUnavailable) findings = await confirmBlockingFindings(context, findings, c, request);
+    if (modelValid) findings = await confirmBlockingFindings(context, findings, c, request);
     else findings = findings.map(({ blockingEvidence: _unconfirmed, ...finding }) => finding);
   }
   findings = consolidateAdvisoryFindings(context, findings);
   const report = formatReport(context, findings, modelValid, selected.omissionDetails);
   const inlineReport = formatReport(context, findings, modelValid, selected.omissionDetails, true);
-  const assessment = reviewAssessment(context, findings, modelValid);
-  const decision = reviewDecision(context, findings, modelValid && !checks?.workflowPending && (checks?.total_count ?? context.checks.length) <= context.checks.length);
+  const assessment = organizationGuidanceUnavailable ? 'COMMENT' : reviewAssessment(context, findings, modelValid);
+  const decision = organizationGuidanceUnavailable ? 'COMMENT' : reviewDecision(context, findings, modelValid && !checks?.workflowPending && (checks?.total_count ?? context.checks.length) <= context.checks.length);
   const comments = findings.map(finding => ({ body: inlineComment(context, finding), path: finding.path, line: finding.line, side: finding.side ?? 'RIGHT' as const }));
   const result = { report, inlineReport, assessment, decision, followUp: reviewFollowUp(context, findings, modelValid), head: pr.head.sha, comments, issueVerified };
   if (!c.post) return { ...result, posted: false };
