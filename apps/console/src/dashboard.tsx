@@ -51,7 +51,6 @@ export const Dashboard = ({ logout, language, languageControl, view, navigate }:
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [error, setError] = useState<Message | ''>('');
   const [loading, setLoading] = useState(true);
-  const [observedClock, setObservedClock] = useState<string>();
   const [filter, setFilter] = useState<ActivityFilter>({ role: 'all', state: 'all' });
   useEffect(() => {
     const polling = createStatusPolling({
@@ -82,17 +81,6 @@ export const Dashboard = ({ logout, language, languageControl, view, navigate }:
     };
   }, []);
   const jobs = snapshot?.jobs ?? [];
-  const active = jobs.some(job => job.state === 'queued' || job.state === 'running');
-  useEffect(() => {
-    if (!snapshot?.observedAt) return;
-    const observed = Date.parse(snapshot.observedAt);
-    const received = Date.now();
-    const update = () => { if (!document.hidden) setObservedClock(new Date(observed + Date.now() - received).toISOString()); };
-    update();
-    if (!active) return;
-    const timer = setInterval(update, 1000);
-    return () => clearInterval(timer);
-  }, [snapshot?.observedAt, active]);
   const repositories = repositoryActivity(jobs);
   const days = activityDays(jobs);
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -123,7 +111,7 @@ export const Dashboard = ({ logout, language, languageControl, view, navigate }:
         <div className="repository-browser" role="group" aria-label={t('Repository')}><Button variant="secondary" aria-pressed={!filter.repository || filter.repository === 'all'} onClick={() => setFilter(current => ({ ...current, repository: 'all' }))}>{t('All repositories')} ({jobs.length})</Button>{repositories.map(repository => <Button key={repository.key} variant="secondary" aria-pressed={filter.repository === repository.key} onClick={() => setFilter(current => ({ ...current, repository: repository.key }))}>{repository.repository ?? t('Target not reported')} ({repository.jobs.length})</Button>)}</div>
         <div className="activity-filters"><div className="filter-control"><span>{t('Activity day')}</span><Select aria-label={t('Activity day')} value={filter.day ?? 'all'} options={[{ value: 'all', label: t('All days') }, ...days.map(day => ({ value: day, label: day }))]} onValueChange={value => setFilter(current => ({ ...current, day: value }))}/></div><div className="filter-control"><span>{t("Agent")}</span><Select aria-label={t("Agent")} value={filter.role} options={[{ value: 'all', label: t("All agents") }, ...byRole.map(row => ({ value: row.role, label: names[row.role] }))]} onValueChange={value => setFilter(current => ({ ...current, role: value as ActivityFilter['role'] }))}/></div><div className="filter-control"><span>{t("State")}</span><Select aria-label={t("State")} value={filter.state} options={[{ value: 'all', label: t("All states") }, ...jobStates.map(state => ({ value: state, label: t(state) }))]} onValueChange={value => setFilter(current => ({ ...current, state: value as ActivityFilter['state'] }))}/></div><span className="muted">{connected ? executionCount(language, visibleJobs.length, jobs.length) : t("No live activity source")}</span></div>
         <p className="muted">{t('Local time zone')}: {timeZone} · {t('Retained observations (up to 7 days or 500 recent events)')}</p>
-        <RepositoryActivity groups={displayedGroups} visibleJobs={visibleJobs} observedAt={observedClock ?? snapshot?.observedAt ?? new Date().toISOString()} language={language} renderAgent={role => <><AgentIdentity role={role} compact/><small>{t(descriptions[role])}</small></>}/>
+        {(view === 'overview' || view === 'activity') && snapshot && <RepositoryActivity groups={displayedGroups} visibleJobs={visibleJobs} observedAt={snapshot.observedAt} language={language} renderAgent={role => <><AgentIdentity role={role} compact/><small>{t(descriptions[role])}</small></>}/>}
         {view === 'overview' && (overview.identifiedCount > 5 || overview.unattributedCount > 0 || overview.groups.some(group => group.total > group.jobs.length)) && <div className="history-summary">{overview.unattributedCount > 0 && <span className="muted">{t("Target not reported")}: {overview.unattributedCount.toLocaleString(language)}</span>}<a href={href("activity")}>{t("View all executions")}</a></div>}
         {!displayedGroups.length && <Card><EmptyState className="empty">{!connected ? t("Live activity unavailable.") : view === 'overview' && overview.unattributedCount > 0 ? t("No identified review targets.") : jobs.length ? t("No executions match these filters.") : t("No recent execution events.")}</EmptyState></Card>}
       </section>
