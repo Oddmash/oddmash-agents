@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import type { Job } from '@oddmash/agent-operator-contract';
+import { activitySummary, filterActivity } from '../apps/console/src/activity.ts';
+
+const jobs: Job[] = [
+  { role: 'qa', correlationId: 'a'.repeat(24), attempt: 2, state: 'running', updatedAt: '2026-01-01T00:03:00Z' },
+  { role: 'qa', correlationId: 'b'.repeat(24), attempt: 1, state: 'failed', updatedAt: '2026-01-01T00:01:00Z', failure: 'github' },
+  { role: 'reviewer', correlationId: 'c'.repeat(24), attempt: 1, state: 'stale', updatedAt: '2026-01-01T00:00:00Z' },
+  { role: 'impact', correlationId: 'd'.repeat(24), attempt: 1, state: 'returned', updatedAt: '2026-01-01T00:04:00Z' },
+  { role: 'qa', correlationId: 'e'.repeat(24), attempt: 1, state: 'queued', updatedAt: '2026-01-01T00:02:00Z' }
+];
+
+test('observed role summary distinguishes active, stale, failed and returned', () => {
+  const summary = activitySummary(jobs);
+  assert.deepEqual(summary.counts, { queued: 1, running: 1, returned: 1, failed: 1, stale: 1 });
+  assert.equal(summary.byRole.length, 7);
+  assert.deepEqual(summary.byRole.find(row => row.role === 'qa'), { role: 'qa', active: 2, failed: 1, stale: 0, latest: jobs[0] });
+  assert.equal(summary.byRole.find(row => row.role === 'reviewer')?.active, 0);
+  assert.equal(summary.byRole.find(row => row.role === 'reviewer')?.stale, 1);
+  assert.equal(summary.byRole.find(row => row.role === 'docs')?.latest, undefined);
+  assert.equal(summary.byRole.find(row => row.role === 'impact')?.active, 0);
+});
+
+test('filters intersect role and state and preserve source order', () => {
+  assert.deepEqual(filterActivity(jobs, { role: 'qa', state: 'all' }), [jobs[0], jobs[1], jobs[4]]);
+  assert.deepEqual(filterActivity(jobs, { role: 'qa', state: 'failed' }), [jobs[1]]);
+  assert.deepEqual(filterActivity(jobs, { role: 'all', state: 'stale' }), [jobs[2]]);
+  assert.deepEqual(filterActivity(jobs, { role: 'docs', state: 'all' }), []);
+  assert.deepEqual(filterActivity(jobs, { role: 'all', state: 'all' }), jobs);
+});
+
+test('empty telemetry does not invent an observation', () => {
+  const summary = activitySummary([]);
+  assert.deepEqual(summary.counts, { queued: 0, running: 0, returned: 0, failed: 0, stale: 0 });
+  assert.equal(summary.byRole.length, 7);
+  assert.ok(summary.byRole.every(row => row.latest === undefined && row.active === 0));
+});
