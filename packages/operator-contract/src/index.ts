@@ -112,3 +112,5 @@ export function jobElapsedMs(job: Job, observedAt: string): number | undefined {
   const now = Date.parse(observedAt);
   return Number.isFinite(start) && Number.isFinite(now) ? Math.max(0, now - start) : undefined;
 }
+
+export * from './controls.ts';

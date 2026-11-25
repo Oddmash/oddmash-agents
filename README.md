@@ -16,7 +16,7 @@ Advisory agents for Oddmash products. Lead coordinates specialized agents, ident
 
 Lead is the only automatic entry point (currently authenticated as `oddmash-lead[bot]`). Other roles respond to explicit maintainer slash commands and produce advisory output. With optional coordinated review enabled, Lead selects only relevant PR advisors from changed-file metadata within explicit request and time budgets. These reports do not grant approval or merge authority. They share the same server and queue, while role-specific identity, permissions and model usage remain separately configurable. Use `/review` for the formal review and the [slash command table](docs/agent-family.md#slash-commands) for specialist requests. Dedicated apps must be enabled and installed for specialist responses.
 
-See [agent family and setup](docs/agent-family.md) for invocation details and role configuration.
+See [agent family and setup](docs/agent-family.md) for invocation details and role configuration. The owner-only console can restrict optional coordinated runs through [operator runtime controls](docs/operator-runtime-controls.md).
 
 ## Lead
 
