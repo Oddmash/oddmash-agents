@@ -2,7 +2,7 @@ import type { AdvisoryRole } from './advisory-agents.ts';
 import type { Target } from './webhook.ts';
 
 export type ChangeMetadata = { filename: string; status?: string; changes?: number };
-export type CompareEvidence = { status: string; ahead_by: number; total_commits: number; files?: ChangeMetadata[] };
+export type CompareEvidence = { status: string; ahead_by: number; total_commits: number; merge_base_commit?: { sha?: string }; files?: ChangeMetadata[] };
 const sha = /^[a-f0-9]{40}$/i;
 export function reviewBaseMarker(base: string) {
   return sha.test(base) ? `<!-- oddmash-review-base:${base} -->` : '';
@@ -14,10 +14,12 @@ export function incrementalBaseline(previous: { commit_id: string; state: string
 }
 
 export function incrementalPaths(previous: { commit_id: string; state: string; body: string | null } | undefined, head: string, base: string, evidence: CompareEvidence | undefined): string[] | undefined {
-  if (!incrementalBaseline(previous, head, base)) return;
-  if (!evidence || evidence.status !== 'ahead' || evidence.ahead_by < 1 || evidence.ahead_by !== evidence.total_commits || !evidence.files || evidence.files.length > 10) return;
+  if (!previous || !incrementalBaseline(previous, head, base)) return;
+  if (!evidence || evidence.status !== 'ahead' || evidence.merge_base_commit?.sha !== previous.commit_id || evidence.ahead_by < 1 || evidence.ahead_by !== evidence.total_commits || !evidence.files || evidence.files.length > 10) return;
   if (evidence.files.some(file => !file.filename || file.status !== 'modified' || !Number.isSafeInteger(file.changes) || file.changes! < 0) || evidence.files.reduce((sum,file)=>sum+file.changes!,0)>150) return;
-  return [...new Set(evidence.files.map(file=>file.filename))];
+  const paths = [...new Set(evidence.files.map(file=>file.filename))];
+  if (automaticAdvisoryPaths(evidence.files).length !== paths.length || paths.some(path => /(?:^|\/)(?:AGENTS\.md|AI-CODE-REVIEW\.md|package\.json|tsconfig(?:\.[^/]+)?\.json)$/i.test(path))) return;
+  return paths;
 }
 const automaticRoles = ['impact', 'qa', 'release', 'docs', 'architect'] as const;
 type AutomaticRole = typeof automaticRoles[number];
