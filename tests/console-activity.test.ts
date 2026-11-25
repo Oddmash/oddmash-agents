@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Job } from '@oddmash/agent-operator-contract';
-import { activitySummary, filterActivity } from '../apps/console/src/activity.ts';
+import { activitySummary, filterActivity, groupActivity } from '../apps/console/src/activity.ts';
 
 const jobs: Job[] = [
   { role: 'qa', correlationId: 'a'.repeat(24), attempt: 2, state: 'running', updatedAt: '2026-01-01T00:03:00Z' },
@@ -35,4 +35,16 @@ test('empty telemetry does not invent an observation', () => {
   assert.deepEqual(summary.counts, { queued: 0, running: 0, returned: 0, failed: 0, stale: 0 });
   assert.equal(summary.byRole.length, 7);
   assert.ok(summary.byRole.every(row => row.latest === undefined && row.active === 0));
+});
+
+test('groups observed jobs by repository and target number, prioritizing active work', () => {
+  const first = { ...jobs[0], target: { repository: 'Oddmash/ui', number: 12 } };
+  const second = { ...jobs[3], target: { repository: 'Oddmash/UI', number: 12 } };
+  const other = { ...jobs[1], target: { repository: 'Oddmash/agents', number: 12 } };
+  const groups = groupActivity([second, other, jobs[2], first]);
+  assert.equal(groups.length, 3);
+  assert.deepEqual(groups[0].jobs, [first, second]);
+  assert.ok(groups.some(group => group.target === undefined && group.jobs[0] === jobs[2]));
+  assert.ok(groups.some(group => group.target?.repository === 'Oddmash/agents'));
+  assert.deepEqual(groupActivity([]), []);
 });
