@@ -42,7 +42,7 @@ Use the catalog's [skill improvement proposal workflow](https://github.com/Oddma
 Run the proposal helper from this repository using the maintainer's existing authenticated GitHub CLI session. Categorize two to eight distinct public merged PRs, read their review discussions, confirm the same actionable quality problem and inspect the currently owning skill for a genuine shared gap. For example, use the following format with real, verified PR numbers:
 
 ```sh
-pnpm skills:proposal ui-feedback Oddmash/kowrap#123 Oddmash/oddmash-ui#456
+pnpm skills:proposal ui-feedback Oddmash/juliya#123 Oddmash/oddmash-ui#456
 ````
 
 The command previews the issue or novel evidence comment without writing. After independently verifying the evidence and the proposed gap, rerun the same command with `--confirm-gap --publish` only if authorized to post. The fixed categories are `ui-feedback`, `visual-layout`, `docs-examples`, `test-coverage`, `compatibility`, and `maintainability`. Do not infer that a merged PR validates a particular finding; a maintainer confirms that from the source discussion.
