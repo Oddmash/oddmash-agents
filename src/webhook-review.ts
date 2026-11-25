@@ -10,7 +10,7 @@ import { startReviewProgress } from './review-progress.ts';
 import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts';
 import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence, type ReviewCheckHead } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
-import { authorize, authorizeMerge, githubApi, commentReceipt, completeCommentReaction, reactToComment, slashRequestContext, type Target } from './webhook.ts';
+import { authorize, authorizeMerge, authorizePublicGuidance, githubApi, commentReceipt, completeCommentReaction, reactToComment, slashRequestContext, type Target } from './webhook.ts';
 import { reconcileReviewThreads, replyToReview, scopedLeadThreadResolution, threadReconciliationExclusions, threadReconciliationMarker } from './review-discussion.ts';
 import { retryableJobError } from './review-job.ts';
 import { publishAutomationStatus } from './review-status.ts';
@@ -334,7 +334,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const comparison = !target.recheck && previous?.state === 'APPROVED' && /^[a-f0-9]{40}$/i.test(previous.commit_id) && previous.body?.includes(reviewBaseMarker(pr.base.sha)) ? await api<CompareEvidence>(`${root}/compare/${previous.commit_id}...${pr.head.sha}?per_page=100`).catch(() => undefined) : undefined;
       const incrementalFiles = !target.recheck ? incrementalPaths(previous, pr.head.sha, pr.base.sha, comparison) : undefined;
       const requestContext = await slashRequestContext(api, target, 'review');
-      const result = await runReview({ requestContext, repository, number: pr.number, githubToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: incrementalFiles === undefined ? candidate?.acceptance : undefined, incrementalFiles, privateRepositoryId: target.private ? target.repositoryId : undefined, progress: async (title, summary) => { recordReviewPhase(title); await progress?.update(title, summary); } }).catch(async error => {
+      const publicGuidanceToken = process.env.REVIEWER_AUTHENTICATED_GUIDANCE_ENABLED === 'true' ? await authorizePublicGuidance(target, appId, key).catch(() => { console.warn('Scoped organization guidance authorization unavailable'); return undefined; }) : undefined;
+      const result = await runReview({ requestContext, repository, number: pr.number, githubToken, publicGuidanceToken, openaiKey, model, post: false, allowedRepositories: [repository], acceptance: incrementalFiles === undefined ? candidate?.acceptance : undefined, incrementalFiles, privateRepositoryId: target.private ? target.repositoryId : undefined, progress: async (title, summary) => { recordReviewPhase(title); await progress?.update(title, summary); } }).catch(async error => {
         await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', error instanceof Error ? error.message : 'review processing failed');
         throw error;
       });

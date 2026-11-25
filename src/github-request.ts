@@ -36,7 +36,7 @@ export async function githubRequest(request: Fetcher, path: string, init: Reques
   const read = (init.method ?? 'GET').toUpperCase() === 'GET';
   for (let attempt = 1; ; attempt++) {
     const response = await request(`https://api.github.com${path}`, init);
-    if (response.ok || (optional && response.status === 404)) return response;
+    if (response.ok || (optional && response.status === 404) || (response.status === 304 && new Headers(init.headers).has('if-none-match'))) return response;
     const remaining = numericHeader(response.headers, 'x-ratelimit-remaining');
     const reset = numericHeader(response.headers, 'x-ratelimit-reset');
     const retryAfter = numericHeader(response.headers, 'retry-after');
