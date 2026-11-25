@@ -4,6 +4,7 @@ import { jobElapsedMs, type Job, type WorkerSettings, type ModelUsageSummary, ty
 import { activitySummary, filterActivity, jobStates, type ActivityFilter } from './activity';
 
 type Snapshot = { connected: boolean; jobs: Job[]; usage?: (ModelUsageSummary & { role: AgentRole })[]; settings: WorkerSettings | null; settingsUpdatedAt?: string; observedAt: string };
+const releaseTag = (import.meta as ImportMeta & { env: { VITE_OPERATOR_RELEASE_TAG?: string } }).env.VITE_OPERATOR_RELEASE_TAG;
 const names = { reviewer: 'Lead', impact: 'Impact', triage: 'Triage', qa: 'QA', release: 'Release', docs: 'Docs', architect: 'Architect' };
 
 function formatElapsed(job: Job, observedAt?: string) {
@@ -60,7 +61,7 @@ export function Dashboard({ logout }: { logout: ReactNode }) {
   const visibleJobs = filterActivity(jobs, filter);
   const connected = snapshot?.connected === true;
   return <div className="shell">
-    <aside><p className="eyebrow">ODDMASH</p><h1>Agents Console</h1><nav aria-label="Console navigation"><a href="#overview">Overview</a><a href="#activity">Live activity</a><a href="#usage">Model usage</a><a href="#settings">Configuration</a></nav><div className="logout">{logout}</div></aside>
+    <aside><p className="eyebrow">ODDMASH</p><h1>Agents Console</h1><p className="muted">Release: {typeof releaseTag === 'string' && /^v\d+\.\d+\.\d+$/.test(releaseTag) ? releaseTag : 'Unknown'}</p><nav aria-label="Console navigation"><a href="#overview">Overview</a><a href="#activity">Live activity</a><a href="#usage">Model usage</a><a href="#settings">Configuration</a></nav><div className="logout">{logout}</div></aside>
     <main>
       <header><div><p className="eyebrow">OPERATOR WORKSPACE</p><h2>Overview</h2></div><Button variant="secondary" onClick={() => reload.current()}>Refresh</Button></header>
       <p role="status" aria-live="polite" className="muted">{loading ? 'Loading status…' : error ? error + (snapshot?.connected ? ' Showing the last successful snapshot.' : '') : (snapshot?.connected ? 'Connected to worker telemetry' : 'Telemetry storage is not configured.')}</p>
