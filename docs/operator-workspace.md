@@ -28,3 +28,7 @@ The worker exposes an internal projection function that selects explicit non-sec
 3. Worker source has a canonical location under apps/worker/src; the root api directory remains the Vercel adapter boundary. Preserve existing webhook URLs, queue triggers, build roots, release gating and rollback. Keep the existing required verify check and include all workspace package and console tests before production activation.
 
 Related: #169, #178, #180, #181.
+
+## Observed model usage and release visibility
+
+Terminal execution events may contain aggregate observed input and output tokens and counts of missing measurements. The status response derives role totals from distinct terminal attempts in the same bounded retained event list; there are no extra Redis commands or model requests. Calls not recorded by the provider instrumentation and older uninstrumented events are not counted. This is sample telemetry, not an invoice or budget enforcement. The console shows the reviewed build tag when supplied during production build and displays the effective opt-in flags and advisory request/time caps from the last settings snapshot, not credential or permission health.
