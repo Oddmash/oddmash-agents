@@ -368,6 +368,12 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
 const reconciliationPrefix = '<!-- oddmash-verified-thread-reconciliation';
 const pathFingerprint = (path: string) => createHash('sha256').update(path).digest('hex');
 
+export function shouldReconcileEarlierFindings(input: { confirmedEmpty: boolean; fullReview: boolean; checksSuccessful: boolean; event: string; earlierReview: boolean; explicitRequest: boolean }) {
+  return !input.confirmedEmpty && input.fullReview && input.checksSuccessful &&
+    ((input.event === 'APPROVE' && (input.earlierReview || input.explicitRequest)) ||
+      (input.event === 'COMMENT' && input.earlierReview));
+}
+
 export function threadReconciliationMarker(paths: readonly string[]) {
   return reconciliationPrefix + ':' + [...new Set(paths.map(pathFingerprint))].sort().join(',') + ' -->';
 }
@@ -378,7 +384,7 @@ export function threadReconciliationExclusions(body: string): ReadonlySet<string
   if (marker) return new Set(marker[1].split(',').filter(Boolean));
 }
 
-export async function reconcileReviewThreads(api: Api, target: Target, config: { slug: string; model: string; openaiKey: string }, head: string, baseSha: string, request: typeof fetch = fetch, exclusions: ReadonlySet<string> = new Set()) {
+export async function reconcileReviewThreads(api: Api, target: Target, config: { slug: string; model: string; openaiKey: string }, head: string, baseSha: string, request: typeof fetch = fetch, exclusions: ReadonlySet<string> = new Set(), checksCurrent?: () => Promise<boolean>) {
   if (!target.number || !sha.test(head) || !sha.test(baseSha)) return;
   const bot = `${config.slug}[bot]`;
   const path = pathFor(target);
@@ -421,7 +427,7 @@ export async function reconcileReviewThreads(api: Api, target: Target, config: {
       console.info('Earlier finding remains open because the correction could not be verified.');
       continue;
     }
-    if (!await current()) return;
+    if (!await current() || (checksCurrent && !await checksCurrent())) return;
     if (!await resolveOwnThread(api, target, finding.node_id!, bot, head, baseSha).catch(() => false)) {
       console.warn('Verified finding resolution unavailable; maintainer review required.');
       unavailable = true;
