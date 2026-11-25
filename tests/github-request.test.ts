@@ -18,7 +18,7 @@ test('does not retry permanent denial, long waits, exhausted quota or writes', a
   const cases: [number, HeadersInit, string][] = [
     [403, {}, 'GET'], [429, { 'retry-after': '60' }, 'GET'],
     [403, { 'retry-after': '1', 'x-ratelimit-remaining': '0' }, 'GET'],
-    [503, {}, 'POST'], [500, {}, 'POST'], [500, { 'x-ratelimit-remaining': '0' }, 'GET']
+    [503, {}, 'POST'], [500, {}, 'POST'], [500, { 'retry-after': 'invalid' }, 'GET'], [500, { 'x-ratelimit-remaining': '0' }, 'GET']
   ];
   for (const [status, headers, method] of cases) {
     let calls = 0;
