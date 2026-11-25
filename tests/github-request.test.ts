@@ -48,6 +48,22 @@ test('retries GitHub 500 check-run reads once and no more', async () => {
   }
 });
 
+test('honors short retry-after and aborts before the second GET 500 attempt', async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const delays: number[] = [];
+  const response = await githubRequest(async () => {
+    calls++;
+    return new Response(null, { status: 500, headers: { 'retry-after': '1' } });
+  }, '/repos/Oddmash/example/commits/fixture/check-runs', { signal: controller.signal }, false, async ms => {
+    delays.push(ms);
+    controller.abort();
+  });
+  assert.equal(response.status, 500);
+  assert.equal(calls, 1);
+  assert.deepEqual(delays, [1000]);
+});
+
 test('logs only numeric quota metadata and classified request context', async t => {
   const messages: string[] = [];
   t.mock.method(console, 'warn', (message: string) => { messages.push(message); });
