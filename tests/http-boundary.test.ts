@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { consoleApi } from '../apps/console/auth.ts';
+import { POST as advisoryPost } from '../api/advisory.ts';
 import { workerEndpoint } from '../src/worker-http.ts';
 
 test('Hono worker preserves method, path and raw webhook request', async () => {
@@ -47,5 +48,20 @@ test('configured console still rejects missing session and noncanonical auth ori
     assert.equal((await consoleApi.request('https://other.example.invalid/api/auth/session')).status, 400);
   } finally {
     keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; });
+  }
+});
+
+test('exported advisory POST matches the deployed path and preserves query routing', async () => {
+  const previous = process.env.QA_APP_ENABLED;
+  process.env.QA_APP_ENABLED = 'false';
+  try {
+    const response = await advisoryPost(new Request('https://worker.example.invalid/api/advisory?agent=qa', { method: 'POST' }));
+    assert.equal(response.status, 503);
+    assert.equal(await response.text(), 'Unavailable');
+    const unknown = await advisoryPost(new Request('https://worker.example.invalid/api/advisory?agent=unknown', { method: 'POST' }));
+    assert.equal(unknown.status, 404);
+    assert.equal(await unknown.text(), 'Not found');
+  } finally {
+    if (previous === undefined) delete process.env.QA_APP_ENABLED; else process.env.QA_APP_ENABLED = previous;
   }
 });
