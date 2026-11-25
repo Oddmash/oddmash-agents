@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { reconcileReviewThreads, replyToReview, scopedLeadThreadResolution, threadReconciliationExclusions, threadReconciliationMarker } from '../src/review-discussion.ts';
+import { reconcileReviewThreads, replyToReview, scopedAgentThreadResolution, scopedLeadThreadResolution, threadReconciliationExclusions, threadReconciliationMarker } from '../src/review-discussion.ts';
 import { githubApi, type Target } from '../src/webhook.ts';
 import { githubContentFixture } from './github-content-fixture.ts';
 
@@ -460,4 +460,37 @@ test('Lead opts into a temporary token for one verified thread operation in a na
   const resolveSkills = scopedLeadThreadResolution(skills, '5881606', key, 'oddmash-lead', { skills: 'true' }, request)!;
   assert.equal(await resolveSkills('PRRT_fixture', async () => true), true);
   assert.deepEqual(calls, ['POST /app/installations/3/access_tokens', 'POST /graphql', 'DELETE /installation/token']);
+});
+
+test('approved specialist identities resolve through a single temporary repository-scoped grant', async () => {
+  const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  for (const role of ['impact', 'qa', 'release', 'docs', 'architect'] as const) {
+    const scoped: Target = { ...target, repository: 'Oddmash/oddmash-ui', repositoryId: 1456324802, advisory: role, advisoryIdentity: role };
+    const slug = 'oddmash-' + role;
+    const calls: string[] = [];
+    const request: typeof fetch = async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      calls.push(path);
+      if (path === '/app/installations/1') return Response.json({ id: 1, app_id: 42, app_slug: slug, account: { login: 'Oddmash' }, suspended_at: null });
+      if (path === '/app/installations/1/access_tokens') {
+        assert.deepEqual(JSON.parse(String(init?.body)), { repository_ids: [scoped.repositoryId], permissions: { contents: 'write', pull_requests: 'write' } });
+        return Response.json({ token: 'fixture', permissions: { contents: 'write', pull_requests: 'write' } });
+      }
+      if (path === '/repos/' + scoped.repository) return Response.json({ id: scoped.repositoryId, full_name: scoped.repository, private: false, visibility: 'public', owner: { login: 'Oddmash' } });
+      if (path === '/installation/token') { assert.equal(init?.method, 'DELETE'); return new Response(null, { status: 204 }); }
+      assert.equal(path, '/graphql');
+      assert.match(JSON.parse(String(init?.body)).query, /resolveReviewThread/);
+      return Response.json({ data: { resolveReviewThread: { thread: { id: 'PRRT_fixture', isResolved: true } } } });
+    };
+    const resolve = scopedAgentThreadResolution(scoped, '42', key, slug, true, request)!;
+    assert.equal(await resolve('PRRT_fixture', async () => false), false);
+    assert.deepEqual(calls, []);
+    assert.equal(await resolve('PRRT_fixture', async () => true), true);
+    assert.deepEqual(calls, ['/app/installations/1', '/app/installations/1/access_tokens', '/repos/' + scoped.repository, '/graphql', '/installation/token']);
+    assert.equal(scopedAgentThreadResolution(scoped, '42', key, slug, false, request), undefined);
+    assert.equal(scopedAgentThreadResolution({ ...scoped, repositoryId: 999 }, '42', key, slug, true, request), undefined);
+    assert.equal(scopedAgentThreadResolution({ ...scoped, repository: 'Oddmash/Vertactics', repositoryId: 1460959330, private: true }, '42', key, slug, true, request), undefined);
+    assert.equal(scopedAgentThreadResolution({ ...scoped, repository: 'Oddmash/oddmash-agents', repositoryId: 1468182609, private: true }, '42', key, slug, true, request) !== undefined, true);
+    assert.equal(scopedAgentThreadResolution(scoped, '42', key, 'oddmash-triage', true, request), undefined);
+  }
 });
