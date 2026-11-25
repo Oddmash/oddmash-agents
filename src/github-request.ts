@@ -12,6 +12,13 @@ function requestCategory(path: string): string {
   return 'other';
 }
 
+function numericHeader(headers: Headers, name: string): number | undefined {
+  const value = headers.get(name);
+  if (!value || !/^\d+$/.test(value)) return;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
 function retryDelay(response: Response): number | undefined {
   const status = response.status;
   const retryAfter = response.headers.get('retry-after');
@@ -29,7 +36,12 @@ export async function githubRequest(request: Fetcher, path: string, init: Reques
   for (let attempt = 1; ; attempt++) {
     const response = await request(`https://api.github.com${path}`, init);
     if (response.ok || (optional && response.status === 404)) return response;
-    console.warn(JSON.stringify({ event: 'github_request_failed', category: requestCategory(path), status: response.status, attempt, read }));
+    const remaining = numericHeader(response.headers, 'x-ratelimit-remaining');
+    const reset = numericHeader(response.headers, 'x-ratelimit-reset');
+    const retryAfter = numericHeader(response.headers, 'retry-after');
+    const authenticated = new Headers(init.headers).has('authorization');
+    const failure = remaining === 0 ? 'primary-rate-limit' : response.status === 429 || (response.status === 403 && retryAfter !== undefined) ? 'rate-limit' : 'http-error';
+    console.warn(JSON.stringify({ event: 'github_request_failed', category: requestCategory(path), status: response.status, attempt, read, authenticated, failure, remaining, reset, retryAfter }));
     const delay = read && attempt === 1 ? retryDelay(response) : undefined;
     if (delay === undefined || init.signal?.aborted) return response;
     await pause(delay);
