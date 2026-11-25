@@ -3,13 +3,19 @@ import assert from 'node:assert/strict';
 import { automaticAdvisoryBudget, automaticAdvisoryPaths, coordinatedAdvisoriesEnabled, incrementalPaths, reviewBaseMarker, runCoordinatedAdvisories, selectAdvisoryRoles } from '../src/review-follow-up-policy.ts';
 
 const base = 'a'.repeat(40), oldHead = 'b'.repeat(40), head = 'c'.repeat(40);
-const approved = { commit_id: oldHead, state: 'APPROVED', body: reviewBaseMarker(base) };
-const comparison = { status: 'ahead', ahead_by: 1, total_commits: 1, files: [{ filename:'src/component.ts', status:'modified', changes: 3 }] };
+const approved = { commit_id: oldHead, state: 'APPROVED', body: '<!-- oddmash-app-review:fixture -->\n' + reviewBaseMarker(base) };
+const comparison = { status: 'ahead', ahead_by: 1, total_commits: 1, merge_base_commit: { sha: oldHead }, files: [{ filename:'src/component.ts', status:'modified', changes: 3 }] };
 
-test('only a verified compatible approved baseline permits bounded follow-up', () => {
+test('only a verified compatible official baseline permits bounded follow-up', () => {
   assert.deepEqual(incrementalPaths(approved, head, base, comparison), ['src/component.ts']);
   assert.deepEqual(incrementalPaths(approved, head, base, { ...comparison, files: [] }), []);
-  assert.equal(incrementalPaths({ ...approved, state:'CHANGES_REQUESTED' }, head, base, comparison), undefined);
+  assert.deepEqual(incrementalPaths({ ...approved, state:'CHANGES_REQUESTED' }, head, base, comparison), ['src/component.ts']);
+  assert.deepEqual(incrementalPaths({ ...approved, state:'COMMENTED' }, head, base, comparison), ['src/component.ts']);
+  assert.equal(incrementalPaths({ ...approved, state:'DISMISSED' }, head, base, comparison), undefined);
+  assert.equal(incrementalPaths({ ...approved, body: reviewBaseMarker(base) }, head, base, comparison), undefined);
+  assert.equal(incrementalPaths(approved, head, base, { ...comparison, merge_base_commit: { sha: head } }), undefined);
+  assert.equal(incrementalPaths(approved, head, base, { ...comparison, files: [{ filename:'src/auth.ts', status:'modified', changes:3 }] }), undefined);
+  assert.equal(incrementalPaths(approved, head, base, { ...comparison, files: [{ filename:'AGENTS.md', status:'modified', changes:3 }] }), undefined);
   assert.equal(incrementalPaths(approved, head, 'd'.repeat(40), comparison), undefined);
   assert.equal(incrementalPaths(approved, head, base, { ...comparison, status:'diverged' }), undefined);
   assert.equal(incrementalPaths(approved, head, base, { ...comparison, files: [{ filename:'src/component.ts', status:'removed', changes:3 }] }), undefined);
@@ -21,6 +27,7 @@ test('enabled coordination covers full conversation reviews without enabling sco
   const fullRequest = { recheck: 'comment-4', requestComment: { kind: 'issue' as const, id: 4, slash: true as const } };
   assert.equal(coordinatedAdvisoriesEnabled(fullRequest, 'true'), true);
   assert.equal(coordinatedAdvisoriesEnabled({}, 'true'), true);
+  assert.equal(coordinatedAdvisoriesEnabled({}, 'true', true), false);
   assert.equal(coordinatedAdvisoriesEnabled(fullRequest, 'false'), false);
   assert.equal(coordinatedAdvisoriesEnabled(fullRequest, undefined), false);
   assert.equal(coordinatedAdvisoriesEnabled({ recheck: 'delivery-id' }, 'true'), false);

@@ -35,6 +35,8 @@ Oddmash operates a maintainer-configured organization GitHub App that can approv
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and [the rollout plan](docs/rollout.md) for the activation checklist.
 
+Optional authenticated organization guidance reads are default-off. See [shared guidance setup and troubleshooting](docs/shared-guidance.md) for the activation prerequisites, conditional HTTP 304 behavior and stale-cache denial.
+
 ## Architecture
 
 Use a single modular serverless application, shared queue and independently configured agent roles. Keep advisory execution separate from approval and merge policy. Shared skills provide guidance, not execution permissions.

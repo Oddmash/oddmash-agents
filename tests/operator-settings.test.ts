@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { roles } from '@oddmash/agent-operator-contract';
 import { operatorSettings } from '../src/runtime-config.ts';
 
 test('operator settings contain only explicit non-secret values', () => {
@@ -12,7 +13,7 @@ test('operator settings contain only explicit non-secret values', () => {
     process.env.OPENAI_API_KEY = 'fixture-openai-key';
     process.env.OPENAI_MODEL = 'gpt-5.4';
     const snapshot = operatorSettings();
-    assert.equal(snapshot.agents.length, 7);
+    assert.deepEqual(snapshot.agents.map(agent => agent.role), [...roles]);
     assert.equal(snapshot.agents[0].configured, true);
     assert.equal(snapshot.agents[0].model, 'gpt-5.4');
     assert.doesNotMatch(JSON.stringify(snapshot), /fixture-|1234/);

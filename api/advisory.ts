@@ -1,3 +1,4 @@
+import { workerEndpoint } from '../src/worker-http.ts';
 import { executionContext, recordQueued, runAgentExecution } from '../src/agent-execution.ts';
 import { waitUntil } from '@vercel/functions';
 import { send } from '@vercel/queue';
@@ -7,7 +8,7 @@ import { dedicatedAdvisoryTarget, validSignature } from '../src/webhook.ts';
 import { createReviewJob, reviewTopic } from '../src/review-job.ts';
 import { reviewWebhook } from '../src/webhook-review.ts';
 
-export async function POST(request: Request) {
+async function receive(request: Request) {
   const role = new URL(request.url).searchParams.get('agent');
   if (!isAdvisoryRole(role)) return new Response('Not found', { status: 404 });
   const config = advisoryConfig(role);
@@ -27,7 +28,10 @@ export async function POST(request: Request) {
     try { job = createReviewJob(delivery, target, config.secret); } catch { return new Response('Bad request', { status: 400 }); }
     try { await send(reviewTopic, job, { idempotencyKey: `${role}:${delivery}`, retentionSeconds: 86400 }); }
     catch { return new Response('Unavailable', { status: 503 }); }
-    recordQueued(execution);
+    waitUntil(recordQueued(execution));
   } else waitUntil(runAgentExecution(execution, () => reviewWebhook(target, config)).catch(() => console.error('Advisory job failed')));
   return new Response('Accepted', { status: 202 });
 }
+
+const app = workerEndpoint('/api/advisory', receive);
+export const POST = (request: Request) => app.fetch(request);

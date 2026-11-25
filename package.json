@@ -15,8 +15,11 @@
     "skills:proposal": "node src/skill-proposal-cli.ts"
   },
   "dependencies": {
+    "@oddmash/agent-operator-contract": "workspace:*",
+    "@oddmash/agent-operator-store": "workspace:*",
     "@vercel/functions": "3.11.3",
-    "@vercel/queue": "0.11.0"
+    "@vercel/queue": "0.11.0",
+    "hono": "4.13.17"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

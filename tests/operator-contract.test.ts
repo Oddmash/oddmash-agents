@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { modelName, parseExecutionEvent, projectJobs, publicTarget } from '../packages/operator-contract/src/index.ts';
+import { isUnfinishedJob, jobElapsedMs, modelName, parseExecutionEvent, projectJobs, publicTarget } from '@oddmash/agent-operator-contract';
 
 const event = { event: 'oddmash_agent_execution', role: 'reviewer', correlationId: 'a'.repeat(24), attempt: 1, timestamp: '2026-11-25T05:00:00.000Z', outcome: 'queued' };
 
@@ -32,4 +32,21 @@ test('projects only allowlisted fields and never private scope', () => {
   assert.doesNotMatch(JSON.stringify(parsed), /fixture-value/);
   assert.equal(modelName('fixture-value'), null);
   assert.equal(modelName('gpt-5.4'), 'gpt-5.4');
+});
+
+test('unfinished job summary includes stale work but not terminal outcomes', () => {
+  for (const state of ['queued', 'running', 'stale'] as const) assert.equal(isUnfinishedJob({ state }), true);
+  for (const state of ['returned', 'failed'] as const) assert.equal(isUnfinishedJob({ state }), false);
+  const stale = projectJobs([event], Date.parse(event.timestamp) + 361000)[0];
+  assert.equal(isUnfinishedJob(stale), true);
+});
+
+test('elapsed timing includes queued age, stale age and recorded terminal duration', () => {
+  const now = Date.parse(event.timestamp) + 361000;
+  const queued = projectJobs([event], Date.parse(event.timestamp))[0];
+  assert.equal(jobElapsedMs(queued, new Date(now).toISOString()), 361000);
+  const stale = projectJobs([event], now)[0];
+  assert.equal(jobElapsedMs(stale, new Date(now).toISOString()), 361000);
+  assert.equal(jobElapsedMs({ ...queued, state: 'returned', durationMs: 42 }, new Date(now).toISOString()), 42);
+  assert.equal(jobElapsedMs({ ...queued, state: 'failed' }, new Date(now).toISOString()), undefined);
 });

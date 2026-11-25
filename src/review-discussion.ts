@@ -408,6 +408,12 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
 const reconciliationPrefix = '<!-- oddmash-verified-thread-reconciliation';
 const pathFingerprint = (path: string) => createHash('sha256').update(path).digest('hex');
 
+export function shouldReconcileEarlierFindings(input: { confirmedEmpty: boolean; fullReview: boolean; checksSuccessful: boolean; event: string; earlierReview: boolean; explicitRequest: boolean; boundedFollowUp?: boolean }) {
+  return !input.confirmedEmpty && (input.fullReview || input.boundedFollowUp === true) && input.checksSuccessful &&
+    ((input.fullReview && input.event === 'APPROVE' && (input.earlierReview || input.explicitRequest)) ||
+      (input.event === 'COMMENT' && input.earlierReview));
+}
+
 export function threadReconciliationMarker(paths: readonly string[]) {
   return reconciliationPrefix + ':' + [...new Set(paths.map(pathFingerprint))].sort().join(',') + ' -->';
 }
@@ -418,7 +424,19 @@ export function threadReconciliationExclusions(body: string): ReadonlySet<string
   if (marker) return new Set(marker[1].split(',').filter(Boolean));
 }
 
-export async function reconcileReviewThreads(api: Api, target: Target, config: { slug: string; model: string; openaiKey: string }, head: string, baseSha: string, request: typeof fetch = fetch, exclusions: ReadonlySet<string> = new Set()) {
+const scopePrefix = '<!-- oddmash-verified-thread-scope:';
+
+export function threadReconciliationScopeMarker(paths: readonly string[]): string {
+  return scopePrefix + [...new Set(paths.map(pathFingerprint))].sort().join(',') + ' -->';
+}
+
+export function threadReconciliationScope(body: string): ReadonlySet<string> | undefined {
+  const marker = /^<!-- oddmash-verified-thread-scope:((?:[a-f0-9]{64}(?:,[a-f0-9]{64})*)?) -->$/m.exec(body);
+  if (marker) return new Set(marker[1].split(',').filter(Boolean));
+  if (body.includes(scopePrefix)) return new Set();
+}
+
+export async function reconcileReviewThreads(api: Api, target: Target, config: { slug: string; model: string; openaiKey: string }, head: string, baseSha: string, request: typeof fetch = fetch, exclusions: ReadonlySet<string> = new Set(), checksCurrent?: () => Promise<boolean>, included?: ReadonlySet<string>) {
   if (!target.number || !sha.test(head) || !sha.test(baseSha)) return;
   const bot = `${config.slug}[bot]`;
   const path = pathFor(target);
@@ -435,7 +453,7 @@ export async function reconcileReviewThreads(api: Api, target: Target, config: {
   if (!comments) return;
   const own = comments.filter(item => item.node_id && open.has(item.node_id) && item.user.login === bot && item.user.type === 'Bot' &&
     !item.in_reply_to_id && item.pull_request_url === `https://api.github.com${path}` &&
-    item.body.startsWith('<!-- oddmash-finding:') && item.path && !exclusions.has(pathFingerprint(item.path)) &&
+    item.body.startsWith('<!-- oddmash-finding:') && item.path && !exclusions.has(pathFingerprint(item.path)) && (!included || included.has(pathFingerprint(item.path))) &&
     safe(item.path, Boolean(target.private)) && safe(item.body, Boolean(target.private)) &&
     originalHead(item) !== head);
   if (own.length > 6) console.info('Earlier finding reconciliation reached its review budget.');
@@ -461,7 +479,7 @@ export async function reconcileReviewThreads(api: Api, target: Target, config: {
       console.info('Earlier finding remains open because the correction could not be verified.');
       continue;
     }
-    if (!await current()) return;
+    if (!await current() || (checksCurrent && !await checksCurrent())) return;
     if (!await resolveOwnThread(api, target, finding.node_id!, bot, head, baseSha).catch(() => false)) {
       console.warn('Verified finding resolution unavailable; maintainer review required.');
       unavailable = true;

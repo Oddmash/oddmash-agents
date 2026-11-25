@@ -11,11 +11,11 @@ import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts'
 import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks, type CheckEvidence, type ReviewCheckHead } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, authorizePublicGuidance, githubApi, commentReceipt, completeCommentReaction, reactToComment, slashRequestContext, type Target } from './webhook.ts';
-import { reconcileReviewThreads, replyToReview, scopedAgentThreadResolution, scopedLeadThreadResolution, threadReconciliationExclusions, threadReconciliationMarker } from './review-discussion.ts';
+import { reconcileReviewThreads, replyToReview, scopedAgentThreadResolution, scopedLeadThreadResolution, shouldReconcileEarlierFindings, threadReconciliationExclusions, threadReconciliationMarker, threadReconciliationScope, threadReconciliationScopeMarker } from './review-discussion.ts';
 import { retryableJobError } from './review-job.ts';
 import { publishAutomationStatus } from './review-status.ts';
 import { actionsQuotaEvidence, actionsWorkflowUrl } from './actions-quota.ts';
-import { automaticAdvisoryBudget, automaticAdvisoryPaths, coordinatedAdvisoriesEnabled, incrementalPaths, reviewBaseMarker, runCoordinatedAdvisories, selectAdvisoryRoles, type ChangeMetadata, type CompareEvidence } from './review-follow-up-policy.ts';
+import { automaticAdvisoryBudget, automaticAdvisoryPaths, coordinatedAdvisoriesEnabled, incrementalBaseline, incrementalPaths, reviewBaseMarker, runCoordinatedAdvisories, selectAdvisoryRoles, type ChangeMetadata, type CompareEvidence } from './review-follow-up-policy.ts';
 
 type Pull = { number: number; user: { id: number; login: string }; state: string; draft: boolean; head: ReviewCheckHead; base: { sha: string; repo: { private: boolean; full_name: string; id: number } }; labels: { name: string }[]; merge_commit_sha?: string | null };
 import { acquirePendingReview, clearExpiredWebhookLock, ownsPendingReview, type Review } from './review-lock.ts';
@@ -199,6 +199,13 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const read = (sha: string) => api<CheckEvidence>(`${root}/commits/${sha}/check-runs?per_page=100`);
       return loadCheckEvidence(item.head.sha, item.merge_commit_sha, target.private ? read : publicReviewCheckReader(root, item.number, read, fetch, { head: item.head, readPulls: api }), Number(appId));
     };
+    const reconciliationChecksCurrent = async (snapshot: Pull) => {
+      const current = await api<Pull>(path);
+      return current.state === 'open' && !current.draft && eligibleBase(current) &&
+        current.head.sha === snapshot.head.sha && current.base.sha === snapshot.base.sha &&
+        current.merge_commit_sha === snapshot.merge_commit_sha &&
+        reviewChecksSuccessful(await readChecks(current), repository);
+    };
     const retryExistingApproval = async () => {
       if (existingApproval?.state !== 'APPROVED') return;
       let reason = !config.autoMerge ? 'automatic merge is disabled' : 'merge request failed';
@@ -225,7 +232,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if (!review?.body || !['APPROVED', 'COMMENTED'].includes(review.state) || !review.body.includes(reviewBaseMarker(pr.base.sha))) return;
       const exclusions = threadReconciliationExclusions(review.body);
       if (exclusions && reviewChecksSuccessful(await readChecks(pr), repository)) {
-        await reconcileReviewThreads(api, { ...target, number: pr.number }, config, pr.head.sha, pr.base.sha, fetch, exclusions);
+        await reconcileReviewThreads(api, { ...target, number: pr.number }, config, pr.head.sha, pr.base.sha, fetch, exclusions, () => reconciliationChecksCurrent(pr), threadReconciliationScope(review.body));
       }
     };
     if (!target.recheck && hasOfficialReview(reviews, bot, pr.head.sha)) {
@@ -332,7 +339,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }) : null;
       if (approved && !candidate) return;
       const previous = reviews.filter(review => review.user.login === bot && review.commit_id !== pr.head.sha && review.body?.includes('<!-- oddmash-app-review:') && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state)).at(-1);
-      const comparison = !target.recheck && previous?.state === 'APPROVED' && /^[a-f0-9]{40}$/i.test(previous.commit_id) && previous.body?.includes(reviewBaseMarker(pr.base.sha)) ? await api<CompareEvidence>(`${root}/compare/${previous.commit_id}...${pr.head.sha}?per_page=100`).catch(() => undefined) : undefined;
+      const comparison = !target.recheck && previous && incrementalBaseline(previous, pr.head.sha, pr.base.sha) ? await api<CompareEvidence>(`${root}/compare/${previous.commit_id}...${pr.head.sha}?per_page=100`).catch(() => undefined) : undefined;
       const incrementalFiles = !target.recheck ? incrementalPaths(previous, pr.head.sha, pr.base.sha, comparison) : undefined;
       const requestContext = await slashRequestContext(api, target, 'review');
       const publicGuidanceToken = process.env.REVIEWER_AUTHENTICATED_GUIDANCE_ENABLED === 'true' ? await authorizePublicGuidance(target, appId, key).catch(() => { console.warn('Scoped organization guidance authorization unavailable'); return undefined; }) : undefined;
@@ -345,7 +352,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const summaries = new Map<string, { section: string; publish?: () => Promise<void> }>();
       let selectedRoles: readonly string[] = [];
       if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED !== 'true') console.info('Coordinated advisors disabled');
-      if (coordinatedAdvisoriesEnabled(target, process.env.REVIEWER_AUTO_ADVISORY_ENABLED)) {
+      if (coordinatedAdvisoriesEnabled(target, process.env.REVIEWER_AUTO_ADVISORY_ENABLED, incrementalFiles !== undefined)) {
         const budget = automaticAdvisoryBudget(process.env, Date.now() - executionStarted);
         if (budget.maxRequests > 0 && budget.elapsedMs > 0) {
           const planningStarted = Date.now();
@@ -409,10 +416,14 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const completedResult = event === 'APPROVE' ? { conclusion: 'success' as const, title: 'Review approved' } : event === 'REQUEST_CHANGES' ? { conclusion: 'failure' as const, title: 'Changes requested' } : { conclusion: 'neutral' as const, title: reviewOutcome(event, followUp).title };
       const proof = incrementalFiles === undefined && event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === current.head.sha && candidate.pull.base.sha === current.base.sha && candidate.pull.merge_commit_sha === current.merge_commit_sha ? `\n\n${mergeProof(candidate)}` : '';
       const hasEarlierReview = Boolean(previous) || hasOfficialReview(own, bot, current.head.sha);
-      const reconcileThreads = !followUp.confirmedEmpty && incrementalFiles === undefined && reviewChecksSuccessful(finalChecks, repository) &&
-        ((event === 'APPROVE' && target.recheck) || (event === 'COMMENT' && hasEarlierReview));
+      const reconcileThreads = shouldReconcileEarlierFindings({
+        confirmedEmpty: Boolean(followUp.confirmedEmpty), fullReview: incrementalFiles === undefined,
+        checksSuccessful: reviewChecksSuccessful(finalChecks, repository), event,
+        earlierReview: hasEarlierReview, explicitRequest: Boolean(target.recheck), boundedFollowUp: incrementalFiles !== undefined && incrementalFiles.length > 0
+      });
       const reconciliation = reconcileThreads ? threadReconciliationMarker(result.comments.map(comment => comment.path)) : '';
-      const scopeNote = `\n\n${reviewBaseMarker(current.base.sha)}` + (reconciliation ? `\n${reconciliation}` : '') + (incrementalFiles !== undefined ? '\n\nIncremental follow-up only. Earlier files were not re-reviewed; request a full review before approval or merge.\n\n증분 검토입니다. 이전 파일은 다시 검토하지 않았으며 승인 또는 머지 전 전체 리뷰가 필요합니다.' : '');
+      const reconciliationScope = reconciliation && incrementalFiles !== undefined ? threadReconciliationScopeMarker(incrementalFiles) : '';
+      const scopeNote = `\n\n${reviewBaseMarker(current.base.sha)}` + (reconciliation ? `\n${reconciliation}` : '') + (reconciliationScope ? `\n${reconciliationScope}` : '') + (incrementalFiles !== undefined ? '\n\nIncremental follow-up only. Earlier files were not re-reviewed; request a full review before approval or merge.\n\n증분 검토입니다. 이전 파일은 다시 검토하지 않았으며 승인 또는 머지 전 전체 리뷰가 필요합니다.' : '');
       let body = formatReviewBody(event, finalMarker, result.report, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote + specialistSummary;
       const attemptMerge = async (reviewId: number) => {
         if (!candidate) { await mergeStatus(mergeReason); return; }
@@ -475,7 +486,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       if (reconciliation) {
         recordReviewPhase('Verifying earlier findings');
         await progress?.update('Verifying earlier findings', 'Checking the current commit against open review discussions.');
-        await reconcileReviewThreads(api, { ...target, number: current.number }, config, current.head.sha, current.base.sha, fetch, threadReconciliationExclusions(reconciliation));
+        await reconcileReviewThreads(api, { ...target, number: current.number }, config, current.head.sha, current.base.sha, fetch, threadReconciliationExclusions(reconciliation), () => reconciliationChecksCurrent(current), threadReconciliationScope(reconciliationScope));
       }
       await progress?.finish(progressResult.conclusion, progressResult.title);
       if (event === 'APPROVE' && incrementalFiles === undefined) await attemptMerge(publishedReviewId);

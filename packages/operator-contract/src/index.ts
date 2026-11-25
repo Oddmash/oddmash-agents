@@ -9,7 +9,7 @@ export type ExecutionEvent = {
   timestamp: string; outcome: ExecutionOutcome; durationMs?: number; failure?: string; target?: PublicTarget; phase?: ExecutionPhase;
 };
 export type JobState = 'queued' | 'running' | 'returned' | 'failed' | 'stale';
-export type Job = { role: AgentRole; correlationId: string; attempt: number; state: JobState; updatedAt: string; target?: PublicTarget; phase?: ExecutionPhase; durationMs?: number; failure?: string };
+export type Job = { role: AgentRole; correlationId: string; attempt: number; state: JobState; updatedAt: string; startedAt?: string; target?: PublicTarget; phase?: ExecutionPhase; durationMs?: number; failure?: string };
 export type AgentSettings = { role: AgentRole; enabled: boolean; configured: boolean; model: string | null; autoMerge: boolean };
 export type WorkerSettings = { queueEnabled: boolean; coordinatedAdvisoriesEnabled: boolean; agents: AgentSettings[] };
 
@@ -53,7 +53,35 @@ export function projectJobs(inputs: readonly unknown[], now: number, staleAfterM
     if (sameAttempt && previous?.state === 'running' && state === 'queued') continue;
     const target = event.target ?? (sameAttempt ? previous?.target : undefined);
     const phase = event.phase ?? (sameAttempt ? previous?.phase : undefined);
-    jobs.set(key, { role: event.role, correlationId: event.correlationId, attempt: event.attempt, state, updatedAt: event.timestamp, ...(target ? { target } : {}), ...(phase ? { phase } : {}), ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }), ...(event.failure ? { failure: event.failure } : {}) });
+    const startedAt = event.outcome === 'started' ? event.timestamp : sameAttempt ? previous?.startedAt : undefined;
+    jobs.set(key, { role: event.role, correlationId: event.correlationId, attempt: event.attempt, state, updatedAt: event.timestamp, ...(startedAt ? { startedAt } : {}), ...(target ? { target } : {}), ...(phase ? { phase } : {}), ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }), ...(event.failure ? { failure: event.failure } : {}) });
   }
   return [...jobs.values()].map(job => ['queued', 'running'].includes(job.state) && now - Date.parse(job.updatedAt) > staleAfterMs ? { ...job, state: 'stale' as const } : job).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+}
+
+export function parseWorkerSettings(input: unknown): WorkerSettings | undefined {
+  if (!input || typeof input !== 'object') return;
+  const value = input as Record<string, unknown>;
+  if (typeof value.queueEnabled !== 'boolean' || typeof value.coordinatedAdvisoriesEnabled !== 'boolean' || !Array.isArray(value.agents) || value.agents.length !== roles.length) return;
+  const agents: AgentSettings[] = [];
+  for (const role of roles) {
+    const matches = value.agents.filter(item => item && typeof item === 'object' && item.role === role);
+    if (matches.length !== 1) return;
+    const agent = matches[0];
+    if (typeof agent.enabled !== 'boolean' || typeof agent.configured !== 'boolean' || typeof agent.autoMerge !== 'boolean') return;
+    agents.push({ role, enabled: agent.enabled, configured: agent.configured, model: modelName(agent.model), autoMerge: role === 'reviewer' && agent.autoMerge });
+  }
+  return { queueEnabled: value.queueEnabled, coordinatedAdvisoriesEnabled: value.coordinatedAdvisoriesEnabled, agents };
+}
+
+export function isUnfinishedJob(job: Pick<Job, 'state'>): boolean {
+  return job.state === 'queued' || job.state === 'running' || job.state === 'stale';
+}
+
+export function jobElapsedMs(job: Job, observedAt: string): number | undefined {
+  if (job.durationMs !== undefined) return job.durationMs;
+  if (!isUnfinishedJob(job)) return undefined;
+  const start = Date.parse(job.startedAt ?? job.updatedAt);
+  const now = Date.parse(observedAt);
+  return Number.isFinite(start) && Number.isFinite(now) ? Math.max(0, now - start) : undefined;
 }

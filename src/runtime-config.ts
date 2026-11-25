@@ -1,4 +1,4 @@
-import { modelName, type WorkerSettings } from '../packages/operator-contract/src/index.ts';
+import { modelName, type WorkerSettings } from '@oddmash/agent-operator-contract';
 import { advisoryRoles, isAdvisoryRole, type AdvisoryRole } from './advisory-agents.ts';
 
 export function advisoryModelConfig(role: AdvisoryRole, fallback: { openaiKey: string; model: string }) {

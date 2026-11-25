@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { reconcileReviewThreads, replyToReview, scopedAgentThreadResolution, scopedLeadThreadResolution, threadReconciliationExclusions, threadReconciliationMarker } from '../src/review-discussion.ts';
+import { reconcileReviewThreads, replyToReview, scopedAgentThreadResolution, scopedLeadThreadResolution, shouldReconcileEarlierFindings, threadReconciliationExclusions, threadReconciliationMarker, threadReconciliationScope, threadReconciliationScopeMarker } from '../src/review-discussion.ts';
 import { githubApi, type Target } from '../src/webhook.ts';
 import { githubContentFixture } from './github-content-fixture.ts';
 
@@ -314,6 +314,20 @@ test('concurrent requests for the same verified correction post one confirmation
   assert.match(comments[3].body, /Review thread resolved/);
 });
 
+test('automatic full green reviews schedule prior findings without an explicit re-review', () => {
+  const input = { confirmedEmpty: false, fullReview: true, checksSuccessful: true, event: 'APPROVE', earlierReview: true, explicitRequest: false };
+  assert.equal(shouldReconcileEarlierFindings(input), true);
+  assert.equal(shouldReconcileEarlierFindings({ ...input, event: 'COMMENT' }), true);
+  assert.equal(shouldReconcileEarlierFindings({ ...input, earlierReview: false }), false);
+  assert.equal(shouldReconcileEarlierFindings({ ...input, earlierReview: false, explicitRequest: true }), true);
+  assert.equal(shouldReconcileEarlierFindings({ ...input, checksSuccessful: false }), false);
+  assert.equal(shouldReconcileEarlierFindings({ ...input, fullReview: false }), false);
+  assert.equal(shouldReconcileEarlierFindings({ ...input, fullReview: false, boundedFollowUp: true, event: 'COMMENT' }), true);
+  assert.equal(shouldReconcileEarlierFindings({ ...input, fullReview: false, boundedFollowUp: true, event: 'APPROVE' }), false);
+  assert.equal(shouldReconcileEarlierFindings({ ...input, confirmedEmpty: true }), false);
+  assert.equal(shouldReconcileEarlierFindings({ ...input, event: 'REQUEST_CHANGES' }), false);
+});
+
 test('full re-review reconciles each earlier finding from its own correction evidence', async () => {
   const nextHead = 'c'.repeat(40);
   const comments = [
@@ -352,9 +366,19 @@ test('full re-review reconciles each earlier finding from its own correction evi
   assert.doesNotMatch(marker, /src\/current-finding/);
   const exclusions = threadReconciliationExclusions(marker);
   assert.equal(exclusions?.size, 1);
-  await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, model, exclusions);
+  await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, model, exclusions, async () => false);
+  assert.deepEqual([...resolved], []);
+  assert.equal(modelCalls, 1);
+  const scopedMarker = threadReconciliationScopeMarker([root.path]);
+  assert.doesNotMatch(scopedMarker, /src\/demo/);
+  assert.equal(threadReconciliationScope(scopedMarker)?.size, 1);
+  assert.equal(threadReconciliationScope('<!-- oddmash-verified-thread-scope:invalid -->')?.size, 0);
+  await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, model, exclusions, async () => true, threadReconciliationScope(scopedMarker));
   assert.deepEqual([...resolved], ['thread-4']);
   assert.equal(modelCalls, 2);
+  await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, model, exclusions, async () => true);
+  assert.deepEqual([...resolved], ['thread-4']);
+  assert.equal(modelCalls, 3);
   changed = true;
   await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, async () => assert.fail('stale request must not call the model'));
 });
