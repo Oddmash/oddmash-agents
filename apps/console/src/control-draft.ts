@@ -17,3 +17,7 @@ export function validControlLimits(draft: OperatorControls, defaults: { maxReque
 export function controlsDirty(saved: OperatorControls, draft: OperatorControls) {
   return saved.paused !== draft.paused || saved.maxRequests !== draft.maxRequests || saved.maxMs !== draft.maxMs || saved.excludedRoles.join(',') !== draft.excludedRoles.join(',');
 }
+
+export function readLimitInput(value: string, number: number, badInput: boolean, scale = 1): number | null {
+  return value === '' && !badInput ? null : badInput ? NaN : scale === 1 ? number : Math.round(number * scale);
+}
