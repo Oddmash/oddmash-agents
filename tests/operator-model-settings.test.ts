@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
+import { reviewWebhook } from '../apps/worker/src/webhook-review.ts';
+import { advisoryConfig } from '../apps/worker/src/runtime-config.ts';
+import { type Target } from '../apps/worker/src/webhook.ts';
 import { approvedModelOverrides, effectiveOperatorModel, modelPolicy, parseModelOverrides, parseOperatorModelsRecord } from '../packages/operator-contract/src/model-settings.ts';
 import { operatorStoreConfig, readOperatorModels, saveOperatorModels } from '../packages/operator-store/src/index.ts';
 import { readReviewModelOverrides, advisoryModelConfig } from '../apps/worker/src/runtime-config.ts';
@@ -86,4 +90,65 @@ test('future jobs read approved settings once and fall back to deployment defaul
   } finally {
     for (const key of keys) if (before[key] === undefined) delete process.env[key]; else process.env[key] = before[key];
   }
+});
+
+test('shared webhook and queue execution entry honors the dedicated and coordinated role choice', async t => {
+  const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const settings = {
+    OPERATOR_STORE_URL: 'https://fixture.upstash.io',
+    OPERATOR_STORE_READ_TOKEN: 'fixture-token',
+    OPENAI_API_KEY: 'fixture-shared',
+    OPENAI_MODEL: 'gpt-default',
+    TRIAGE_APP_ENABLED: 'true',
+    TRIAGE_APP_ID: '43',
+    TRIAGE_APP_PRIVATE_KEY: key,
+    TRIAGE_WEBHOOK_SECRET: 'fixture-triage',
+    TRIAGE_OPENAI_API_KEY: 'fixture-triage-key',
+    TRIAGE_OPENAI_MODEL: 'gpt-role-default',
+    TRIAGE_OPERATOR_ALLOWED_MODELS: 'gpt-approved-triage',
+    REVIEWER_APP_ID: '42',
+    REVIEWER_WEBHOOK_SECRET: 'fixture-lead'
+  };
+  const previous = Object.fromEntries(Object.keys(settings).map(name => [name, process.env[name]]));
+  Object.assign(process.env, settings);
+  t.after(() => { for (const [name, value] of Object.entries(previous)) if (value === undefined) delete process.env[name]; else process.env[name] = value; });
+  const repository = { id: 7, full_name: 'Oddmash/example', private: false, visibility: 'public', owner: { login: 'Oddmash' }, default_branch: 'main' };
+  const root = '/repos/Oddmash/example';
+  const requests: string[] = [];
+  let reads = 0;
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.origin === 'https://fixture.upstash.io') {
+      reads++;
+      return Response.json([{ result: JSON.stringify({ revision, updatedAt, overrides: { triage: 'gpt-approved-triage' } }) }]);
+    }
+    if (url.origin === 'https://api.openai.com') {
+      const body = JSON.parse(String(init?.body));
+      requests.push(body.model);
+      assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer fixture-triage-key');
+      assert.equal(body.store, false);
+      return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ en: ['One', 'Two', 'Three', 'Four'], ko: ['하나', '둘', '셋', '넷'] }) }] }] });
+    }
+    assert.equal(url.origin, 'https://api.github.com');
+    const path = url.pathname;
+    if (path === root + '/installation') return Response.json({ id: 3, app_id: 43, app_slug: 'oddmash-triage', suspended_at: null });
+    if (path === '/app/installations/3') return Response.json({ account: { login: 'Oddmash' }, suspended_at: null });
+    if (path === '/app/installations/3/access_tokens') return Response.json({ token: 'fixture-token' });
+    if (path === root) return Response.json(repository);
+    if (path === root + '/issues/1') return Response.json({ number: 1, title: 'Fixture', body: 'Fixture body', state: 'open' });
+    if (path === root + '/branches/main') return Response.json({ name: 'main', commit: { sha: 'b'.repeat(40) } });
+    if (path.includes('/contents/')) return new Response(null, { status: 404 });
+    if (path === root + '/issues' || path === root + '/issues/1/comments') return Response.json([]);
+    if (path === root + '/issues/comments/9') return Response.json({ id: 9, user: { id: 135234546, login: 'qtaghdi', type: 'User' }, body: '/triage', issue_url: 'https://api.github.com' + root + '/issues/1' });
+    if (path.endsWith('/reactions')) return Response.json({ id: 1 });
+    if (path.endsWith('/reactions/1')) return new Response(null, { status: 204 });
+    assert.fail('Unexpected fixture request ' + path);
+  });
+  const target: Target = { repository: repository.full_name, repositoryId: repository.id, installation: 3, number: 1, advisory: 'triage', requestComment: { kind: 'issue', id: 9, slash: true } };
+  const dedicated = advisoryConfig('triage');
+  assert.ok(dedicated);
+  await reviewWebhook({ ...target, advisoryIdentity: 'triage' }, dedicated);
+  await reviewWebhook(target, { appId: '42', key, slug: 'oddmash-lead', openaiKey: 'fixture-shared', model: 'gpt-default' });
+  assert.deepEqual(requests, ['gpt-approved-triage', 'gpt-approved-triage']);
+  assert.equal(reads, 2);
 });
