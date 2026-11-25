@@ -1,10 +1,11 @@
+import { assertAuthorizationQuota } from './github-request.ts';
 import { ownsPendingReview, withPendingReviewLock, type Review } from './review-lock.ts';
 import { createHash } from 'node:crypto';
 import type { AdvisoryRole } from './advisory-agents.ts';
 import { agentSkill, guidanceInstructions, loadProjectGuidance } from './agent-guidance.ts';
 import { boundedModelBody, recordUsage, type Usage } from './model-request.ts';
 import { safeText, privateSensitiveText, selectFiles, type ChangedFile } from './core.ts';
-import { appJwt, githubApi, commentReceipt, conversationFixReference, maintainer, mentioned, privateRepositoryAllowed, reactToComment, reviewableOddmash, type Target } from './webhook.ts';
+import { githubAppApi, githubInstallationApi, githubApi, commentReceipt, conversationFixReference, maintainer, mentioned, privateRepositoryAllowed, reactToComment, reviewableOddmash, type Target } from './webhook.ts';
 
 type Api = ReturnType<typeof githubApi>;
 type Comment = { id: number; node_id?: string; user: { id: number; login: string; type?: string }; body: string; path?: string; in_reply_to_id?: number; commit_id?: string; original_commit_id?: string; pull_request_url?: string; issue_url?: string };
@@ -64,7 +65,7 @@ export function scopedLeadThreadResolution(target: Target, appId: string, key: s
   return async (threadId, stillCurrent) => {
     if (!/^PRRT_[a-zA-Z0-9_-]{1,200}$/.test(threadId)) return false;
     // The review webhook has already authenticated this installation and verified the correction.
-    const jwt = githubApi(appJwt(appId, key), request);
+    const jwt = githubAppApi(appId, key, request);
     const result = await jwt<{ token: string; permissions: { contents?: string; pull_requests?: string } }>(`/app/installations/${target.installation}/access_tokens`, { method: 'POST', body: JSON.stringify({
       repository_ids: [target.repositoryId], permissions: { contents: 'write', pull_requests: 'write' }
     }) });
@@ -99,7 +100,8 @@ export function scopedAgentThreadResolution(target: Target, appId: string, key: 
   if (!enabled || !allowed || !identity || !target.number || !target.reply || target.reply.kind === 'conversation') return;
   return async (threadId, stillCurrent) => {
     if (!/^PRRT_[a-zA-Z0-9_-]{1,200}$/.test(threadId) || !await stillCurrent()) return false;
-    const jwt = githubApi(appJwt(appId, key), request);
+    const jwt = githubAppApi(appId, key, request);
+    assertAuthorizationQuota({ appId, installationId: target.installation }, 'repository-identity', request);
     const installation = await jwt<{ id: number; app_id: number; app_slug: string; account: { login: string }; suspended_at: string | null }>(`/app/installations/${target.installation}`);
     if (installation.id !== target.installation || installation.app_id !== Number(appId) || installation.app_slug !== slug ||
         installation.account?.login?.toLowerCase() !== 'oddmash' || installation.suspended_at) return false;
@@ -107,7 +109,7 @@ export function scopedAgentThreadResolution(target: Target, appId: string, key: 
       repository_ids: [target.repositoryId], permissions: { contents: 'write', pull_requests: 'write' }
     }) });
     if (!result.token) return false;
-    const api = githubApi(result.token, request);
+    const api = githubInstallationApi(result.token, appId, target.installation, request);
     try {
       if (result.permissions?.contents !== 'write' || result.permissions?.pull_requests !== 'write' || !await stillCurrent()) return false;
       const repo = await api<Repository>(`/repos/${target.repository}`);
