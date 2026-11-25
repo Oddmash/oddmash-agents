@@ -7,6 +7,8 @@ import { runAdvisory, validAdvisory } from '../apps/worker/src/advisory.ts';
 import { publishSpecialistFindings } from '../apps/worker/src/specialist-findings.ts';
 import { advisoryConfig, advisoryModelConfig } from '../apps/worker/src/runtime-config.ts';
 import { createReviewJob, verifyReviewJob } from '../apps/worker/src/review-job.ts';
+import { executionContext, runAgentExecution } from '../apps/worker/src/agent-execution.ts';
+import type { ExecutionEvent } from '../packages/operator-contract/src/index.ts';
 import { githubContentFixture } from './github-content-fixture.ts';
 
 const user = { id: 135234546, login: 'qtaghdi', type: 'User' };
@@ -70,6 +72,7 @@ test('triage uses the verified default branch and refreshes one advisory when it
       if (init?.method === 'POST' || init?.method === 'PATCH') {
         writes.push(`${init.method} ${url.pathname}`);
         comments[0] = { id: 12, body: JSON.parse(String(init.body)).body, user: { login: bot } };
+        return Response.json(comments[0]);
       }
       return Response.json(comments);
     }
@@ -89,19 +92,25 @@ test('triage uses the verified default branch and refreshes one advisory when it
     if (branchChangesDuringRequest) base = 'd'.repeat(40);
     return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(result) }] }] });
   };
-  await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
-  await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+  const observations: ExecutionEvent[] = [];
+  const run = () => runAgentExecution(executionContext('triage', '', 1, target), () => runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request), event => observations.push(event));
+  await run();
+  await run();
   assert.equal(calls, 1);
   base = 'c'.repeat(40);
   branchChangesDuringRequest = true;
-  await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+  await run();
   assert.equal(calls, 2);
   assert.equal(writes.length, 1);
   branchChangesDuringRequest = false;
-  await runAdvisory(api, target, { bot, model: 'fixture', openaiKey: 'fixture' }, request);
+  await run();
   assert.equal(calls, 3);
   assert.deepEqual(writes, [`POST /repos/${repo.full_name}/issues/7/comments`, `PATCH /repos/${repo.full_name}/issues/comments/12`]);
   assert.match(comments[0].body, /Oddmash Triage/);
+  const publications = observations.filter(event => event.outcome === 'published');
+  assert.equal(publications.length, 2);
+  assert.deepEqual(publications.map(event => event.publication), [{ kind: 'comment', id: 12 }, { kind: 'comment', id: 12 }]);
+  assert.ok(publications.every(event => event.role === 'triage' && event.target?.number === target.number));
 });
 
 test('triage stops before guidance or a model request when repository identity changes', async () => {
