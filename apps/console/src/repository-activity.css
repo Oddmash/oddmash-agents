@@ -7,16 +7,16 @@
 .repository-heading h3 a:hover { text-decoration: underline; }
 .repository-counts { display: flex; align-items: center; flex-wrap: wrap; gap: var(--om-semantic-space-xs); }
 .repository-browser { display: flex; flex-wrap: wrap; gap: var(--om-semantic-space-sm); margin: var(--om-semantic-space-md) 0; }
-.repository-browser .om-button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.repository-browser button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .repository-browser button[aria-pressed="true"] { border-color: var(--accent); color: var(--text); background: var(--panel); }
 .execution-entry { min-width: 0; border-top: var(--om-semantic-border-width) solid var(--border); padding: var(--om-semantic-space-md) 0; }
 .execution-summary { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr); align-items: center; gap: var(--om-semantic-space-md); }
 .execution-summary > div { min-width: 0; }
 .execution-entry small { display: block; color: var(--muted); overflow-wrap: anywhere; margin-top: var(--om-semantic-space-xs); font-size: .875em; }
 .execution-details { margin-top: var(--om-semantic-space-sm); color: var(--muted); }
-.execution-details summary { cursor: pointer; width: fit-content; color: var(--muted); padding: var(--om-semantic-space-xs) 0; }
+.execution-details summary { cursor: pointer; width: fit-content; color: var(--muted); min-block-size: calc(var(--om-semantic-space-xl) + var(--om-semantic-space-lg) + var(--om-semantic-space-xs)); padding: var(--om-semantic-space-sm) 0; }
 .execution-details summary:hover { color: var(--text); }
-.execution-details summary:focus-visible { outline: var(--om-semantic-border-width) solid var(--accent); outline-offset: var(--om-semantic-space-xs); }
+.execution-details summary:focus-visible { outline: calc(var(--om-semantic-border-width) * 2) solid var(--accent); outline-offset: var(--om-semantic-space-xs); }
 .execution-facts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--om-semantic-space-sm) var(--om-semantic-space-lg); margin: var(--om-semantic-space-sm) 0; }
 .execution-facts div { min-width: 0; }
 .execution-facts dt { font-size: .875em; }
