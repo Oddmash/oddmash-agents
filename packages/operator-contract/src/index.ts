@@ -147,3 +147,5 @@ export function jobElapsedMs(job: Job, observedAt: string): number | undefined {
 }
 
 export * from './controls.ts';
+
+export * from './model-settings.ts';
