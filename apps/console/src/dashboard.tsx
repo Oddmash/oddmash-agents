@@ -1,9 +1,14 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { Badge, Button, Card } from '@oddmash/ui';
-import { isUnfinishedJob, type Job, type WorkerSettings } from '@oddmash/agent-operator-contract';
+import { isUnfinishedJob, jobElapsedMs, type Job, type WorkerSettings } from '@oddmash/agent-operator-contract';
 
 type Snapshot = { connected: boolean; jobs: Job[]; settings: WorkerSettings | null; settingsUpdatedAt?: string; observedAt: string };
 const names = { reviewer: 'Lead', impact: 'Impact', triage: 'Triage', qa: 'QA', release: 'Release', docs: 'Docs', architect: 'Architect' };
+
+function formatElapsed(job: Job, observedAt?: string) {
+  const elapsed = observedAt ? jobElapsedMs(job, observedAt) : undefined;
+  return elapsed === undefined ? '—' : Math.round(elapsed / 1000) + 's';
+}
 
 export function Dashboard({ logout }: { logout: ReactNode }) {
   const [snapshot, setSnapshot] = useState<Snapshot>();
@@ -61,8 +66,8 @@ export function Dashboard({ logout }: { logout: ReactNode }) {
         <Card><p>Recent failures</p><strong>{snapshot?.connected ? failed.length : '—'}</strong></Card>
         <Card><p>Configured agents</p><strong>{snapshot?.settings ? snapshot.settings.agents.filter(agent => agent.configured).length : '—'}</strong></Card>
       </section>
-      <section id="activity"><h2>Live activity</h2><p className="muted">Actual worker lifecycle events. Returned does not imply approval.</p>
-        <Card className="activity"><div className="table-wrap"><table><thead><tr><th>Agent</th><th>Target</th><th>Phase</th><th>State</th><th>Elapsed</th><th>Updated</th></tr></thead><tbody>{jobs.map(job => <tr key={job.role + ':' + job.correlationId + ':' + job.attempt}><td>{names[job.role]}</td><td>{job.target ? <a href={'https://github.com/' + job.target.repository + '/issues/' + job.target.number} target="_blank" rel="noreferrer">{job.target.repository.split('/')[1]} #{job.target.number}</a> : 'Not reported'}</td><td>{job.phase?.replaceAll('-', ' ') ?? '—'}</td><td><Badge>{job.state}</Badge>{job.failure && <small>{job.failure}</small>}</td><td>{job.durationMs !== undefined ? Math.round(job.durationMs / 1000) + 's' : job.startedAt && (job.state === 'running' || job.state === 'stale') && snapshot ? Math.max(0, Math.round((Date.parse(snapshot.observedAt) - Date.parse(job.startedAt)) / 1000)) + 's' : '—'}</td><td><time dateTime={job.updatedAt}>{new Date(job.updatedAt).toLocaleString()}</time></td></tr>)}</tbody></table></div>{!jobs.length && <p className="empty">{snapshot?.connected ? 'No recent execution events.' : 'Live activity unavailable.'}</p>}</Card>
+      <section id="activity"><h2>Live activity</h2><p className="muted">Actual worker lifecycle events. Returned means the execution ended without asserting approval. Queued elapsed time is the wait since the last queued event.</p>
+        <Card className="activity"><div className="table-wrap"><table><thead><tr><th>Agent</th><th>Target</th><th>Phase</th><th>State</th><th>Elapsed</th><th>Updated</th></tr></thead><tbody>{jobs.map(job => <tr key={job.role + ':' + job.correlationId + ':' + job.attempt}><td>{names[job.role]}</td><td>{job.target ? <a href={'https://github.com/' + job.target.repository + '/issues/' + job.target.number} target="_blank" rel="noreferrer">{job.target.repository.split('/')[1]} #{job.target.number}</a> : 'Not reported'}</td><td>{job.phase?.replaceAll('-', ' ') ?? '—'}</td><td><Badge>{job.state}</Badge>{job.failure && <small>{job.failure}</small>}</td><td>{formatElapsed(job, snapshot?.observedAt)}</td><td><time dateTime={job.updatedAt}>{new Date(job.updatedAt).toLocaleString()}</time></td></tr>)}</tbody></table></div>{!jobs.length && <p className="empty">{snapshot?.connected ? 'No recent execution events.' : 'Live activity unavailable.'}</p>}</Card>
       </section>
       <section id="settings"><h2>Configuration</h2><p className="muted">Read-only snapshot of effective worker settings. Credentials are never returned. {snapshot?.settingsUpdatedAt && <span>Recorded {new Date(snapshot.settingsUpdatedAt).toLocaleString()}.</span>}</p>
         {snapshot?.settings ? <><div className="metrics"><Card>Queue <strong>{snapshot.settings.queueEnabled ? 'Enabled' : 'Disabled'}</strong></Card><Card>Coordinated advisories <strong>{snapshot.settings.coordinatedAdvisoriesEnabled ? 'Enabled' : 'Disabled'}</strong></Card></div><div className="agent-grid">{snapshot.settings.agents.map(agent => <Card key={agent.role}><h3>{names[agent.role]}</h3><Badge>{agent.enabled ? 'Enabled' : 'Disabled'}</Badge><p>Model: {agent.model ?? 'Unknown'}</p><p>Configuration: {agent.configured ? 'Present' : 'Incomplete'}</p><p>Auto-merge: {agent.autoMerge ? 'Enabled' : 'Disabled'}</p></Card>)}</div></> : <Card><p className="empty">No worker configuration snapshot is available.</p></Card>}
