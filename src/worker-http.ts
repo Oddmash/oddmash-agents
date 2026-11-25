@@ -4,6 +4,6 @@ export function workerEndpoint(path: string, post: (request: Request) => Promise
   const app = new Hono();
   if (health) app.get(path, () => health());
   app.post(path, c => post(c.req.raw));
-  app.onError((_error, c) => c.text('Unavailable', 503));
+  app.onError((_error, c) => { console.error('Worker HTTP request failed'); return c.text('Internal server error', 500); });
   return app;
 }

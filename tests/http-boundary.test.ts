@@ -11,6 +11,8 @@ test('Hono worker preserves method, path and raw webhook request', async () => {
   assert.equal(response.status, 202);
   assert.equal(await response.text(), 'fixture');
   assert.equal((await app.request('/api/other', { method: 'POST' })).status, 404);
+  const failing = workerEndpoint('/api/github', async () => { throw new Error('fixture'); });
+  assert.equal((await failing.request('/api/github', { method: 'POST' })).status, 500);
 });
 
 test('console status and auth fail closed without configuration', async () => {
@@ -23,6 +25,8 @@ test('console status and auth fail closed without configuration', async () => {
     assert.equal(status.status, 401);
     assert.equal(status.headers.get('cache-control'), 'private, no-store');
     assert.equal((await consoleApi.request('/api/auth/session')).status, 503);
+    assert.equal((await consoleApi.request('/api/status', { method: 'POST' })).status, 404);
+    assert.equal((await consoleApi.request('/api/unknown', { method: 'POST' })).status, 404);
   } finally {
     if (previous === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = previous;
   }

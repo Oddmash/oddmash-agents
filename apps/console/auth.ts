@@ -19,6 +19,9 @@ export const consoleApi = new Hono();
 consoleApi.use('/api/*', async (c, next) => {
   c.header('Cache-Control', 'private, no-store');
   c.header('X-Content-Type-Options', 'nosniff');
+  const authRoute = c.req.path.startsWith('/api/auth/');
+  const readRoute = c.req.method === 'GET' && ['/api/availability', '/api/status'].includes(c.req.path);
+  if (!readRoute && !(authRoute && ['GET', 'POST'].includes(c.req.method))) return c.json({ error: 'Not found' }, 404);
   if (!authConfigured()) {
     if (c.req.path === '/api/availability' && c.req.method === 'GET') return c.json({ configured: false });
     return c.json({ error: 'Unauthorized or unavailable' }, c.req.path === '/api/status' ? 401 : 503);
