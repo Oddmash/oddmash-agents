@@ -22,7 +22,10 @@ const requestMetrics = new AsyncLocalStorage<Map<string, RequestCount>>();
 export async function trackGitHubRequests<T>(action: () => Promise<T>, report: (counts: RequestCount[]) => void): Promise<T> {
   const counts = new Map<string, RequestCount>();
   try { return await requestMetrics.run(counts, action); }
-  finally { report([...counts.values()].sort((a, b) => a.category.localeCompare(b.category) || Number(a.authenticated) - Number(b.authenticated) || Number(a.read) - Number(b.read) || a.outcome.localeCompare(b.outcome))); }
+  finally {
+    try { report([...counts.values()].sort((a, b) => a.category.localeCompare(b.category) || Number(a.authenticated) - Number(b.authenticated) || Number(a.read) - Number(b.read) || a.outcome.localeCompare(b.outcome))); }
+    catch { console.warn('GitHub request metrics unavailable'); }
+  }
 }
 
 function recordRequest(category: string, authenticated: boolean, read: boolean, outcome: RequestOutcome, attempt: number) {
