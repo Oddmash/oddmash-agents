@@ -280,3 +280,22 @@ test('maintainer findings preserve manual disposition and never imply approval',
   assert.deepEqual(publicationFollowUp(followUp, 'REQUEST_CHANGES', { ...owner, id: 1 }), followUp);
   assert.deepEqual(publicationFollowUp(followUp, 'APPROVE', owner), followUp);
 });
+
+test('confirmed full empty review is neutral without coverage or evidence warnings and never approval', () => {
+  const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Synchronization', files: [], omitted: [], guidance: {}, checks: [{ name: 'CI', status: 'completed', conclusion: 'success' }], confirmedEmpty: true };
+  const followUp = reviewFollowUp(context, [], false);
+  assert.deepEqual(followUp, { advisory: false, incompleteCoverage: false, invalidEvidence: false, confirmedEmpty: true });
+  assert.equal(reviewDecision(context, [], false), 'COMMENT');
+  assert.equal(reviewDecision(context, [], true), 'COMMENT');
+  assert.deepEqual(reviewOutcome('COMMENT', followUp), { label: 'review: follow-up', title: 'No changed files' });
+  const body = formatReviewBody('COMMENT', 'marker', formatReport(context, [], false), undefined, followUp);
+  assert.match(body, /No changed files \(neutral review\)/);
+  assert.match(body, /GitHub confirms zero changed files/);
+  assert.match(body, /변경 파일이 0개임을 확인/);
+  assert.match(body, /no approval or automatic merge authorization/);
+  assert.doesNotMatch(body, /Manual review coverage|Maintainer review required|Review evidence incomplete|Approval pending/);
+  for (const uncertain of [{ ...context, confirmedEmpty: undefined }, { ...context, omitted: ['Unknown'] }]) {
+    assert.equal(reviewOutcome('COMMENT', reviewFollowUp(uncertain, [], false)).label, 'review: needs human');
+    assert.match(formatReport(uncertain, [], false), /0 eligible files/);
+  }
+});
