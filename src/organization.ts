@@ -1,3 +1,4 @@
+import { githubRequest } from './github-request.ts';
 import { runReview } from './reviewer.ts';
 import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts';
 import { publicRepositories as repositories, reviewTarget } from './routing.ts';
@@ -11,7 +12,7 @@ const bot = `${process.env.REVIEWER_APP_SLUG ?? ''}[bot]`;
 if (!githubToken || !openaiKey || !/^[a-z0-9-]+\[bot\]$/i.test(bot)) throw new Error('App configuration missing');
 
 const api = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
-  const response = await fetch(`https://api.github.com${path}`, { ...init, headers: { Authorization: `Bearer ${githubToken}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(30_000) });
+  const response = await githubRequest(fetch, path, { ...init, headers: { Authorization: `Bearer ${githubToken}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(30_000) });
   if (!response.ok) throw new Error(`GitHub request failed (${response.status})`);
   return response.status === 204 ? undefined as T : await response.json() as T;
 };
