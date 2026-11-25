@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { Badge, Button, Card } from '@oddmash/ui';
 import type { Job, WorkerSettings } from '@oddmash/agent-operator-contract';

@@ -1,7 +1,11 @@
 # Oddmash Agents Console
 
-Private operator UI. This app requires a separate Vercel project rooted at apps/console, with the workspace lockfile and worker still deployed from the repository root. Configure a GitHub OAuth application callback at the exact console origin plus /api/auth/callback/github, and set AUTH_SECRET, AUTH_GITHUB_ID, AUTH_GITHUB_SECRET and CONSOLE_OWNER_GITHUB_ID (the verified numeric owner ID). No account may access private status before server authentication. The worker uses OPERATOR_STORE_URL and OPERATOR_STORE_WRITE_TOKEN; the console uses the same URL and a distinct read-only OPERATOR_STORE_READ_TOKEN. Never use the worker's credentials in the console.
+Vite + React frontend and a separate Hono HTTP API in the same workspace. Deploy this app as a distinct Vercel project rooted at apps/console; the worker remains deployed from the repository root.
 
-No provider is created or enabled by this code. If storage is unconfigured the UI displays that condition, not mock data. Events are limited to 500 and read within seven days; a returned handler is not an approval. Status reads poll every ten seconds during active work and back off to thirty seconds when idle, stopping when hidden. The worker retains existing GitHub Checks and runtime logs if telemetry fails. No model requests are made for status.
+Set AUTH_URL to the exact console origin plus /api/auth, register the GitHub OAuth callback at /api/auth/callback/github, and configure AUTH_SECRET, AUTH_GITHUB_ID, AUTH_GITHUB_SECRET and CONSOLE_OWNER_GITHUB_ID (the verified numeric owner ID). Only the authorized account can read operator status. No provider is provisioned or enabled by this code. Worker and console use a shared OPERATOR_STORE_URL with separate write and read-only tokens; never put worker credentials or any secret in VITE_ variables.
 
-Run pnpm --filter @oddmash/agents-console dev, typecheck and build after a frozen workspace install. Production deployment must verify login rejection for non-owners, status API denial without a session and actual worker events before enabling the store.
+Run pnpm --filter @oddmash/agents-console dev:api in one terminal and pnpm --filter @oddmash/agents-console dev in another. The development frontend proxies /api to the local Hono server. The Vercel catch-all function serves auth and status routes on the same origin as the Vite assets. If storage is unconfigured, the UI displays that condition instead of simulated data.
+
+History is limited to 500 events within seven days. The worker retains GitHub Checks and runtime logs if optional telemetry fails. Status polls every ten seconds during active work and backs off to thirty seconds while idle; hidden tabs stop polling.
+
+Production activation requires verifying authorization, the actual Vercel routing, non-owner rejection, and real telemetry before enabling the store.

@@ -73,14 +73,14 @@ jobs:
         if: steps.prior.outputs.run == ''
       - run: pnpm --filter @oddmash/agents-console build
         if: steps.prior.outputs.run == ''
-      - name: Confirm console denies unauthenticated status requests
+      - name: Confirm console server denies unauthenticated status requests
         if: steps.prior.outputs.run == ''
         run: |
-          pnpm --filter @oddmash/agents-console exec next start -p 4312 > /tmp/console-smoke.log 2>&1 &
+          pnpm --filter @oddmash/agents-console run dev:api > /tmp/console-smoke.log 2>&1 &
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 30); do
-            if curl --silent --fail http://127.0.0.1:4312/ > /dev/null; then break; fi
+            if curl --silent --fail http://127.0.0.1:4312/api/availability > /dev/null; then break; fi
             sleep 1
           done
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:4312/api/status)" = 401
