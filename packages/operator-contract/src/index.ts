@@ -117,7 +117,7 @@ export function jobElapsedMs(job: Job, observedAt: string): number | undefined {
     const end = Date.parse(job.finishedAt ?? '');
     return Number.isFinite(start) && Number.isFinite(end) && end >= start ? end - start : undefined;
   }
-  const start = Date.parse(job.startedAt ?? job.queuedAt ?? job.updatedAt);
+  const start = Date.parse((job.state === 'queued' ? job.queuedAt : job.state === 'running' ? job.startedAt : job.startedAt ?? (!job.phase ? job.queuedAt : undefined)) ?? '');
   const now = Date.parse(observedAt);
   return Number.isFinite(start) && Number.isFinite(now) ? Math.max(0, now - start) : undefined;
 }
