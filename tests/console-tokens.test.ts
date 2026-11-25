@@ -20,3 +20,10 @@ test('console styles are generated deterministically from JSON design tokens', (
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.doesNotMatch(css, /\{\{[^}]+\}\}/);
 });
+
+test('sidebar inset rules apply only to unpositioned Select fallback menus', () => {
+  const css = readFileSync(new URL('../apps/console/src/globals.css', import.meta.url), 'utf8');
+  const selectors = [...css.matchAll(/\.logout \.om-select-dropdown > \[role=listbox\][^{]*\{/g)];
+  assert.equal(selectors.length, 2);
+  assert.ok(selectors.every(match => match[0].includes(':not([data-positioned="true"])')));
+});
