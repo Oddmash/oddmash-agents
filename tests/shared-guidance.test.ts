@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readSharedGuidance, type GuidanceCache } from '../src/shared-guidance.ts';
 import { authorizePublicGuidance, type Target } from '../src/webhook.ts';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 
 test('authenticated shared guidance uses conditional freshness and does not serve stale data on denial', async () => {
   const cache: GuidanceCache = new Map();
@@ -13,7 +13,7 @@ test('authenticated shared guidance uses conditional freshness and does not serv
     const headers = new Headers(init?.headers);
     assert.equal(headers.get('Authorization'), 'Bearer ' + token);
     count++;
-    if (count === 1) return Response.json({ content: 'YWJj', encoding: 'base64' }, { headers: { etag: '"fixture-etag"' } });
+    if (count === 1) return Response.json({ content: 'YWJj', encoding: 'base64', type: 'file', path: 'AGENTS.md', size: 3, sha: createHash('sha1').update('blob 3\0abc').digest('hex') }, { headers: { etag: '"fixture-etag"' } });
     assert.equal(headers.get('If-None-Match'), '"fixture-etag"');
     if (count === 2) return new Response(null, { status: 304 });
     return new Response(null, { status: 403 });
@@ -50,4 +50,10 @@ test('guidance authorization requests read-only access solely to the canonical p
     return Response.json({ id: 1455305553, full_name: 'Oddmash/.github', private: false, owner: { login: 'Oddmash' } });
   });
   assert.equal(result, 'fixture-token');
+});
+
+test('authenticated cache rejects an invalid cached blob even on 304', async () => {
+  const cache: GuidanceCache = new Map([['AGENTS.md', { etag: '"fixture"', data: { content: 'YWJj', encoding: 'base64', type: 'file', path: 'AGENTS.md', size: 3, sha: 'a'.repeat(40) } }]]);
+  await assert.rejects(readSharedGuidance('AGENTS.md', 'fixture-token', async () => new Response(null, { status: 304 }), cache), /integrity unavailable/);
+  assert.equal(cache.size, 0);
 });

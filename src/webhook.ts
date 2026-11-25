@@ -224,7 +224,7 @@ export async function authorizePublicGuidance(target: Target, appId: string, key
     const installation = await jwtApi<{ account: { login: string }; suspended_at: string | null }>('/app/installations/' + target.installation);
     if (installation.account.login.toLowerCase() !== 'oddmash' || installation.suspended_at) return undefined;
     const scoped = await jwtApi<{ token: string; expires_at: string; permissions: { contents?: string } }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [guidanceRepositoryId], permissions: { contents: 'read' } }) });
-    if (!scoped.token || scoped.permissions.contents !== 'read') return undefined;
+    if (!scoped.token || scoped.permissions.contents !== 'read' || !Number.isFinite(Date.parse(scoped.expires_at)) || Date.parse(scoped.expires_at) <= Date.now() + 120000) return undefined;
     const api = githubApi(scoped.token, request);
     const repo = await api<Repository>('/repos/Oddmash/.github');
     if (repo.id !== guidanceRepositoryId || repo.full_name !== 'Oddmash/.github' || repo.private !== false || repo.owner.login.toLowerCase() !== 'oddmash') return undefined;
