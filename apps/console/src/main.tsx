@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { authConfigManager, SessionProvider, useSession, signIn, signOut } from '@hono/auth-js/react';
 import { chooseLanguage, localizedCallback, localizedUrl, translate, type Language } from './i18n';
 import { Alert, Button, LocalePicker } from '@oddmash/ui';
+import { AgentLoading } from './agent-loading';
 import { Dashboard } from './dashboard';
 import '@oddmash/ui/styles.css';
 import './globals.css';
@@ -19,14 +20,16 @@ const Console = () => {
   const [configured, setConfigured] = useState<'checking' | 'ready' | 'unconfigured' | 'error'>('checking');
   useEffect(() => {
     const abort = new AbortController();
+    const timeout = setTimeout(() => { setConfigured('error'); abort.abort(); }, 12000);
     fetch('/api/availability', { cache: 'no-store', signal: abort.signal })
       .then(response => { if (!response.ok) throw new Error('Availability unavailable'); return response.json(); })
       .then(value => setConfigured(value.configured === true ? 'ready' : value.configured === false ? 'unconfigured' : 'error'))
+      .finally(() => clearTimeout(timeout))
       .catch(() => { if (!abort.signal.aborted) setConfigured('error'); });
-    return () => abort.abort();
+    return () => { clearTimeout(timeout); abort.abort(); };
   }, []);
-  if (configured === 'checking' || status === 'loading') return <main className="login">{languageControl}<h1>Oddmash Agents</h1><p role="status">{t("Checking session…")}</p></main>;
-  if (configured === 'unconfigured') return <main className="login">{languageControl}<h1>Oddmash Agents</h1><p>{t("Console authentication is not configured.")}</p></main>;
+  if (status === 'loading' || (status !== 'authenticated' && configured === 'checking')) return <main className="session-loading"><AgentLoading label={t("Checking session…")}/></main>;
+  if (status !== 'authenticated' && configured === 'unconfigured') return <main className="login">{languageControl}<h1>Oddmash Agents</h1><p>{t("Console authentication is not configured.")}</p></main>;
   if (status !== 'authenticated' || !data?.user?.id) return <main className="login">{languageControl}<p className="eyebrow">ODDMASH / OPERATIONS</p><h1>{t("Agents Console")}</h1><p>{t("Sign in with the authorized GitHub account to view agent activity.")}</p>{configured === 'error' && <p role="status">{t("Unable to verify configuration. You can retry sign-in or reload this page.")}</p>}{signInError && <Alert role="alert" tone="danger">{t("Unable to start GitHub sign-in. Please try again.")}</Alert>}<Button variant="secondary" className="login-button" onClick={() => { setSignInError(false); void signIn('github', { callbackUrl: localizedCallback(window.location.origin, window.location.hash, language) }).catch(() => setSignInError(true)); }}>{t("Sign in with GitHub")}</Button></main>;
   return <Dashboard language={language} languageControl={languageControl} logout={<Button variant="secondary" className="login-button" onClick={() => void signOut({ callbackUrl: localizedCallback(window.location.origin, window.location.hash, language) })}>{t("Sign out")}</Button>} />;
 }
