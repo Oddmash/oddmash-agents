@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isUnfinishedJob, jobElapsedMs, modelName, parseExecutionEvent, projectJobs, publicTarget } from '@oddmash/agent-operator-contract';
+import { isUnfinishedJob, jobElapsedMs, modelName, parseExecutionEvent, parseModelUsage, projectModelUsage, projectJobs, publicTarget } from '@oddmash/agent-operator-contract';
 
 const event = { event: 'oddmash_agent_execution', role: 'reviewer', correlationId: 'a'.repeat(24), attempt: 1, timestamp: '2026-11-25T05:00:00.000Z', outcome: 'queued' };
 
@@ -49,4 +49,16 @@ test('elapsed timing includes queued age, stale age and recorded terminal durati
   assert.equal(jobElapsedMs(stale, new Date(now).toISOString()), 361000);
   assert.equal(jobElapsedMs({ ...queued, state: 'returned', durationMs: 42 }, new Date(now).toISOString()), 42);
   assert.equal(jobElapsedMs({ ...queued, state: 'failed' }, new Date(now).toISOString()), undefined);
+});
+
+test('retained model usage includes distinct terminal attempts and ignores unknown fields', () => {
+  const usage = { calls: 1, inputTokens: 20, outputTokens: 5, missingInput: 0, missingOutput: 0, secret: 'fixture-secret' };
+  const terminal = { ...event, outcome: 'returned', usage };
+  assert.deepEqual(parseModelUsage(usage), { calls: 1, inputTokens: 20, outputTokens: 5, missingInput: 0, missingOutput: 0 });
+  assert.equal(parseModelUsage({ ...usage, missingInput: 2 }), undefined);
+  assert.equal(parseExecutionEvent({ ...event, usage })?.usage, undefined);
+  assert.deepEqual(projectModelUsage([terminal, terminal, { ...terminal, attempt: 2 }, { ...terminal, role: 'qa', usage: { ...usage, outputTokens: 0, missingOutput: 1 } }]), [
+    { role: 'reviewer', calls: 2, inputTokens: 40, outputTokens: 10, missingInput: 0, missingOutput: 0 },
+    { role: 'qa', calls: 1, inputTokens: 20, outputTokens: 0, missingInput: 0, missingOutput: 1 }
+  ]);
 });

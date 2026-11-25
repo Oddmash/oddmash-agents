@@ -44,6 +44,7 @@ test('writes only safe bounded execution data and reads actual state', async () 
   assert.equal(status.connected, true);
   assert.equal(status.jobs[0].state, 'running');
   assert.equal(status.settings?.agents.length, 7);
+  assert.deepEqual(status.usage, []);
   assert.equal(status.settingsUpdatedAt, event.timestamp);
   assert.doesNotMatch(JSON.stringify(status), /fixture-private|fixture-token/);
 });

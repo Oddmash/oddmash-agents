@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { boundedModelBody, usageEvent } from '../apps/worker/src/model-request.ts';
+import { boundedModelBody, usageEvent, recordUsage, trackModelUsage } from '../apps/worker/src/model-request.ts';
 
 test('role-specific budgets only tighten existing phase limits', () => {
   const payload = { max_output_tokens: 6000, input: 'sample' };
@@ -22,4 +22,23 @@ test('serialized UTF-8 bytes are bounded before model transmission', () => {
 test('usage records observed counts without assuming missing usage is zero cost', () => {
   assert.deepEqual(usageEvent('discussion', 'model-name', { input_tokens: 4, output_tokens: 2, total_tokens: 6 }), { event: 'reviewer_usage', role: 'reviewer', phase: 'discussion', model: 'model-name', inputTokens: 4, outputTokens: 2, totalTokens: 6 });
   assert.deepEqual(usageEvent('qa', 'untrusted value', { input_tokens: -1 }), { event: 'reviewer_usage', role: 'qa', phase: 'qa', model: 'unknown', inputTokens: null, outputTokens: null, totalTokens: null });
+});
+
+test('model usage tracking isolates concurrent executions and preserves missing counts on failure', async t => {
+  t.mock.method(console, 'log', () => {});
+  const seen: unknown[] = [];
+  const first = trackModelUsage(async () => {
+    recordUsage('review', 'model-name', { input_tokens: 10, output_tokens: 3 });
+    await Promise.resolve();
+    recordUsage('review', 'model-name', { input_tokens: 5 });
+    throw new Error('fixture');
+  }, usage => { seen[0] = usage; });
+  const second = trackModelUsage(async () => {
+    recordUsage('qa', 'model-name', { output_tokens: 2 });
+  }, usage => { seen[1] = usage; });
+  await Promise.all([assert.rejects(first, /fixture/), second]);
+  assert.deepEqual(seen, [
+    { calls: 2, inputTokens: 15, outputTokens: 3, missingInput: 0, missingOutput: 1 },
+    { calls: 1, inputTokens: 0, outputTokens: 2, missingInput: 1, missingOutput: 0 }
+  ]);
 });

@@ -113,6 +113,8 @@ jobs:
           test -n "$VERCEL_TOKEN"
           pnpm --reporter=silent dlx "vercel@$VERCEL_CLI_VERSION" pull --yes --environment=production
       - run: pnpm --reporter=silent dlx "vercel@$VERCEL_CLI_VERSION" build --prod
+        env:
+          VITE_OPERATOR_RELEASE_TAG: ${{ needs.release.outputs.tag }}
       - name: Confirm combined build output
         run: |
           node --input-type=module <<'NODE'

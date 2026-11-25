@@ -1,7 +1,7 @@
-import { parseExecutionEvent, parseWorkerSettings, projectJobs, type ExecutionEvent, type WorkerSettings, type Job } from '../../operator-contract/src/index.ts';
+import { parseExecutionEvent, parseWorkerSettings, projectJobs, projectModelUsage, type ExecutionEvent, type WorkerSettings, type Job } from '../../operator-contract/src/index.ts';
 
 type StoreConfig = { url: string; token: string };
-type Status = { connected: boolean; jobs: Job[]; settings: WorkerSettings | null; settingsUpdatedAt?: string; observedAt: string };
+type Status = { connected: boolean; jobs: Job[]; usage?: ReturnType<typeof projectModelUsage>; settings: WorkerSettings | null; settingsUpdatedAt?: string; observedAt: string };
 const eventKey = 'oddmash:operator:events:v1';
 const settingsKey = 'oddmash:operator:settings:v1';
 const retention = 604800;
@@ -46,5 +46,5 @@ export async function readOperatorStatus(config: StoreConfig | undefined, reques
   const record = snapshot && typeof snapshot === 'object' ? snapshot as Record<string, unknown> : undefined;
   const parsedSettings = parseWorkerSettings(record?.settings);
   const recordedAt = typeof record?.recordedAt === 'string' && Number.isFinite(Date.parse(record.recordedAt)) && Date.parse(record.recordedAt) <= now + 60000 && now - Date.parse(record.recordedAt) <= retention * 1000 ? new Date(record.recordedAt).toISOString() : undefined;
-  return { connected: true, jobs: projectJobs(valid, now), settings: recordedAt ? parsedSettings ?? null : null, ...(recordedAt && parsedSettings ? { settingsUpdatedAt: recordedAt } : {}), observedAt };
+  return { connected: true, jobs: projectJobs(valid, now), usage: projectModelUsage(valid), settings: recordedAt ? parsedSettings ?? null : null, ...(recordedAt && parsedSettings ? { settingsUpdatedAt: recordedAt } : {}), observedAt };
 }

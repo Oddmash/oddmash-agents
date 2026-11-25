@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { publicTarget, type AgentRole, type ExecutionEvent, type ExecutionPhase, type ExecutionOutcome, type PublicTarget } from '../../../packages/operator-contract/src/index.ts';
+import { publicTarget, type AgentRole, type ExecutionEvent, type ExecutionPhase, type ExecutionOutcome, type PublicTarget, type ModelUsageSummary } from '../../../packages/operator-contract/src/index.ts';
 import { operatorStoreConfig, writeOperatorEvent } from '../../../packages/operator-store/src/index.ts';
+import { trackModelUsage } from './model-request.ts';
 import { trackGitHubRequests } from './github-request.ts';
 import { operatorSettings } from './runtime-config.ts';
 import type { Target } from './webhook.ts';
@@ -65,16 +66,17 @@ export async function runAgentExecution<T>(context: ExecutionContext, action: ()
   const publish = emit ?? ((event: ReturnType<typeof executionEvent>) => { console.info(JSON.stringify(event)); pending.push(persistEvent(event)); });
   const start = clock();
   publish(executionEvent(context, 'started', start));
+  let usage: ModelUsageSummary | undefined;
   try {
-    const result = await trackGitHubRequests(() => activeExecution.run({ context, emit: publish, clock }, action), counts => {
+    const result = await trackModelUsage(() => trackGitHubRequests(() => activeExecution.run({ context, emit: publish, clock }, action), counts => {
       if (!emit && counts.length) console.info(JSON.stringify({ event: 'oddmash_github_request_counts', role: context.role, correlationId: context.correlationId, attempt: context.attempt, counts }));
-    });
+    }), observed => { usage = observed; });
     const end = clock();
-    publish(executionEvent(context, 'returned', end, end - start));
+    publish({ ...executionEvent(context, 'returned', end, end - start), ...(usage ? { usage } : {}) });
     return result;
   } catch (error) {
     const end = clock();
-    publish(executionEvent(context, 'failed', end, end - start, error));
+    publish({ ...executionEvent(context, 'failed', end, end - start, error), ...(usage ? { usage } : {}) });
     throw error;
   } finally {
     await Promise.allSettled(pending);

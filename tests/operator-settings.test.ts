@@ -12,7 +12,15 @@ test('operator settings contain only explicit non-secret values', () => {
     process.env.REVIEWER_APP_SLUG = 'oddmash-lead';
     process.env.OPENAI_API_KEY = 'fixture-openai-key';
     process.env.OPENAI_MODEL = 'gpt-5.4';
+    process.env.REVIEWER_AUTHENTICATED_GUIDANCE_ENABLED = 'true';
+    process.env.REVIEWER_SCOPED_THREAD_RESOLVE_ENABLED = 'true';
+    process.env.REVIEWER_AUTO_ADVISORY_MAX_REQUESTS = '99';
+    process.env.REVIEWER_AUTO_ADVISORY_MAX_MS = '4500';
     const snapshot = operatorSettings();
+    assert.equal(snapshot.authenticatedGuidanceEnabled, true);
+    assert.equal(snapshot.scopedThreadResolutionEnabled, true);
+    assert.equal(snapshot.advisoryMaxRequests, 5);
+    assert.equal(snapshot.advisoryMaxMs, 4500);
     assert.deepEqual(snapshot.agents.map(agent => agent.role), [...roles]);
     assert.equal(snapshot.agents[0].configured, true);
     assert.equal(snapshot.agents[0].model, 'gpt-5.4');

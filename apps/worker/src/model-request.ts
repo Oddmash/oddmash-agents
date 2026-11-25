@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+import type { ModelUsageSummary } from '../../../packages/operator-contract/src/index.ts';
 import type { AdvisoryRole } from './advisory-agents.ts';
 
 export type ModelPhase = 'review' | 'confirmation' | 'discussion' | AdvisoryRole;
@@ -31,6 +33,20 @@ export function usageEvent(phase: ModelPhase, model: string, usage?: Usage) {
   return { event: 'reviewer_usage', role: modelRole(phase), phase, model: /^[a-zA-Z0-9_.:-]{1,100}$/.test(model) ? model : 'unknown', inputTokens: count(usage?.input_tokens), outputTokens: count(usage?.output_tokens), totalTokens: count(usage?.total_tokens) };
 }
 
+const activeUsage = new AsyncLocalStorage<ModelUsageSummary>();
+
+export async function trackModelUsage<T>(action: () => Promise<T>, report: (usage: ModelUsageSummary) => void): Promise<T> {
+  const usage = { calls: 0, inputTokens: 0, outputTokens: 0, missingInput: 0, missingOutput: 0 };
+  try { return await activeUsage.run(usage, action); }
+  finally { if (usage.calls) report(usage); }
+}
+
 export function recordUsage(phase: ModelPhase, model: string, usage?: Usage) {
-  console.log(JSON.stringify(usageEvent(phase, model, usage)));
+  const observed = usageEvent(phase, model, usage);
+  console.log(JSON.stringify(observed));
+  const current = activeUsage.getStore();
+  if (!current) return;
+  current.calls++;
+  if (observed.inputTokens === null) current.missingInput++; else current.inputTokens += observed.inputTokens;
+  if (observed.outputTokens === null) current.missingOutput++; else current.outputTokens += observed.outputTokens;
 }
