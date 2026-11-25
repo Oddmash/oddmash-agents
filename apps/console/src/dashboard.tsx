@@ -12,15 +12,17 @@ export function Dashboard({ logout }: { logout: ReactNode }) {
   const reload = useRef<() => void>(() => {});
   useEffect(() => {
     let disposed = false;
+    let sessionExpired = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let request: AbortController | undefined;
     async function refresh() {
-      if (disposed || document.hidden || request) return;
+      if (disposed || document.hidden || request || sessionExpired) return;
       request = new AbortController();
       let delay = 30000;
       try {
         const response = await fetch('/api/status', { cache: 'no-store', signal: request.signal });
         if (response.status === 401) {
+          sessionExpired = true;
           if (!disposed) { setSnapshot(undefined); setError('Session expired. Sign in again.'); }
           return;
         }
@@ -33,7 +35,7 @@ export function Dashboard({ logout }: { logout: ReactNode }) {
       } finally {
         request = undefined;
         if (!disposed) setLoading(false);
-        if (!disposed && !document.hidden) timer = setTimeout(refresh, delay);
+        if (!disposed && !document.hidden && !sessionExpired) timer = setTimeout(refresh, delay);
       }
     }
     function wake() {
@@ -41,7 +43,7 @@ export function Dashboard({ logout }: { logout: ReactNode }) {
       if (document.hidden) { request?.abort(); return; }
       void refresh();
     }
-    reload.current = wake;
+    reload.current = () => { sessionExpired = false; wake(); };
     document.addEventListener('visibilitychange', wake);
     void refresh();
     return () => { disposed = true; if (timer) clearTimeout(timer); request?.abort(); document.removeEventListener('visibilitychange', wake); };
