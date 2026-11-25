@@ -50,3 +50,12 @@ test('conversation comments do not count as published reviews', () => {
   const comment = { ...job, publication: { kind: 'comment' as const, at: job.updatedAt, id: 12 } };
   assert.deepEqual(publicationCounts([comment]), { review: 0, 'inline-comment': 0, comment: 1 });
 });
+
+
+test('explicit skip and publication-only observations are not completed reviews', () => {
+  const skipped = { ...job, role: 'qa' as const, state: 'skipped' as const, skipReason: 'request-budget' as const };
+  const posted = { ...job, state: 'published' as const, publication: { kind: 'review' as const, id: 4, at: job.updatedAt } };
+  assert.deepEqual(stateCounts([skipped, posted]), { skipped: 1, published: 1 });
+  assert.deepEqual(publicationObservations([skipped, posted]), [posted]);
+  assert.deepEqual(roleObservations('qa', [skipped, posted]), [skipped]);
+});
