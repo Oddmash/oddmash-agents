@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Select } from '@oddmash/ui';
 import { approvedModelOverrides, modelRoles, type AgentRole, type ModelOverrides, type OperatorModelsResponse } from '@oddmash/agent-operator-contract';
+import { reconcileModelDraft } from './model-settings-draft';
 import { ConsoleSkeleton } from './console-skeleton';
 import { translate, type Language } from './i18n';
 
@@ -72,8 +73,8 @@ export const ModelSettings = ({ language }: { language: Language }) => {
       const response = await fetch('/api/models', { cache: 'no-store' });
       if (!response.ok) throw new Error('Model settings unavailable');
       const record = await response.json() as OperatorModelsResponse;
-      setSaved(record); setConflict(false); setReview(!discard); setNotice('');
-      if (discard) setDraft(record.overrides);
+      const recovery = reconcileModelDraft(record, draft, discard);
+      setSaved(recovery.saved); setDraft(recovery.draft); setConflict(false); setReview(recovery.needsReview); setNotice('');
     } catch { setNotice('Unable to save model settings. Your draft is retained.'); }
     finally { setBusy(false); }
   };
