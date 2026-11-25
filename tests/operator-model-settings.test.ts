@@ -152,3 +152,11 @@ test('shared webhook and queue execution entry honors the dedicated and coordina
   assert.deepEqual(requests, ['gpt-approved-triage', 'gpt-approved-triage']);
   assert.equal(reads, 2);
 });
+
+test('model conflict recovery keeps local choices until explicit discard succeeds', async () => {
+  const { reconcileModelDraft } = await import('../apps/console/src/model-settings-draft.ts');
+  const latest = { revision, updatedAt, overrides: { qa: 'gpt-approved' }, policy: modelPolicy(env) };
+  const draft = { reviewer: 'gpt-lead-approved' };
+  assert.deepEqual(reconcileModelDraft(latest, draft, false), { saved: latest, draft, needsReview: true });
+  assert.deepEqual(reconcileModelDraft(latest, draft, true), { saved: latest, draft: latest.overrides, needsReview: false });
+});
