@@ -16,14 +16,17 @@ Choose a release cadence based on completed work, not on every commit. Do not pu
 
 Write release titles and notes in English. Use the title `vMAJOR.MINOR.PATCH - Short description` and the exact matching stable tag. Use the next patch for compatible fixes, minor for compatible capabilities, and major for breaking changes to established stable contracts; during the initial 0.x lifecycle, explicitly identify breaking changes and their migration requirements, even when the minor version changes.
 
+Follow the [shared Oddmash release note format](https://github.com/Oddmash/.github/blob/main/docs/release-notes.md), retaining the product-specific sections below.
+
 Start with GitHub-generated notes from the previous published tag (or the reviewed initial history for the first release). Check the actual merged PRs and tagged revision; do not copy generated notes blindly. The categories in `.github/release.yml` are the source for grouping changes.
 
 - Summarize the most meaningful changes in one or two sentences.
-- Describe outcomes, not implementation trivia. Link each material change to its merged PR (for example, `#108`); credit external contributors where applicable.
+- Describe outcomes, not implementation trivia. Link each material change to its merged PR (for example, `#108`); credit verified external contributors in the final acknowledgment rather than mentioning them inline.
 - Use the generated category names and omit empty change categories. Avoid listing a change twice.
 - Under Operations, disclose configuration opt-ins, permission or data changes, breaking changes, migration steps and known limitations when applicable. State "No configuration or migration changes" when verified and applicable. Do not include secrets or internal values.
 - Under Verification, distinguish completed checks from deploy-time checks that are pending when publishing. Record the full release commit SHA. After deployment, link the workflow run and record the actual result; never claim success before it is observed.
 - Include a full changelog comparison link when a previous release exists. Do not manufacture a previous tag or version.
+- End the body with a single acknowledgment containing only verified external human contributor @mentions. Omit it if no external contributors participated; remove internal and bot @mentions from generated notes. GitHub renders native Contributors avatars below the body. Verify them after authorized publication.
 
 ### Copyable Markdown template
 
@@ -65,6 +68,8 @@ Replace all placeholders and remove unused change sections before publishing. Th
 - Production deployment: <Pending at publication, then actual result and workflow link>
 
 **Full changelog:** <comparison URL from previous tag to new tag, if available>
+
+Thanks to <verified external GitHub @mentions, if applicable>.
 ```
 
 The first published release, [v0.2.0](https://github.com/Oddmash/oddmash-agents/releases/tag/v0.2.0), is a historical reference. Apply this format to subsequent releases without rewriting existing release records.
