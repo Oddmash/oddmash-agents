@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@oddmash/agent-operator-contract": "workspace:*",
+    "@oddmash/agent-operator-store": "workspace:*",
     "@oddmash/ui": "0.4.1",
     "next": "16.4.6",
     "next-auth": "5.0.0-beta.32",

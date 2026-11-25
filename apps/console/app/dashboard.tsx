@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { Badge, Button, Card } from '@oddmash/ui';
-import type { Job, WorkerSettings } from '../../../packages/operator-contract/src/index.ts';
+import type { Job, WorkerSettings } from '@oddmash/agent-operator-contract';
 
 type Snapshot = { connected: boolean; jobs: Job[]; settings: WorkerSettings | null; settingsUpdatedAt?: string; observedAt: string };
 const names = { reviewer: 'Lead', impact: 'Impact', triage: 'Triage', qa: 'QA', release: 'Release', docs: 'Docs', architect: 'Architect' };

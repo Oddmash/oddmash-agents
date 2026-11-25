@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { modelName, parseExecutionEvent, projectJobs, publicTarget } from '../packages/operator-contract/src/index.ts';
+import { modelName, parseExecutionEvent, projectJobs, publicTarget } from '@oddmash/agent-operator-contract';
 
 const event = { event: 'oddmash_agent_execution', role: 'reviewer', correlationId: 'a'.repeat(24), attempt: 1, timestamp: '2026-11-25T05:00:00.000Z', outcome: 'queued' };
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { operatorStoreConfig, readOperatorStatus, writeOperatorEvent } from '../packages/operator-store/src/index.ts';
-import { roles, type ExecutionEvent } from '../packages/operator-contract/src/index.ts';
+import { operatorStoreConfig, readOperatorStatus, writeOperatorEvent } from '@oddmash/agent-operator-store';
+import { roles, type ExecutionEvent } from '@oddmash/agent-operator-contract';
 import { isAuthorizedOwner } from '../apps/console/auth-policy.ts';
 
 const settings = { queueEnabled: true, coordinatedAdvisoriesEnabled: false, agents: roles.map(role => ({ role, enabled: true, configured: true, model: 'gpt-5.4', autoMerge: false })) };

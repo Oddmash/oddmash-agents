@@ -1,4 +1,4 @@
-import { parseExecutionEvent, parseWorkerSettings, projectJobs, type ExecutionEvent, type WorkerSettings, type Job } from '../../operator-contract/src/index.ts';
+import { parseExecutionEvent, parseWorkerSettings, projectJobs, type ExecutionEvent, type WorkerSettings, type Job } from '@oddmash/agent-operator-contract';
 
 type StoreConfig = { url: string; token: string };
 type Status = { connected: boolean; jobs: Job[]; settings: WorkerSettings | null; settingsUpdatedAt?: string; observedAt: string };

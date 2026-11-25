@@ -1,5 +1,5 @@
 import { isOperator } from '../../../auth';
-import { operatorStoreConfig, readOperatorStatus } from '../../../../../packages/operator-store/src/index.ts';
+import { operatorStoreConfig, readOperatorStatus } from '@oddmash/agent-operator-store';
 
 export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'private, no-store' };

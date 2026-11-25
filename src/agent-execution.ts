@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { publicTarget, type AgentRole, type ExecutionPhase, type ExecutionOutcome, type PublicTarget } from '../packages/operator-contract/src/index.ts';
-import { operatorStoreConfig, writeOperatorEvent } from '../packages/operator-store/src/index.ts';
+import { publicTarget, type AgentRole, type ExecutionPhase, type ExecutionOutcome, type PublicTarget } from '@oddmash/agent-operator-contract';
+import { operatorStoreConfig, writeOperatorEvent } from '@oddmash/agent-operator-store';
 import { operatorSettings } from './runtime-config.ts';
 import type { Target } from './webhook.ts';
 
-export type { AgentRole } from '../packages/operator-contract/src/index.ts';
+export type { AgentRole } from '@oddmash/agent-operator-contract';
 type ExecutionContext = { role: AgentRole; correlationId: string; attempt: number; target?: PublicTarget };
 
 export function executionRole(target: Pick<Target, 'impact' | 'advisory'>): AgentRole {
