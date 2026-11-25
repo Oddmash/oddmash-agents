@@ -27,3 +27,21 @@ test('console status and auth fail closed without configuration', async () => {
     if (previous === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = previous;
   }
 });
+
+test('configured console still rejects missing session and noncanonical auth origin', async () => {
+  const keys = ['AUTH_SECRET', 'AUTH_URL', 'AUTH_GITHUB_ID', 'AUTH_GITHUB_SECRET', 'CONSOLE_OWNER_GITHUB_ID'];
+  const previous = keys.map(key => process.env[key]);
+  try {
+    process.env.AUTH_SECRET = 'synthetic-console-session-secret-32-bytes';
+    process.env.AUTH_URL = 'https://console.example.invalid/api/auth';
+    process.env.AUTH_GITHUB_ID = 'fixture-client';
+    process.env.AUTH_GITHUB_SECRET = 'fixture-client-secret';
+    process.env.CONSOLE_OWNER_GITHUB_ID = '123';
+    const response = await consoleApi.request('https://console.example.invalid/api/status');
+    assert.equal(response.status, 401);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    assert.equal((await consoleApi.request('https://other.example.invalid/api/auth/session')).status, 400);
+  } finally {
+    keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; });
+  }
+});

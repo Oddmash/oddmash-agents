@@ -23,6 +23,7 @@ consoleApi.use('/api/*', async (c, next) => {
     if (c.req.path === '/api/availability' && c.req.method === 'GET') return c.json({ configured: false });
     return c.json({ error: 'Unauthorized or unavailable' }, c.req.path === '/api/status' ? 401 : 503);
   }
+  if (c.req.path.startsWith('/api/auth/') && new URL(c.req.url).origin !== new URL(process.env.AUTH_URL!).origin) return c.json({ error: 'Invalid console origin' }, 400);
   await next();
 });
 consoleApi.get('/api/availability', c => c.json({ configured: true }));

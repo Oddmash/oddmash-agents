@@ -20,6 +20,10 @@ export function Dashboard({ logout }: { logout: ReactNode }) {
       let delay = 30000;
       try {
         const response = await fetch('/api/status', { cache: 'no-store', signal: request.signal });
+        if (response.status === 401) {
+          if (!disposed) { setSnapshot(undefined); setError('Session expired. Sign in again.'); }
+          return;
+        }
         if (!response.ok) throw new Error('Status unavailable');
         const data = await response.json() as Snapshot;
         if (!disposed) { setSnapshot(data); setError(''); }
