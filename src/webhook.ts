@@ -1,3 +1,4 @@
+import { githubRequest } from './github-request.ts';
 import { createHmac, timingSafeEqual, createSign } from 'node:crypto';
 import { advisoryCommand, advisoryProfiles, isAdvisoryRole, type AdvisoryRole } from './advisory-agents.ts';
 
@@ -163,7 +164,7 @@ export function appJwt(appId: string, privateKey: string, now = Math.floor(Date.
 
 export function githubApi(token: string, request: typeof fetch = fetch) {
   return async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await request('https://api.github.com' + path, { ...init, headers: { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15_000) });
+    const response = await githubRequest(request, path, { ...init, headers: { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error('GitHub request failed (' + response.status + ')');
     return response.status === 204 ? undefined as T : await response.json() as T;
   };
