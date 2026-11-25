@@ -13,6 +13,7 @@ const messages = {
   "Inherit": "기본값",
   "Unavailable choice": "승인이 해제된 선택",
   "Choose approved models before saving.": "저장하기 전에 승인된 모델을 선택하세요.",
+  "Discard draft and reload saved settings": "입력을 취소하고 최신 저장 설정 불러오기",
   "Model settings saved for future jobs.": "이후 실행에 적용할 모델 설정을 저장했습니다.",
   "Unable to save model settings. Your draft is retained.": "모델 설정을 저장하지 못했습니다. 입력값은 유지됩니다.",
   "Model settings changed in another session. Reload before saving.": "다른 세션에서 모델 설정이 변경되었습니다. 입력을 유지하고 최신 설정을 확인하세요.",
@@ -64,14 +65,15 @@ export const ModelSettings = ({ language }: { language: Language }) => {
     finally { setBusy(false); }
   };
 
-  const reload = async () => {
+  const reload = async (discard = false) => {
     if (busy || !draft) return;
     setBusy(true);
     try {
       const response = await fetch('/api/models', { cache: 'no-store' });
       if (!response.ok) throw new Error('Model settings unavailable');
       const record = await response.json() as OperatorModelsResponse;
-      setSaved(record); setConflict(false); setReview(true); setNotice('');
+      setSaved(record); setConflict(false); setReview(!discard); setNotice('');
+      if (discard) setDraft(record.overrides);
     } catch { setNotice('Unable to save model settings. Your draft is retained.'); }
     finally { setBusy(false); }
   };
@@ -104,9 +106,9 @@ export const ModelSettings = ({ language }: { language: Language }) => {
         <Button variant="secondary" disabled={busy} onClick={() => setDraft({})}>{translate(language, 'Restore defaults')}</Button>
         {conflict && <Button variant="secondary" disabled={busy} onClick={() => void reload()}>{translate(language, 'Keep draft and reload revision')}</Button>}
         {(dirty || review || conflict) && <Button variant="secondary" disabled={busy} onClick={() => {
-          if (conflict) { setRetry(n => n + 1); return; }
+          if (conflict) { void reload(true); return; }
           setDraft(saved.overrides); setReview(false); setNotice('');
-        }}>{translate(language, 'Discard changes')}</Button>}
+        }}>{conflict ? t('Discard draft and reload saved settings') : translate(language, 'Discard changes')}</Button>}
         {!dirty && !conflict && !review && <Button variant="secondary" disabled={busy} onClick={() => setRetry(n => n + 1)}>{translate(language, 'Reload saved settings')}</Button>}
       </div>
       {notice && <p role="status" className="control-notice">{t(notice)}</p>}
