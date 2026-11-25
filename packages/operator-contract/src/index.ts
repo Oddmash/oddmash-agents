@@ -73,3 +73,7 @@ export function parseWorkerSettings(input: unknown): WorkerSettings | undefined 
   }
   return { queueEnabled: value.queueEnabled, coordinatedAdvisoriesEnabled: value.coordinatedAdvisoriesEnabled, agents };
 }
+
+export function isUnfinishedJob(job: Pick<Job, 'state'>): boolean {
+  return job.state === 'queued' || job.state === 'running' || job.state === 'stale';
+}
