@@ -4,6 +4,7 @@ function requestCategory(path: string): string {
   const pathname = path.split('?')[0] ?? '';
   if (/^\/repos\/Oddmash\/\.github\/contents\//i.test(pathname)) return 'organization-guidance';
   if (/\/contents\//.test(pathname)) return 'repository-content';
+  if (/\/actions\/runs(?:\/|$)/.test(pathname)) return 'workflow-runs';
   if (/\/check-runs(?:\/|$)/.test(pathname)) return 'check-runs';
   if (/\/pulls\/\d+\/files$/.test(pathname)) return 'pull-files';
   if (/\/reviews(?:\/|$)/.test(pathname)) return 'reviews';
@@ -40,7 +41,8 @@ export async function githubRequest(request: Fetcher, path: string, init: Reques
     const reset = numericHeader(response.headers, 'x-ratelimit-reset');
     const retryAfter = numericHeader(response.headers, 'retry-after');
     const authenticated = new Headers(init.headers).has('authorization');
-    const failure = remaining === 0 ? 'primary-rate-limit' : response.status === 429 || (response.status === 403 && retryAfter !== undefined) ? 'rate-limit' : 'http-error';
+    const limitedStatus = response.status === 403 || response.status === 429;
+    const failure = limitedStatus && remaining === 0 ? 'primary-rate-limit' : limitedStatus && (response.status === 429 || retryAfter !== undefined) ? 'rate-limit' : 'http-error';
     console.warn(JSON.stringify({ event: 'github_request_failed', category: requestCategory(path), status: response.status, attempt, read, authenticated, failure, remaining, reset, retryAfter }));
     const delay = read && attempt === 1 ? retryDelay(response) : undefined;
     if (delay === undefined || init.signal?.aborted) return response;
