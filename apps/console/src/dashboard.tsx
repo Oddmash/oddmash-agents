@@ -5,7 +5,7 @@ import { createStatusPolling } from './status-polling';
 import { RuntimeControls } from './runtime-controls';
 import { ConsoleSkeleton } from './console-skeleton';
 import { translate, executionCount, missingCalls, consoleViews, consoleRoute, localizedUrl, type ConsoleView, type Language, type Message } from './i18n';
-import { activitySummary, filterActivity, groupActivity, reviewOverview, repositoryActivity, activityDays, jobStates, type ActivityFilter } from './activity';
+import { activitySummary, filterActivity, groupActivity, reviewOverview, repositoryActivity, toggleRepositoryCollapse, activityDays, jobStates, type ActivityFilter } from './activity';
 
 import { RepositoryActivity } from './repository-activity';
 
@@ -51,7 +51,7 @@ export const Dashboard = ({ logout, language, languageControl, view, navigate }:
   const [error, setError] = useState<Message | ''>('');
   const [loading, setLoading] = useState(true);
   const [collapsedRepositories, setCollapsedRepositories] = useState<Set<string>>(() => new Set());
-  const toggleRepository = (key: string) => setCollapsedRepositories(previous => { const next = new Set(previous); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  const toggleRepository = (key: string) => setCollapsedRepositories(previous => toggleRepositoryCollapse(previous, key));
   const [filter, setFilter] = useState<ActivityFilter>({ role: 'all', state: 'all' });
   useEffect(() => {
     const polling = createStatusPolling({
