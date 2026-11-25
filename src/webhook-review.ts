@@ -70,6 +70,13 @@ export function canRetryApprovedMerge(review: Review, marker: string): boolean {
 
 type InlineFinding = { body: string; path: string; line: number; side: 'LEFT' | 'RIGHT' };
 
+export async function publishCoordinatedFindings(summaries: Iterable<{ publish?: () => Promise<void> }>) {
+  for (const specialist of summaries) {
+    try { await specialist.publish?.(); }
+    catch { console.warn('Coordinated specialist findings publication failed; Lead retains fallback coverage'); }
+  }
+}
+
 export async function attachReviewFindingsWithCoverage(api: Api, path: string, pendingId: number, head: string, bot: string, findings: InlineFinding[]): Promise<{ attached: number; covered: boolean }> {
   if (!findings.length) return { attached: 0, covered: true };
   const existing: (Partial<InlineFinding> & { body: string; user: { login: string; type?: string }; commit_id?: string; in_reply_to_id?: number })[] = [];
@@ -85,7 +92,7 @@ export async function attachReviewFindingsWithCoverage(api: Api, path: string, p
     const blocking = comment.body.startsWith(marker + '\n**BLOCKING / ');
     return marker && !existing.some(item =>
       (item.user.login === bot && item.body.includes(marker) && (!blocking || item.body.startsWith(marker + '\n**BLOCKING / '))) ||
-      (!blocking && item.user.type === 'Bot' && verifiedReviewer.test(item.user.login) && !item.in_reply_to_id &&
+      (!blocking && !comment.body.includes('<!-- oddmash-grouped-finding -->') && item.user.type === 'Bot' && verifiedReviewer.test(item.user.login) && !item.in_reply_to_id &&
         item.body.startsWith('<!-- oddmash-finding:') && item.commit_id === head &&
         item.path === comment.path && item.line === comment.line && comment.side === (item.side ?? 'RIGHT') &&
         sameFindingText(item.body, comment.body)));
@@ -428,6 +435,11 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         return;
       }
       const advisory = event === 'COMMENT' && !target.recheck ? existingAdvisoryReview(latest, bot, current.head.sha) : undefined;
+      await publishCoordinatedFindings(summaries.values());
+      const beforeAttachment = await api<Pull>(path);
+      if (beforeAttachment.head.sha !== current.head.sha || beforeAttachment.base.sha !== current.base.sha ||
+          beforeAttachment.merge_commit_sha !== current.merge_commit_sha || beforeAttachment.state !== 'open' ||
+          beforeAttachment.draft || !eligibleBase(beforeAttachment)) return;
       const attachment = event !== 'APPROVE' ? await attachReviewFindingsWithCoverage(api, path, pendingId, result.head, bot, result.comments) : { attached: 0, covered: true };
       if (attachment.covered) body = formatReviewBody(event, finalMarker, result.inlineReport, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote + specialistSummary;
       let publishedReviewId = pendingId;
@@ -455,10 +467,6 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
       requestApproved = event === 'APPROVE';
       progressResult = completedResult;
-      for (const specialist of summaries.values()) {
-        try { await specialist.publish?.(); }
-        catch { console.warn('Coordinated specialist findings publication failed'); }
-      }
       if (reconciliation) {
         await progress?.update('Verifying earlier findings', 'Checking the current commit against open review discussions.');
         await reconcileReviewThreads(api, { ...target, number: current.number }, config, current.head.sha, current.base.sha, fetch, threadReconciliationExclusions(reconciliation));
