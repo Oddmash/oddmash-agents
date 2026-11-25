@@ -62,3 +62,23 @@ test('retained model usage includes distinct terminal attempts and ignores unkno
     { role: 'qa', calls: 1, inputTokens: 20, outputTokens: 0, missingInput: 0, missingOutput: 1 }
   ]);
 });
+
+test('retains observed attempt timing, bounded phase transitions and measured terminal usage', () => {
+  const start = { ...event, outcome: 'started', timestamp: '2026-11-25T05:00:01.000Z' };
+  const phase = { ...start, outcome: 'phase', phase: 'collecting-context', timestamp: '2026-11-25T05:00:02.000Z' };
+  const next = { ...phase, phase: 'reviewing', timestamp: '2026-11-25T05:00:03.000Z' };
+  const end = { ...next, outcome: 'returned', timestamp: '2026-11-25T05:00:04.000Z', usage: { calls: 1, inputTokens: 10, outputTokens: 2, missingInput: 0, missingOutput: 0, untrusted: 'fixture' } };
+  const [job] = projectJobs([end, next, phase, phase, start, event], Date.parse(end.timestamp));
+  assert.equal(job.queuedAt, event.timestamp);
+  assert.equal(job.startedAt, start.timestamp);
+  assert.equal(job.finishedAt, end.timestamp);
+  assert.deepEqual(job.phaseHistory, [{ phase: 'collecting-context', timestamp: phase.timestamp }, { phase: 'reviewing', timestamp: next.timestamp }]);
+  assert.deepEqual(job.usage, { calls: 1, inputTokens: 10, outputTokens: 2, missingInput: 0, missingOutput: 0 });
+  assert.equal(jobElapsedMs(job, end.timestamp), 3000);
+  const [retry] = projectJobs([event, start, end, { ...event, attempt: 2, outcome: 'started' }], Date.parse(end.timestamp));
+  assert.equal(retry.attempt, 2);
+  assert.equal(retry.queuedAt, undefined);
+  assert.equal(retry.finishedAt, undefined);
+  assert.equal(retry.phaseHistory, undefined);
+  assert.equal(retry.usage, undefined);
+});
