@@ -311,17 +311,19 @@ test('coordinated specialists keep one thread for a matching finding and preserv
   const posts: string[] = [];
   const api = githubApi('fixture', async (_input, init) => {
     if (init?.method === 'POST') posts.push(JSON.parse(String(init.body)).body);
-    return Response.json(init?.method === 'POST' ? {} : [previous]);
+    return Response.json(init?.method === 'POST' ? { id: posts.length } : [previous]);
   });
   const target = { installation: 1, repository: repo.full_name, repositoryId: repo.id, number: 7, advisory: 'qa' as const, advisoryIdentity: 'qa' as const };
   const files = [{ filename: path, patch: '@@ -1 +1 @@\n-old\n+new', status: 'modified' }];
   const matching = 'Negative focus outline offset can draw the indicator inside or clipped against the link boundary.';
   const distinct = 'The color property no longer meets contrast requirements on a dark background.';
   const differentKeyboardDefect = 'The focus indicator remains visible inside the link, but keyboard focus skips the link entirely when navigating backwards.';
+  const publishedIds: unknown[] = [];
   for (const en of [matching, distinct, differentKeyboardDefect]) await publishSpecialistFindings(api, target, 'oddmash-qa[bot]', sha, {
     inlineFindings: [{ path, line: 1, evidence: 'new', en, ko: '표시 상태를 확인하세요.' }]
-  }, files, async () => true);
+  }, files, async () => true, id => publishedIds.push(id));
   assert.equal(posts.length, 2);
+  assert.deepEqual(publishedIds, [1, 2]);
   assert.match(posts[0], /contrast requirements/);
   assert.match(posts[1], /skips the link/);
 });
