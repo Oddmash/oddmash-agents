@@ -100,6 +100,32 @@ test('Lead remains advisory when public organization guidance is temporarily una
   assert.match(result.report, /Organization guidance could not be retrieved/);
 });
 
+test('Lead confirms concrete findings but stays advisory when either organization guide fails', async () => {
+  for (const filename of ['AGENTS.md', 'docs/AI-CODE-REVIEW.md']) {
+    const { request } = mock();
+    let confirmations = 0;
+    const result = await runReview(config, async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/repos/Oddmash/.github/contents/' + filename) return new Response(null, { status: 403 });
+      if (url.hostname === 'api.openai.com') {
+        const payload = JSON.parse(String(init?.body));
+        if (payload.text.format.name === 'oddmash_blocker_confirmation') {
+          confirmations++;
+          return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ verdicts: [{ index: 0, confirmed: true }] }) }] }] });
+        }
+        const candidate = { ...finding, blockingEvidence: { excerpt: 'new', impact: 'The accessible name is missing.', requirement: 'Buttons have accessible names.' } };
+        return Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ findings: [candidate] }) }] }] });
+      }
+      return request(input, init);
+    });
+    assert.equal(confirmations, 1);
+    assert.equal(result.assessment, 'COMMENT');
+    assert.equal(result.decision, 'COMMENT');
+    assert.equal(result.followUp.incompleteCoverage, true);
+    assert.match(result.report, /Organization guidance could not be retrieved/);
+  }
+});
+
 test('Lead withholds a review when the GitHub project guidance read fails', async () => {
   const { request, calls } = mock();
   await assert.rejects(runReview(config, async (input, init) => {
