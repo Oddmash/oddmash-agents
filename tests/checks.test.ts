@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksReady, reviewChecksSuccessful, shouldReconcilePendingChecks } from '../apps/worker/src/checks.ts';
+import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksAreScopedAdvisory, reviewChecksMayStart, reviewChecksReady, reviewChecksSuccessful, scopedAdvisoryNote, shouldReconcilePendingChecks, type Check, type CheckEvidence } from '../apps/worker/src/checks.ts';
 
 test('superseded cancellation, including failed aggregate and retired jobs, does not block current public PR checks', async () => {
   const head = 'a'.repeat(40);
@@ -210,4 +210,115 @@ test('maintainer actionable findings remain neutral without approving, while oth
   assert.equal(finalReviewEvent('REQUEST_CHANGES', failed, undefined, owner), 'COMMENT');
   assert.equal(finalReviewEvent('APPROVE', failed, undefined, owner), null);
   assert.equal(finalReviewEvent('REQUEST_CHANGES', { total_count: 1, check_runs: [{ ...verify, status: 'in_progress', conclusion: null }] }, undefined, owner), null);
+});
+
+const scopedRepository = 'Oddmash/boundra';
+const scopedHead = 'a'.repeat(40);
+const scopedMerge = 'b'.repeat(40);
+const scopedNumber = 126;
+const scopedRepoId = 1218645367;
+const scopedBranch = 'fix/site';
+const scopedBlobs: Record<string, string> = {
+  '.github/workflows/boundra.yml': '111d1bc79cebd2d8223b7587af35deee4f35f8a3',
+  'scripts/classify-ci-scope.mjs': '4f941d29489a3fc007e9285f87b4d6a369e441b2',
+  'scripts/classify-ci-scope.test.mjs': '44adee98496346c5e154b48d81263f9b5a284949',
+  '.github/workflows/pages.yml': '3bb95fdf641880ada87f4bf2eadcd602886ccf88'
+};
+const scopeJob = (suite: number, name: string, conclusion: string, app = 15368): Check => ({
+  name, status: 'completed', conclusion, app: { id: app }, check_suite: { id: suite }
+});
+const scopedJobs = [
+  ...['scope', 'contribution / scope', 'verify'].map(name => scopeJob(10, name, 'success')),
+  ...['verify-example', 'verify-runtime', 'verify-cli-platforms', 'benchmark-smoke', 'release-notes'].map(name => scopeJob(10, name, 'skipped')),
+  scopeJob(11, 'validate', 'success'), scopeJob(11, 'deploy', 'skipped')
+];
+const scopedRuns = [296703178, 427973803].map((workflow_id, index) => ({
+  workflow_id, check_suite_id: 10 + index, run_number: 213, head_sha: scopedHead, head_branch: scopedBranch,
+  head_repository: { id: scopedRepoId }, event: 'pull_request', status: 'completed', conclusion: 'success',
+  pull_requests: [{ number: scopedNumber }]
+}));
+const scopedSource = { head: { sha: scopedHead, ref: scopedBranch, repo: { id: scopedRepoId, owner: { login: 'Oddmash' } } },
+  merge: scopedMerge, readPulls: async () => null };
+const evaluateScoped = async ({
+  jobs = scopedJobs, runs = scopedRuns, totalRuns = runs.length, blobs = scopedBlobs,
+  source = scopedSource, second: secondEvidence = { total_count: 0, check_runs: [] }
+}: { jobs?: Check[]; runs?: typeof scopedRuns; totalRuns?: number; blobs?: Record<string, string>; source?: typeof scopedSource; second?: CheckEvidence | null } = {}) => {
+  const reader = publicReviewCheckReader('/repos/' + scopedRepository, scopedNumber, async ref =>
+    ref === scopedHead ? { total_count: jobs.length, check_runs: jobs } : secondEvidence, async (url, init) => {
+    const path = new URL(String(url));
+    assert.equal(new Headers(init?.headers).has('Authorization'), false);
+    if (path.pathname.endsWith('/actions/runs')) {
+      assert.equal(path.searchParams.get('head_sha'), scopedHead);
+      return Response.json({ total_count: totalRuns, workflow_runs: runs });
+    }
+    if (path.pathname.includes('/contents/')) {
+      assert.equal(path.searchParams.get('ref'), scopedMerge);
+      const file = path.pathname.split('/contents/')[1];
+      return Response.json({ type: 'file', sha: blobs[file] });
+    }
+    assert.fail('Unexpected request');
+  }, source);
+  return loadCheckEvidence(scopedHead, scopedMerge, reader, 42);
+};
+
+test('Boundra site-only exact-head scoped CI can start only an advisory review; strict matrix gate is unchanged', async () => {
+  const scoped = await evaluateScoped();
+  assert.equal(reviewChecksMayStart(scoped, scopedRepository), true);
+  assert.equal(reviewChecksAreScopedAdvisory(scoped, scopedRepository), true);
+  assert.equal(reviewChecksReady(scoped, scopedRepository), false);
+  assert.equal(reviewChecksSuccessful(scoped, scopedRepository), false);
+  assert.equal(shouldReconcilePendingChecks(scoped, scopedHead, scopedHead, true, scopedRepository), false);
+  for (const assessment of ['APPROVE', 'COMMENT', 'REQUEST_CHANGES'] as const) {
+    assert.equal(finalReviewEvent(assessment, scoped, scopedRepository), 'COMMENT');
+  }
+  assert.match(scopedAdvisoryNote(scoped, scopedRepository), /advisory review only/);
+  assert.equal(reviewChecksAreScopedAdvisory(scoped, 'Oddmash/other'), false);
+  const raw = { total_count: scopedJobs.length, check_runs: scopedJobs };
+  assert.equal(reviewChecksMayStart(raw, scopedRepository), false);
+  assert.equal(finalReviewEvent('APPROVE', raw, scopedRepository), null);
+  assert.equal(reviewChecksAreScopedAdvisory({ ...scoped }, scopedRepository), false);
+});
+
+test('Boundra scoped review refuses missing, pending, untrusted or mixed suite evidence', async () => {
+  const variations = [
+    scopedJobs.slice(1),
+    scopedJobs.slice(0, -1),
+    scopedJobs.map(job => job.name === 'verify' ? { ...job, conclusion: 'skipped' } : job),
+    scopedJobs.map(job => job.name === 'scope' ? { ...job, status: 'queued', conclusion: null } : job),
+    scopedJobs.map(job => job.name === 'verify-runtime' ? { ...job, app: { id: 42 } } : job),
+    scopedJobs.map(job => job.name === 'verify-cli-platforms' ? { ...job, check_suite: { id: 12 } } : job),
+    scopedJobs.map(job => job.name === 'validate' ? { ...job, conclusion: 'skipped' } : job),
+    [...scopedJobs, scopeJob(10, 'verify-runtime (20)', 'success')]
+  ];
+  for (const jobs of variations) {
+    const evidence = await evaluateScoped({ jobs });
+    assert.equal(reviewChecksMayStart(evidence, scopedRepository), false);
+    assert.equal(finalReviewEvent('APPROVE', evidence, scopedRepository), null);
+  }
+  assert.equal(reviewChecksMayStart(await evaluateScoped({ second: null }), scopedRepository), false);
+  assert.equal(reviewChecksMayStart(await evaluateScoped({ second: { check_runs: [] } }), scopedRepository), false);
+  assert.equal(reviewChecksMayStart(await evaluateScoped({
+    second: { total_count: 1, check_runs: [{ name: 'other', status: 'in_progress', conclusion: null }] }
+  }), scopedRepository), false);
+});
+
+test('Boundra scoped review refuses superseded, ambiguous, unrelated and stale workflow contracts', async () => {
+  const runVariations = [
+    scopedRuns.slice(0, 1),
+    scopedRuns.map(run => ({ ...run, head_sha: 'c'.repeat(40) })),
+    scopedRuns.map(run => ({ ...run, pull_requests: [{ number: scopedNumber + 1 }] })),
+    scopedRuns.map(run => ({ ...run, head_repository: { id: 123 } })),
+    [...scopedRuns, { ...scopedRuns[0], run_number: 214, check_suite_id: 12, status: 'queued', conclusion: 'success' }],
+    [...scopedRuns, { ...scopedRuns[0], run_number: 214, check_suite_id: 12, pull_requests: [] }],
+    [...scopedRuns, { ...scopedRuns[0], check_suite_id: 12 }],
+    scopedRuns.map(run => ({ ...run, conclusion: 'failure' }))
+  ];
+  for (const runs of runVariations) {
+    assert.equal(reviewChecksMayStart(await evaluateScoped({ runs }), scopedRepository), false);
+  }
+  assert.equal(reviewChecksMayStart(await evaluateScoped({ totalRuns: 3 }), scopedRepository), false);
+  for (const path of Object.keys(scopedBlobs)) {
+    assert.equal(reviewChecksMayStart(await evaluateScoped({ blobs: { ...scopedBlobs, [path]: 'f'.repeat(40) } }), scopedRepository), false);
+  }
+  assert.equal(reviewChecksMayStart(await evaluateScoped({ source: { ...scopedSource, merge: '' } }), scopedRepository), false);
 });
