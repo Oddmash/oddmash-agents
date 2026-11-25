@@ -23,7 +23,7 @@ aside > p.muted { margin: 0 0 var(--console-length-32); font-size: var(--console
 .shell .om-docs-links a:hover { color: var(--text); }
 .logout { display: grid; gap: var(--om-semantic-space-md); margin-top: auto; }
 .language-control { display: grid; gap: var(--console-length-5); font-size: var(--console-length-14); color: var(--muted); min-width: 0; }
-.logout .om-select-dropdown > [role=listbox] { inset: auto 0 calc(100% + var(--console-length-4)); }
+.logout .om-select-dropdown > [role=listbox]:not([data-positioned="true"]) { inset: auto 0 calc(100% + var(--console-length-4)); }
 .shell > main { max-width: var(--console-length-1440); min-width: 0; width: 100%; margin: 0 auto; padding: var(--console-length-32) clamp(var(--console-length-20),4vw,var(--console-length-56)); }
 header { display: flex; align-items: center; justify-content: space-between; gap: var(--om-semantic-space-lg); }
 header h2 { font-size: var(--console-length-30); margin: 0; }
@@ -71,7 +71,7 @@ section { margin: var(--om-semantic-space-xl) 0 var(--console-length-36); scroll
   .shell .om-docs-links li { flex: 1 0 auto; }
   .shell .om-docs-links a { justify-content: center; }
   .logout { margin-top: var(--om-semantic-space-md); grid-template-columns: minmax(0,1fr) auto; align-items: end; }
-  .logout .om-select-dropdown > [role=listbox] { inset: calc(100% + var(--console-length-4)) 0 auto; }
+  .logout .om-select-dropdown > [role=listbox]:not([data-positioned="true"]) { inset: calc(100% + var(--console-length-4)) 0 auto; }
   .shell > main { padding: var(--om-semantic-space-xl) var(--om-semantic-space-lg); }
   header h2 { font-size: var(--console-length-24); }
   .login { margin: 5vh auto; padding: var(--om-semantic-space-xl); }
