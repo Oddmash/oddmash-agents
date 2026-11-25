@@ -63,7 +63,7 @@ jobs:
           app-id: ${{ vars.REVIEWER_APP_ID }}
           private-key: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
           owner: Oddmash
-          repositories: .github,interaction-inspector,oddmash-ui,Vertactics,kowrap,boundra
+          repositories: .github,interaction-inspector,oddmash-ui,Vertactics,juliya,boundra
           permission-contents: read
           permission-pull-requests: write
           permission-checks: read
