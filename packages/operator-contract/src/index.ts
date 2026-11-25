@@ -10,7 +10,8 @@ export type ExecutionEvent = {
   timestamp: string; outcome: ExecutionOutcome; usage?: ModelUsageSummary; durationMs?: number; failure?: string; target?: PublicTarget; phase?: ExecutionPhase;
 };
 export type JobState = 'queued' | 'running' | 'returned' | 'failed' | 'stale';
-export type Job = { role: AgentRole; correlationId: string; attempt: number; state: JobState; updatedAt: string; startedAt?: string; target?: PublicTarget; phase?: ExecutionPhase; durationMs?: number; failure?: string };
+export type PhaseObservation = { phase: ExecutionPhase; timestamp: string };
+export type Job = { role: AgentRole; correlationId: string; attempt: number; state: JobState; updatedAt: string; startedAt?: string; queuedAt?: string; finishedAt?: string; target?: PublicTarget; phase?: ExecutionPhase; phaseHistory?: PhaseObservation[]; durationMs?: number; failure?: string; usage?: ModelUsageSummary };
 export type AgentSettings = { role: AgentRole; enabled: boolean; configured: boolean; model: string | null; autoMerge: boolean };
 export type WorkerSettings = { queueEnabled: boolean; coordinatedAdvisoriesEnabled: boolean; authenticatedGuidanceEnabled?: boolean; scopedThreadResolutionEnabled?: boolean; advisoryMaxRequests?: number; advisoryMaxMs?: number; agents: AgentSettings[] };
 
@@ -81,7 +82,11 @@ export function projectJobs(inputs: readonly unknown[], now: number, staleAfterM
     const target = event.target ?? (sameAttempt ? previous?.target : undefined);
     const phase = event.phase ?? (sameAttempt ? previous?.phase : undefined);
     const startedAt = event.outcome === 'started' ? event.timestamp : sameAttempt ? previous?.startedAt : undefined;
-    jobs.set(key, { role: event.role, correlationId: event.correlationId, attempt: event.attempt, state, updatedAt: event.timestamp, ...(startedAt ? { startedAt } : {}), ...(target ? { target } : {}), ...(phase ? { phase } : {}), ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }), ...(event.failure ? { failure: event.failure } : {}) });
+    const queuedAt = event.outcome === 'queued' ? (sameAttempt ? previous?.queuedAt ?? event.timestamp : event.timestamp) : sameAttempt ? previous?.queuedAt : undefined;
+    const finishedAt = event.outcome === 'returned' || event.outcome === 'failed' ? event.timestamp : undefined;
+    const phaseHistory = sameAttempt ? [...(previous?.phaseHistory ?? [])] : [];
+    if (event.outcome === 'phase' && event.phase && phaseHistory.at(-1)?.phase !== event.phase) phaseHistory.push({ phase: event.phase, timestamp: event.timestamp });
+    jobs.set(key, { role: event.role, correlationId: event.correlationId, attempt: event.attempt, state, updatedAt: event.timestamp, ...(startedAt ? { startedAt } : {}), ...(queuedAt ? { queuedAt } : {}), ...(finishedAt ? { finishedAt } : {}), ...(phaseHistory.length ? { phaseHistory: phaseHistory.slice(-16) } : {}), ...(event.usage ? { usage: event.usage } : {}), ...(target ? { target } : {}), ...(phase ? { phase } : {}), ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }), ...(event.failure ? { failure: event.failure } : {}) });
   }
   return [...jobs.values()].map(job => ['queued', 'running'].includes(job.state) && now - Date.parse(job.updatedAt) > staleAfterMs ? { ...job, state: 'stale' as const } : job).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
@@ -107,8 +112,12 @@ export function isUnfinishedJob(job: Pick<Job, 'state'>): boolean {
 
 export function jobElapsedMs(job: Job, observedAt: string): number | undefined {
   if (job.durationMs !== undefined) return job.durationMs;
-  if (!isUnfinishedJob(job)) return undefined;
-  const start = Date.parse(job.startedAt ?? job.updatedAt);
+  if (!isUnfinishedJob(job)) {
+    const start = Date.parse(job.startedAt ?? '');
+    const end = Date.parse(job.finishedAt ?? '');
+    return Number.isFinite(start) && Number.isFinite(end) && end >= start ? end - start : undefined;
+  }
+  const start = Date.parse((job.state === 'queued' ? job.queuedAt : job.state === 'running' ? job.startedAt : job.startedAt ?? (!job.phase ? job.queuedAt : undefined)) ?? '');
   const now = Date.parse(observedAt);
   return Number.isFinite(start) && Number.isFinite(now) ? Math.max(0, now - start) : undefined;
 }
