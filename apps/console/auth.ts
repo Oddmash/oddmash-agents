@@ -43,7 +43,7 @@ consoleApi.use('/api/*', initAuthConfig(() => ({
       return token;
     },
     session({ session, token }) {
-      return { expires: session.expires, user: { id: typeof token.operatorId === 'string' ? token.operatorId : '' } };
+      return { expires: session.expires, user: { id: typeof token.operatorId === 'string' && owner(token.operatorId) ? token.operatorId : '' } };
     }
   }
 })));
