@@ -13,7 +13,7 @@ const words = {
     specialistNote: 'Only relevant specialists are selected; missing observations do not mean skipped.',
     publicationNote: 'A publication phase does not prove that a review was published.',
     userNote: 'User acknowledgement and approval are not captured by execution telemetry.',
-    unobserved: 'Not observed', phaseOnly: 'Publishing observed', published: 'Published', target: 'Open target on GitHub',
+    unobserved: 'Not observed', phaseOnly: 'Publishing observed', published: 'Published', reviewPublished: 'Review posted', inlinePublished: 'Inline comment posted', commentPublished: 'Conversation comment posted', target: 'Open target on GitHub',
     close: 'Close', returned: 'Processing completed', triageCompleted: 'Issue triage completed',
     queued: 'Queued', running: 'In progress', failed: 'Failed', stale: 'Stale', skipped: 'Skipped',
     noDetails: 'No retained observations for this stage in the current selection.',
@@ -27,7 +27,7 @@ const words = {
     specialistNote: '관련 전문 에이전트만 선택됩니다. 기록이 없는 경우를 건너뜀으로 판단하지 않습니다.',
     publicationNote: '게시 단계 관측만으로 실제 리뷰 게시를 확정하지 않습니다.',
     userNote: '사용자의 확인 및 승인은 실행 기록으로 수집하지 않습니다.',
-    unobserved: '관측 없음', phaseOnly: '게시 단계 관측', published: '게시 완료', target: 'GitHub 대상 보기',
+    unobserved: '관측 없음', phaseOnly: '게시 단계 관측', published: '게시 완료', reviewPublished: '리뷰 게시', inlinePublished: '인라인 댓글 게시', commentPublished: '대화 댓글 게시', target: 'GitHub 대상 보기',
     close: '닫기', returned: '리뷰 처리 완료', triageCompleted: '이슈 분류 완료',
     queued: '대기 중', running: '진행 중', failed: '검토 실패', stale: '갱신 지연', skipped: '검토 건너뜀',
     noDetails: '현재 선택에서 이 단계의 보관 기록이 없습니다.',
@@ -112,7 +112,7 @@ export const WorkflowView = ({ target, visibleJobs, observedAt, language, render
         <div className="workflow-stage"><span>{w.lead}</span><RoleNode role="reviewer" description={w.leadNote} {...roleProps}/></div>
         <div className="workflow-stage"><span>{w.specialists}</span>{specialistRoles.map(role => <RoleNode key={role} role={role} description={w.specialistNote} {...roleProps}/>)}</div>
         <div className="workflow-stage"><span>{w.publishing}</span>
-          <StageDialog title={w.publishing} description={w.publicationNote} target={target} language={language} trigger={<><strong>{w.publishing}</strong><Badge tone={publications.length ? 'success' : publicationPhase ? 'info' : 'neutral'}>{publications.length ? w.published : publicationPhase ? w.phaseOnly : w.unobserved}</Badge></>}>
+          <StageDialog title={w.publishing} description={w.publicationNote} target={target} language={language} trigger={<><strong>{w.publishing}</strong>{publications.length ? <span className="workflow-node-status">{(['review','inline-comment','comment'] as const).map(kind => { const count = publications.filter(job => job.publication?.kind === kind).length; return count ? <Badge key={kind} tone="success">{kind === 'review' ? w.reviewPublished : kind === 'inline-comment' ? w.inlinePublished : w.commentPublished} {count}</Badge> : null; })}</span> : <Badge tone={publicationPhase ? 'info' : 'neutral'}>{publicationPhase ? w.phaseOnly : w.unobserved}</Badge>}</>}>
             {publications.length ? publications.map(job => <JobObservation key={job.role + ':' + job.correlationId + ':' + job.attempt} job={job} target={target} language={language} observedAt={observedAt}/>) : <p>{publicationPhase ? w.publicationNote : w.noDetails}</p>}
           </StageDialog>
         </div>
