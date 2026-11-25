@@ -79,6 +79,46 @@ export function scopedLeadThreadResolution(target: Target, appId: string, key: s
   };
 }
 
+const publicResolutionRepositories = new Map<string, number>([
+  ['Oddmash/boundra', 1218645367],
+  ['Oddmash/.github', 1455305553],
+  ['Oddmash/interaction-inspector', 1455309604],
+  ['Oddmash/oddmash-ui', 1456324802],
+  ['Oddmash/juliya', 1463701198],
+  ['Oddmash/oddmash-skills', 1468154482],
+  ['Oddmash/oddmash-agents', 1468182609],
+  ['Oddmash/oddmash-website', 1468561714]
+]);
+
+export function scopedAgentThreadResolution(target: Target, appId: string, key: string, slug: string, enabled: boolean, request: typeof fetch = fetch): Resolution | undefined {
+  const allowed = target.private === true ? privateRepositoryAllowed(target.repository, target.repositoryId) :
+    publicResolutionRepositories.get(target.repository) === target.repositoryId;
+  const specialist = target.advisoryIdentity;
+  const identity = specialist ? specialist !== 'triage' && target.advisory === specialist && slug === 'oddmash-' + specialist :
+    appId === '5881606' && slug === 'oddmash-lead' && !target.advisory;
+  if (!enabled || !allowed || !identity || !target.number || !target.reply || target.reply.kind === 'conversation') return;
+  return async (threadId, stillCurrent) => {
+    if (!/^PRRT_[a-zA-Z0-9_-]{1,200}$/.test(threadId) || !await stillCurrent()) return false;
+    const jwt = githubApi(appJwt(appId, key), request);
+    const installation = await jwt<{ id: number; app_id: number; app_slug: string; account: { login: string }; suspended_at: string | null }>(`/app/installations/${target.installation}`);
+    if (installation.id !== target.installation || installation.app_id !== Number(appId) || installation.app_slug !== slug ||
+        installation.account?.login?.toLowerCase() !== 'oddmash' || installation.suspended_at) return false;
+    const result = await jwt<{ token: string; permissions: { contents?: string; pull_requests?: string } }>(`/app/installations/${target.installation}/access_tokens`, { method: 'POST', body: JSON.stringify({
+      repository_ids: [target.repositoryId], permissions: { contents: 'write', pull_requests: 'write' }
+    }) });
+    if (!result.token) return false;
+    const api = githubApi(result.token, request);
+    try {
+      if (result.permissions?.contents !== 'write' || result.permissions?.pull_requests !== 'write' || !await stillCurrent()) return false;
+      const repo = await api<Repository>(`/repos/${target.repository}`);
+      if (!reviewableOddmash(repo) || repo.id !== target.repositoryId || repo.full_name !== target.repository || repo.private !== Boolean(target.private) || !await stillCurrent()) return false;
+      return await resolveThread(api, threadId);
+    } finally {
+      await api('/installation/token', { method: 'DELETE' }).catch(() => console.warn('Temporary thread resolution token revocation unavailable'));
+    }
+  };
+}
+
 async function resolveOwnThread(api: Api, target: Target, root: string, bot: string, head: string, baseSha: string, elevated?: Resolution): Promise<boolean> {
   const threads = await reviewThreads(api, target, head, baseSha, root);
   const thread = threads?.find(item => item.comments.nodes[0]?.id === root && ownsThread(item.comments.nodes[0]?.author, bot));
