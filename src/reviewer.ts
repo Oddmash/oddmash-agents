@@ -9,9 +9,10 @@ import { reviewFeedback } from './review-feedback.ts';
 import { agentSkill, guidanceInstructions, loadProjectGuidance } from './agent-guidance.ts';
 
 import { githubRequest } from './github-request.ts';
+import { readSharedGuidance } from './shared-guidance.ts';
 
 type Fetcher = typeof fetch;
-type Config = { repository: string; number: number; githubToken: string; openaiKey: string; model: string; post: boolean; allowedRepositories: string[]; acceptance?: Acceptance; incrementalFiles?: string[]; requestContext?: string; privateRepositoryId?: number; progress?: (title: string, summary: string) => Promise<void> };
+type Config = { repository: string; number: number; githubToken: string; publicGuidanceToken?: string; openaiKey: string; model: string; post: boolean; allowedRepositories: string[]; acceptance?: Acceptance; incrementalFiles?: string[]; requestContext?: string; privateRepositoryId?: number; progress?: (title: string, summary: string) => Promise<void> };
 type Pull = { title: string; state: string; draft: boolean; base: { sha: string; repo: { private: boolean; full_name: string; id?: number } }; head: ReviewCheckHead; changed_files: number; merge_commit_sha?: string | null };
 const shaPattern = /^[a-f0-9]{40}$/i;
 const repoPattern = /^Oddmash\/[a-z0-9_.-]+$/i;
@@ -97,9 +98,9 @@ export async function runReview(c: Config, request: Fetcher = fetch): Promise<{ 
   const guidance: Record<string, string> = {};
   let guidanceBudget = 24_000;
   let organizationGuidanceUnavailable = false;
-  async function readOrganizationGuidance(filename: string) {
+  async function readOrganizationGuidance(filename: 'AGENTS.md' | 'docs/AI-CODE-REVIEW.md') {
     if (guidanceBudget <= 0) return;
-    const content = await api<{ content: string; encoding: string }>(`/repos/Oddmash/.github/contents/${filename}?ref=main`, {}, true, true).catch(error => {
+    const content = await readSharedGuidance(filename, c.publicGuidanceToken, request).catch(error => {
       if (privateReview) throw error;
       organizationGuidanceUnavailable = true;
       return null;

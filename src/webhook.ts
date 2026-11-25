@@ -211,6 +211,38 @@ export async function authorize(target: Target, appId: string, key: string, requ
   return { api, token: result.token };
 }
 
+const guidanceRepositoryId = 1455305553;
+const guidanceTokens = new Map<string, { token: string; until: number }>();
+const pendingGuidanceTokens = new Map<string, Promise<string | undefined>>();
+
+export async function authorizePublicGuidance(target: Target, appId: string, key: string, request: typeof fetch = fetch): Promise<string | undefined> {
+  const cacheKey = appId + ':' + target.installation;
+  const cached = request === fetch ? guidanceTokens.get(cacheKey) : undefined;
+  if (cached && cached.until > Date.now()) return cached.token;
+  const acquire = async () => {
+    const jwtApi = githubApi(appJwt(appId, key), request);
+    const installation = await jwtApi<{ account: { login: string }; suspended_at: string | null }>('/app/installations/' + target.installation);
+    if (installation.account.login.toLowerCase() !== 'oddmash' || installation.suspended_at) return undefined;
+    const scoped = await jwtApi<{ token: string; expires_at: string; permissions: { contents?: string } }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [guidanceRepositoryId], permissions: { contents: 'read' } }) });
+    if (!scoped.token || scoped.permissions.contents !== 'read') return undefined;
+    const api = githubApi(scoped.token, request);
+    const repo = await api<Repository>('/repos/Oddmash/.github');
+    if (repo.id !== guidanceRepositoryId || repo.full_name !== 'Oddmash/.github' || repo.private !== false || repo.owner.login.toLowerCase() !== 'oddmash') return undefined;
+    const until = Math.min(Date.parse(scoped.expires_at) - 120000, Date.now() + 600000);
+    if (request === fetch && Number.isFinite(until) && until > Date.now()) {
+      if (guidanceTokens.size >= 8) guidanceTokens.delete(guidanceTokens.keys().next().value);
+      guidanceTokens.set(cacheKey, { token: scoped.token, until });
+    }
+    return scoped.token;
+  };
+  if (request !== fetch) return acquire();
+  const pending = pendingGuidanceTokens.get(cacheKey);
+  if (pending) return pending;
+  const promise = acquire().finally(() => pendingGuidanceTokens.delete(cacheKey));
+  pendingGuidanceTokens.set(cacheKey, promise);
+  return promise;
+}
+
 const publicMergeRepositories = new Set(['Oddmash/juliya', 'Oddmash/oddmash-ui', 'Oddmash/interaction-inspector', 'Oddmash/Vertactics', 'Oddmash/boundra']);
 
 export function mergeRepositoryAllowed(target: Target): boolean {
