@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { reconcileReviewThreads, replyToReview, scopedLeadThreadResolution, shouldReconcileEarlierFindings, threadReconciliationExclusions, threadReconciliationMarker } from '../src/review-discussion.ts';
+import { reconcileReviewThreads, replyToReview, scopedLeadThreadResolution, shouldReconcileEarlierFindings, threadReconciliationExclusions, threadReconciliationMarker, threadReconciliationScope, threadReconciliationScopeMarker } from '../src/review-discussion.ts';
 import { githubApi, type Target } from '../src/webhook.ts';
 import { githubContentFixture } from './github-content-fixture.ts';
 
@@ -322,6 +322,8 @@ test('automatic full green reviews schedule prior findings without an explicit r
   assert.equal(shouldReconcileEarlierFindings({ ...input, earlierReview: false, explicitRequest: true }), true);
   assert.equal(shouldReconcileEarlierFindings({ ...input, checksSuccessful: false }), false);
   assert.equal(shouldReconcileEarlierFindings({ ...input, fullReview: false }), false);
+  assert.equal(shouldReconcileEarlierFindings({ ...input, fullReview: false, boundedFollowUp: true, event: 'COMMENT' }), true);
+  assert.equal(shouldReconcileEarlierFindings({ ...input, fullReview: false, boundedFollowUp: true, event: 'APPROVE' }), false);
   assert.equal(shouldReconcileEarlierFindings({ ...input, confirmedEmpty: true }), false);
   assert.equal(shouldReconcileEarlierFindings({ ...input, event: 'REQUEST_CHANGES' }), false);
 });
@@ -367,6 +369,13 @@ test('full re-review reconciles each earlier finding from its own correction evi
   await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, model, exclusions, async () => false);
   assert.deepEqual([...resolved], []);
   assert.equal(modelCalls, 1);
+  const scopedMarker = threadReconciliationScopeMarker([root.path]);
+  assert.doesNotMatch(scopedMarker, /src\/demo/);
+  assert.equal(threadReconciliationScope(scopedMarker)?.size, 1);
+  assert.equal(threadReconciliationScope('<!-- oddmash-verified-thread-scope:invalid -->')?.size, 0);
+  await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, model, exclusions, async () => true, threadReconciliationScope(scopedMarker));
+  assert.deepEqual([...resolved], ['thread-4']);
+  assert.equal(modelCalls, 2);
   await reconcileReviewThreads(api, target, config, nextHead, pull.base.sha, model, exclusions, async () => true);
   assert.deepEqual([...resolved], ['thread-4']);
   assert.equal(modelCalls, 3);
