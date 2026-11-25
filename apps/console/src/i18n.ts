@@ -1,4 +1,12 @@
 export const korean = {
+  "Expand repository": "저장소 펼치기",
+  "Collapse repository": "저장소 접기",
+  "Maximum requests": "최대 요청 수",
+  "Maximum seconds": "최대 실행 시간 (초)",
+  "Enter valid limits within the deployment defaults.": "배포 기본값 이내의 유효한 한도를 입력하세요.",
+  "Unsaved changes. Save to apply.": "저장되지 않은 변경 사항입니다. 저장하면 적용됩니다.",
+  "Defaults staged. Save to apply.": "기본값을 입력했습니다. 저장하면 적용됩니다.",
+  "Discard changes": "변경 취소",
   "Latest saved settings": "최근 저장된 설정",
   "Deployment default": "배포 기본값",
   "Use my draft": "내 입력값 적용",
