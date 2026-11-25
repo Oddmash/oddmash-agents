@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { initAuthConfig, authHandler, verifyAuth } from '@hono/auth-js';
 import GitHub from '@auth/core/providers/github';
-import { isAuthorizedOwner } from './auth-policy.ts';
+import { authorizedSessionId, isAuthorizedOwner } from './auth-policy.ts';
 import { operatorStoreConfig, readOperatorStatus } from '@oddmash/agent-operator-store';
 
 function owner(id: unknown) { return isAuthorizedOwner(id, process.env.CONSOLE_OWNER_GITHUB_ID); }
@@ -43,7 +43,7 @@ consoleApi.use('/api/*', initAuthConfig(() => ({
       return token;
     },
     session({ session, token }) {
-      return { expires: session.expires, user: { id: typeof token.operatorId === 'string' && owner(token.operatorId) ? token.operatorId : '' } };
+      return { expires: session.expires, user: { id: authorizedSessionId(token.operatorId, process.env.CONSOLE_OWNER_GITHUB_ID) } };
     }
   }
 })));
