@@ -32,4 +32,9 @@ test('execution labels and tones describe only observed state', () => {
   assert.equal(executionTone('failed'), 'danger');
   assert.equal(executionTone('running'), 'active');
   assert.equal(executionTone('stale'), 'warning');
+  assert.equal(executionLabel('ko', 'skipped'), '검토 건너뜀');
+  assert.equal(executionLabel('en', 'published'), 'Publication confirmed');
+  assert.equal(executionTone('skipped'), 'neutral');
+  assert.equal(executionTone('published'), 'success');
+  assert.equal(executionTone('queued'), 'info');
 });

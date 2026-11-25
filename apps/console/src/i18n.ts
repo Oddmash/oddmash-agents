@@ -1,4 +1,6 @@
 export const korean = {
+  "Skipped": "검토 건너뜀",
+  "Publication confirmed": "게시 확인",
   "Choose a repository": "저장소 선택",
   "Choose one repository to inspect its matching executions.": "저장소를 선택하면 해당 조건의 실행 기록을 확인할 수 있습니다.",
   "Theme": "테마",
@@ -145,6 +147,8 @@ export const korean = {
   "returned": "처리 완료",
   "failed": "실패",
   "stale": "갱신 지연",
+  "skipped": "검토 건너뜀",
+  "published": "게시 확인",
   "collecting-changes": "변경 수집",
   "collecting-context": "문맥 수집",
   "reviewing": "검토 중",

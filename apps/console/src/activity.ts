@@ -1,10 +1,10 @@
 import { roles, type AgentRole, type Job, type JobState } from '@oddmash/agent-operator-contract';
 
-export const jobStates = ['queued', 'running', 'returned', 'failed', 'stale'] as const;
+export const jobStates = ['queued', 'running', 'returned', 'failed', 'stale', 'skipped', 'published'] as const;
 export type ActivityFilter = { role: AgentRole | 'all'; state: JobState | 'all'; repository?: string; day?: string };
 
 export function activitySummary(jobs: readonly Job[]) {
-  const counts = { queued: 0, running: 0, returned: 0, failed: 0, stale: 0 };
+  const counts = { queued: 0, running: 0, returned: 0, failed: 0, stale: 0, skipped: 0, published: 0 };
   const byRole = roles.map(role => ({ role, active: 0, failed: 0, stale: 0, latest: undefined as Job | undefined }));
   const indexed = new Map(byRole.map(role => [role.role, role]));
   for (const job of jobs) {

@@ -1,3 +1,4 @@
+import { publicationRecorder } from './agent-execution.ts';
 import { createHash } from 'node:crypto';
 import { agentSkill, guidanceInstructions, loadProjectGuidance } from './agent-guidance.ts';
 import { publishSpecialistFindings, specialistFindingRules, specialistRole, specialistSchema } from './specialist-findings.ts';
@@ -43,6 +44,7 @@ export function impactBody(result: Assessment, head: string, base: string, omitt
 
 export async function runImpact(api: Api, target: Target, config: { bot: string; model: string; openaiKey: string; automatic?: boolean; incrementalFiles?: string[]; collectSummary?: (section: string, publishFindings?: (publicationApi: Api) => Promise<void>) => void }, request: typeof fetch = fetch) {
   if (!target.impact || !target.number || (!config.automatic && target.requestComment?.kind !== 'issue')) return;
+  const recordPublication = publicationRecorder(target);
   const path = `/repos/${target.repository}/pulls/${target.number}`;
   const commentsPath = `/repos/${target.repository}/issues/${target.number}/comments`;
   const eligible = (pr: Pull) => pr.state === 'open' && !pr.draft && pr.base.repo.id === target.repositoryId && pr.base.repo.full_name === target.repository && pr.base.repo.private === Boolean(target.private) && sha.test(pr.head.sha) && sha.test(pr.base.sha) && (!target.expectedHead || target.expectedHead === pr.head.sha);
@@ -91,20 +93,25 @@ export async function runImpact(api: Api, target: Target, config: { bot: string;
     if (latest?.body.includes(revision + '\n##')) { if (target.requestComment) await completeCommentReaction(api, target.repository, target.requestComment, eyes, true); return; }
     if (config.collectSummary) {
       config.collectSummary(`- **Impact:** ${plain(result.en.evidence)} / ${plain(result.ko.evidence)}`, inline ? publicationApi => publishSpecialistFindings(
-        publicationApi, target, config.bot, pr.head.sha, result, selected.files, () => current(publicationApi)
+        publicationApi, target, config.bot, pr.head.sha, result, selected.files, () => current(publicationApi), id => recordPublication('inline-comment', id)
       ) : undefined);
       return;
     }
     if (inline) {
-      await publishSpecialistFindings(api, target, config.bot, pr.head.sha, result, selected.files, current);
+      await publishSpecialistFindings(api, target, config.bot, pr.head.sha, result, selected.files, current, id => recordPublication('inline-comment', id));
       if (!await current()) {
         if (target.requestComment) await completeCommentReaction(api, target.repository, target.requestComment, eyes, false);
         return;
       }
     }
     const body = impactBody(result, pr.head.sha, pr.base.sha, omitted, inline).replace(revisionMarker, revision);
-    if (latest) await api(`/repos/${target.repository}/issues/comments/${latest.id}`, { method: 'PATCH', body: JSON.stringify({ body }) });
-    else await api(commentsPath, { method: 'POST', body: JSON.stringify({ body }) });
+    if (latest) {
+      await api(`/repos/${target.repository}/issues/comments/${latest.id}`, { method: 'PATCH', body: JSON.stringify({ body }) });
+      recordPublication('comment', latest.id);
+    } else {
+      const created = await api<Comment>(commentsPath, { method: 'POST', body: JSON.stringify({ body }) });
+      recordPublication('comment', created?.id);
+    }
     if (target.requestComment) await completeCommentReaction(api, target.repository, target.requestComment, eyes, true);
   } catch (error) {
     if (target.requestComment) await completeCommentReaction(api, target.repository, target.requestComment, eyes, false);

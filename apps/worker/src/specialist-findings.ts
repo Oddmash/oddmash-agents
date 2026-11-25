@@ -120,7 +120,7 @@ export function sameFindingText(left: string, right: string): boolean {
   return a.some((_, index) => index <= a.length - 3 && ` ${comparable} `.includes(` ${a.slice(index, index + 3).join(' ')} `));
 }
 
-export async function publishSpecialistFindings(api: Api, target: Target, bot: string, head: string, report: object, files: ChangedFile[], current: () => Promise<boolean>) {
+export async function publishSpecialistFindings(api: Api, target: Target, bot: string, head: string, report: object, files: ChangedFile[], current: () => Promise<boolean>, onPublished?: (id: unknown) => void) {
   const role = specialistRole(target, bot);
   if (!role || !target.number || !/^[a-f0-9]{40}$/i.test(head)) return;
   const findings = validateFindings(report, files);
@@ -147,7 +147,8 @@ export async function publishSpecialistFindings(api: Api, target: Target, bot: s
     if (!await current()) return;
     const body = `<!-- oddmash-finding:${id} -->\n<!-- oddmash-specialist:${role} -->\n${plain(finding.en)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(finding.ko)}\n\n</details>`;
     try {
-      await api(path, { method: 'POST', body: JSON.stringify({ body, commit_id: head, path: finding.path, line: finding.line, side: 'RIGHT' }) });
+      const created = await api<{ id?: number }>(path, { method: 'POST', body: JSON.stringify({ body, commit_id: head, path: finding.path, line: finding.line, side: 'RIGHT' }) });
+      onPublished?.(created?.id);
     } catch (error) {
       if (!(error instanceof Error) || error.message !== 'GitHub request failed (422)') throw error;
       console.warn('Specialist inline anchor rejected by GitHub');

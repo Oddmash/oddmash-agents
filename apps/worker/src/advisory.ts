@@ -1,3 +1,4 @@
+import { publicationRecorder } from './agent-execution.ts';
 import { publishSpecialistFindings, specialistFindingRules, specialistRole, specialistSchema } from './specialist-findings.ts';
 import { createHash } from 'node:crypto';
 import { advisoryProfiles, isAdvisoryRole } from './advisory-agents.ts';
@@ -41,6 +42,7 @@ async function issueBase(api: Api, target: Target): Promise<string | undefined> 
 export async function runAdvisory(api: Api, target: Target, config: { bot: string; model: string; openaiKey: string; automatic?: boolean; incrementalFiles?: string[]; collectSummary?: (section: string, publishFindings?: (publicationApi: Api) => Promise<void>) => void }, request: typeof fetch = fetch) {
   const role = target.advisory;
   if (!isAdvisoryRole(role) || role === 'impact' || !target.number || (!config.automatic && target.requestComment?.kind !== 'issue')) return;
+  const recordPublication = publicationRecorder(target);
   const profile = advisoryProfiles[role];
   const inline = specialistRole(target, config.bot);
   const root = `/repos/${target.repository}`;
@@ -115,19 +117,24 @@ export async function runAdvisory(api: Api, target: Target, config: { bot: strin
     if (config.collectSummary) {
       const last = report.en.length - 1;
       config.collectSummary(`- **${profile.name}:** ${render(report.en[last])} / ${render(report.ko[last])}`, inline ? publicationApi => publishSpecialistFindings(
-        publicationApi, target, config.bot, subject.head!.sha, report, selectedFiles, () => current(publicationApi)
+        publicationApi, target, config.bot, subject.head!.sha, report, selectedFiles, () => current(publicationApi), id => recordPublication('inline-comment', id)
       ) : undefined);
       completed = true;
       return;
     }
     if (inline) {
-      await publishSpecialistFindings(api, target, config.bot, subject.head!.sha, report, selectedFiles, current);
+      await publishSpecialistFindings(api, target, config.bot, subject.head!.sha, report, selectedFiles, current, id => recordPublication('inline-comment', id));
       if (!await current()) return;
     }
     const list = (items: string[], headings: readonly string[]) => items.map((item, i) => `- **${headings[i]}:** ${render(item)}`).join('\n');
     const body = `${marker}\n${revision}\n## Oddmash ${profile.name}\n\n${list(report.en, labels[role][0])}\n\n${partial ? 'Evidence is incomplete. Treat this assessment as provisional.\n\n' : ''}Advisory only. No approval, CI result, release or merge authorization.\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${list(report.ko, labels[role][1])}\n\n${partial ? '검토 근거가 일부 누락되었습니다.\n\n' : ''}자문 의견이며 승인 또는 실행 권한이 아닙니다.\n\n</details>`;
-    if (existing) await api(`${root}/issues/comments/${existing.id}`, { method: 'PATCH', body: JSON.stringify({ body }) });
-    else await api(commentsPath, { method: 'POST', body: JSON.stringify({ body }) });
+    if (existing) {
+      await api(`${root}/issues/comments/${existing.id}`, { method: 'PATCH', body: JSON.stringify({ body }) });
+      recordPublication('comment', existing.id);
+    } else {
+      const created = await api<Comment>(commentsPath, { method: 'POST', body: JSON.stringify({ body }) });
+      recordPublication('comment', created?.id);
+    }
     completed = true;
   } finally { if (target.requestComment) await completeCommentReaction(api, target.repository, target.requestComment, eyes, completed); }
 }

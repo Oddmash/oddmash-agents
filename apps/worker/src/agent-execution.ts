@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { publicTarget, type AgentRole, type ExecutionEvent, type ExecutionPhase, type ExecutionOutcome, type PublicTarget, type ModelUsageSummary } from '../../../packages/operator-contract/src/index.ts';
+import { publicTarget, type AgentRole, type ExecutionEvent, type ExecutionPhase, type ExecutionOutcome, type PublicTarget, type ModelUsageSummary, type SkipReason, type PublicationKind } from '../../../packages/operator-contract/src/index.ts';
 import { operatorStoreConfig, writeOperatorEvent } from '../../../packages/operator-store/src/index.ts';
 import { trackModelUsage } from './model-request.ts';
 import { trackGitHubRequests } from './github-request.ts';
@@ -48,6 +48,27 @@ export async function recordQueued(context: ExecutionContext) {
 }
 
 const activeExecution = new AsyncLocalStorage<{ context: ExecutionContext; emit: (event: ReturnType<typeof executionEvent>) => void; clock: () => number }>();
+
+export function recordSkippedExecution(role: AgentRole, target: Pick<Target, 'repository' | 'number' | 'private'>, reason: SkipReason) {
+  const active = activeExecution.getStore();
+  const scope = publicTarget(target);
+  if (!active || !scope) return;
+  const context = executionContext(role, '', 1, scope);
+  active.emit({ ...executionEvent(context, 'skipped', active.clock()), skipReason: reason });
+}
+
+export function publicationRecorder(target: Pick<Target, 'repository' | 'number' | 'private'>) {
+  const origin = activeExecution.getStore()?.context;
+  const scope = publicTarget(target);
+  const context = origin && scope && (origin.target
+    ? origin.target.repository.toLowerCase() === scope.repository.toLowerCase() && origin.target.number === scope.number ? origin : undefined
+    : executionContext(origin.role, '', 1, scope));
+  return (kind: PublicationKind, id: unknown) => {
+    const active = activeExecution.getStore();
+    if (!active || !context || typeof id !== 'number' || !Number.isSafeInteger(id) || id < 1) return;
+    active.emit({ ...executionEvent(context, 'published', active.clock()), publication: { kind, id } });
+  };
+}
 
 export function recordReviewPhase(title: string) {
   const phase: ExecutionPhase | undefined = title === 'Collecting changes' ? 'collecting-changes'
