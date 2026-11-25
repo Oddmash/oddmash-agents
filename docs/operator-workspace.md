@@ -15,7 +15,7 @@ The worker emits its existing role-correlated lifecycle events. Events now optio
 
 ## Configuration
 
-The worker exposes an internal projection function that selects explicit non-secret model and feature settings and whether required configuration is present. Configured is not proof that credentials work. No public route exposes the projection. The console uses the Hono status API and optional bounded shared storage; it does not read worker environment variables or credentials directly.
+The worker exposes an internal projection function that selects explicit non-secret model and feature settings and whether required configuration is present. Configured is not proof that credentials work. No public route exposes the projection. The console uses the Hono status API and optional bounded shared storage; it does not read worker environment variables or credentials directly. See the [console setup guide](../apps/console/README.md) for required GitHub OAuth and owner authentication variables, callback configuration, and optional worker/console storage credentials. Without storage, the console shows that telemetry is unconfigured.
 
 ## Next phases
 
