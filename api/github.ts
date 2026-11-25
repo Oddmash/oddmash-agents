@@ -1,3 +1,4 @@
+import { workerEndpoint } from '../src/worker-http.ts';
 import { executionContext, executionRole, recordQueued, runAgentExecution } from '../src/agent-execution.ts';
 import { waitUntil } from '@vercel/functions';
 import { ignoredReviewRequest, route, validSignature } from '../src/webhook.ts';
@@ -6,11 +7,11 @@ import { send } from '@vercel/queue';
 import { createReviewJob, leadDeliveryKey, reviewTopic } from '../src/review-job.ts';
 import { runtimeConfig } from '../src/runtime-config.ts';
 
-export function GET() {
+function health() {
   return Response.json({ service: 'Oddmash Reviewer', status: 'ok' });
 }
 
-export async function POST(request: Request) {
+async function receive(request: Request) {
   const secret = process.env.REVIEWER_WEBHOOK_SECRET ?? '';
   if (!secret) return new Response('Unavailable', { status: 503 });
   const bytes = new Uint8Array(await request.arrayBuffer());
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
     try { job = createReviewJob(delivery, target, secret); } catch { return new Response('Bad request', { status: 400 }); }
     try { await send(reviewTopic, job, { idempotencyKey: leadDeliveryKey(target, delivery), retentionSeconds: 86400 }); }
     catch { console.error('Reviewer queue publish failed'); return new Response('Unavailable', { status: 503 }); }
-    recordQueued(execution);
+    waitUntil(recordQueued(execution));
     if (target.requestComment) console.info('Reviewer comment request queued');
     return new Response('Accepted', { status: 202 });
   }
@@ -51,3 +52,7 @@ export async function POST(request: Request) {
   if (target.requestComment) console.info('Reviewer comment request accepted');
   return new Response('Accepted', { status: 202 });
 }
+
+const app = workerEndpoint('/api/github', receive, health);
+export const GET = (request = new Request('https://localhost/api/github')) => app.fetch(request);
+export const POST = (request: Request) => app.fetch(request);
