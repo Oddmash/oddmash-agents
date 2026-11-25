@@ -12,7 +12,7 @@
   "dependencies": {
     "@oddmash/agent-operator-contract": "workspace:*",
     "@oddmash/agent-operator-store": "workspace:*",
-    "@oddmash/ui": "0.4.1",
+    "@oddmash/ui": "0.4.0",
     "next": "16.4.6",
     "next-auth": "5.0.0-beta.32",
     "react": "19.3.1",
