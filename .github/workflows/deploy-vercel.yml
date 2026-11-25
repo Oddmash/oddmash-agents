@@ -146,6 +146,23 @@ jobs:
               if (signed.status !== 200) throw new Error("Signed webhook ping failed");
             }
           '
+      - name: Smoke test staged console routes
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+        run: |
+          node --input-type=module <<'NODE'
+          const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+          if (!secret) throw new Error('Missing staging protection credential');
+          const origin = process.env.DEPLOYMENT_URL;
+          const request = path => fetch(new URL(path, origin), { headers: { 'x-vercel-protection-bypass': secret }, redirect: 'error', signal: AbortSignal.timeout(30000) });
+          const shell = await request('/');
+          if (!shell.ok || !shell.headers.get('content-type')?.includes('text/html') || !(await shell.text()).includes('id="root"')) throw new Error('Console shell unavailable');
+          const availability = await request('/api/availability');
+          if (!availability.ok || typeof (await availability.json()).configured !== 'boolean') throw new Error('Console availability route unavailable');
+          const status = await request('/api/status');
+          if (status.status !== 401 || !status.headers.get('cache-control')?.includes('no-store')) throw new Error('Console status failed unauthenticated denial');
+          NODE
       - name: Recheck latest release before promotion
         env:
           GITHUB_TOKEN: ${{ github.token }}
