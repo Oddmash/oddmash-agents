@@ -1,7 +1,8 @@
+import { resolveDateRange, type DateRange } from './date-range.ts';
 import { roles, type AgentRole, type Job, type JobState } from '@oddmash/agent-operator-contract';
 
 export const jobStates = ['queued', 'running', 'returned', 'failed', 'stale', 'skipped', 'published'] as const;
-export type ActivityFilter = { role: AgentRole | 'all'; state: JobState | 'all'; repository?: string; day?: string };
+export type ActivityFilter = { role: AgentRole | 'all'; state: JobState | 'all'; repository?: string; day?: string; range?: DateRange };
 
 export function activitySummary(jobs: readonly Job[]) {
   const counts = { queued: 0, running: 0, returned: 0, failed: 0, stale: 0, skipped: 0, published: 0 };
@@ -20,7 +21,9 @@ export function activitySummary(jobs: readonly Job[]) {
 }
 
 export function filterActivity(jobs: readonly Job[], filter: ActivityFilter): Job[] {
-  return jobs.filter(job => (filter.role === 'all' || job.role === filter.role) && (filter.state === 'all' || job.state === filter.state) && (!filter.repository || filter.repository === 'all' || repositoryKey(job) === filter.repository) && (!filter.day || filter.day === 'all' || localDay(job.updatedAt) === filter.day));
+  const range = filter.range && resolveDateRange(filter.range);
+  if (filter.range && !range) return [];
+  return jobs.filter(job => (!range || Date.parse(job.updatedAt) >= range.from && Date.parse(job.updatedAt) <= range.to) && (filter.role === 'all' || job.role === filter.role) && (filter.state === 'all' || job.state === filter.state) && (!filter.repository || filter.repository === 'all' || repositoryKey(job) === filter.repository) && (!filter.day || filter.day === 'all' || localDay(job.updatedAt) === filter.day));
 }
 
 export function groupActivity(jobs: readonly Job[]) {
