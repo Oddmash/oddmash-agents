@@ -70,7 +70,7 @@ The local CLI and organization workflow also use the review engine. Queue-backed
 
 Role-aware execution events and per-role model budgets use the existing runtime logs and a small shared serialization and usage module. See [agent operations](docs/agent-operations.md) for monitoring, limits and cost estimation. Each role retains its own evidence and output validation contract rather than sharing a generalized execution framework.
 
-Defer a dedicated dashboard until logs prove insufficient. Keep cross-agent collaboration explicit and maintainer-directed. Split servers or queues only when measured load, reliability or isolation needs justify the operational cost.
+The operator console is implemented in the same workspace and served from the existing Vercel project. See [operator workspace](docs/operator-workspace.md) for configuration and activation requirements. Keep cross-agent collaboration explicit and maintainer-directed. Split servers or queues only when measured load, reliability or isolation needs justify the operational cost.
 
 ### Development and release
 

@@ -113,6 +113,13 @@ jobs:
           test -n "$VERCEL_TOKEN"
           pnpm --reporter=silent dlx "vercel@$VERCEL_CLI_VERSION" pull --yes --environment=production
       - run: pnpm --reporter=silent dlx "vercel@$VERCEL_CLI_VERSION" build --prod
+      - name: Confirm combined build output
+        run: |
+          node --input-type=module <<'NODE'
+          import { existsSync } from 'node:fs';
+          const expected = ['static/index.html', 'functions/api/github.func/.vc-config.json', 'functions/api/advisory.func/.vc-config.json', 'functions/api/review-jobs.func/.vc-config.json', 'functions/api/status.func/.vc-config.json', 'functions/api/availability.func/.vc-config.json'];
+          for (const entry of expected) if (!existsSync('.vercel/output/' + entry)) throw new Error('Missing combined deployment artifact: ' + entry);
+          NODE
       - name: Stage production
         id: stage
         env:
@@ -146,6 +153,25 @@ jobs:
               if (signed.status !== 200) throw new Error("Signed webhook ping failed");
             }
           '
+      - name: Smoke test staged console routes
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+        run: |
+          node --input-type=module <<'NODE'
+          const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+          if (!secret) throw new Error('Missing staging protection credential');
+          const origin = process.env.DEPLOYMENT_URL;
+          const request = path => fetch(new URL(path, origin), { headers: { 'x-vercel-protection-bypass': secret }, redirect: 'error', signal: AbortSignal.timeout(30000) });
+          const shell = await request('/');
+          if (!shell.ok || !shell.headers.get('content-type')?.includes('text/html') || !(await shell.text()).includes('id="root"')) throw new Error('Console shell unavailable');
+          const availability = await request('/api/availability');
+          if (!availability.ok || typeof (await availability.json()).configured !== 'boolean') throw new Error('Console availability route unavailable');
+          const session = await request('/api/auth/session');
+          if (![400, 503].includes(session.status) || !session.headers.get('cache-control')?.includes('no-store')) throw new Error('Console auth route unavailable or accepted noncanonical staging origin');
+          const status = await request('/api/status');
+          if (status.status !== 401 || !status.headers.get('cache-control')?.includes('no-store')) throw new Error('Console status failed unauthenticated denial');
+          NODE
       - name: Recheck latest release before promotion
         env:
           GITHUB_TOKEN: ${{ github.token }}
