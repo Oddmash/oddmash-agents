@@ -1,11 +1,14 @@
-import { useEffect, useState, useRef, type ReactNode, type MouseEvent } from 'react';
+import { useEffect, useState, type ReactNode, type MouseEvent } from 'react';
 import { Alert, Avatar, Badge, Button, Card, DocsNavigation, EmptyState, Select } from '@oddmash/ui';
-import { jobElapsedMs, type Job, type WorkerSettings, type ModelUsageSummary, type AgentRole } from '@oddmash/agent-operator-contract';
+import { type Job, type WorkerSettings, type ModelUsageSummary, type AgentRole } from '@oddmash/agent-operator-contract';
 import { createStatusPolling } from './status-polling';
 import { RuntimeControls } from './runtime-controls';
 import { AgentLoading } from './agent-loading';
-import { korean, translate, executionCount, missingCalls, consoleViews, consoleRoute, localizedUrl, type ConsoleView, type Language, type Message } from './i18n';
-import { activitySummary, filterActivity, groupActivity, reviewOverview, jobStates, type ActivityFilter } from './activity';
+import { translate, executionCount, missingCalls, consoleViews, consoleRoute, localizedUrl, type ConsoleView, type Language, type Message } from './i18n';
+import { activitySummary, filterActivity, groupActivity, reviewOverview, repositoryActivity, activityDays, jobStates, type ActivityFilter } from './activity';
+
+import { RepositoryActivity } from './repository-activity';
+import './repository-activity.css';
 
 type Snapshot = { connected: boolean; jobs: Job[]; usage?: (ModelUsageSummary & { role: AgentRole })[]; settings: WorkerSettings | null; settingsUpdatedAt?: string; observedAt: string };
 const releaseTag = (import.meta as ImportMeta & { env: { VITE_OPERATOR_RELEASE_TAG?: string } }).env.VITE_OPERATOR_RELEASE_TAG;
@@ -31,11 +34,6 @@ const AgentIdentity = ({ role, compact = false }: { role: AgentRole; compact?: b
 
 const StatusValue = ({ value, language, yes = 'Enabled', no = 'Disabled' }: { value: boolean | undefined; language: Language; yes?: Message; no?: Message }) => <span className="status-value" data-state={value === undefined ? 'unknown' : value ? 'on' : 'off'}><span aria-hidden="true" className="status-dot"/>{translate(language, value === undefined ? 'Unknown' : value ? yes : no)}</span>;
 
-function formatElapsed(job: Job, language: Language, observedAt?: string) {
-  const elapsed = observedAt ? jobElapsedMs(job, observedAt) : undefined;
-  return elapsed === undefined ? '—' : new Intl.NumberFormat(language, { style: 'unit', unit: 'second', unitDisplay: 'short' }).format(Math.round(elapsed / 1000));
-}
-
 export const Dashboard = ({ logout, language, languageControl, view, navigate }: { logout: ReactNode; language: Language; languageControl: ReactNode; view: ConsoleView; navigate: (view: ConsoleView) => void }) => {
   const t = (message: Message) => translate(language, message);
   const href = (next: ConsoleView) => localizedUrl(window.location.href, language, next).href;
@@ -53,8 +51,7 @@ export const Dashboard = ({ logout, language, languageControl, view, navigate }:
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [error, setError] = useState<Message | ''>('');
   const [loading, setLoading] = useState(true);
-  const [paused, setPaused] = useState(false);
-  const pollingRef = useRef<ReturnType<typeof createStatusPolling> | null>(null);
+  const [observedClock, setObservedClock] = useState<string>();
   const [filter, setFilter] = useState<ActivityFilter>({ role: 'all', state: 'all' });
   useEffect(() => {
     const polling = createStatusPolling({
@@ -74,19 +71,31 @@ export const Dashboard = ({ logout, language, languageControl, view, navigate }:
         setError('');
         return { delayMs: data.jobs.some(job => job.state === 'running' || job.state === 'queued') ? 10000 : 30000 };
       },
-      onError: () => setError('Unable to refresh live status. Try again.'),
+      onError: () => setError('Unable to refresh live status. Retrying automatically.'),
       onSettled: () => setLoading(false)
     });
-    pollingRef.current = polling;
     document.addEventListener('visibilitychange', polling.visibilityChanged);
     void polling.refresh();
     return () => {
       polling.dispose();
-      pollingRef.current = null;
       document.removeEventListener('visibilitychange', polling.visibilityChanged);
     };
   }, []);
   const jobs = snapshot?.jobs ?? [];
+  const active = jobs.some(job => job.state === 'queued' || job.state === 'running');
+  useEffect(() => {
+    if (!snapshot?.observedAt) return;
+    const observed = Date.parse(snapshot.observedAt);
+    const received = Date.now();
+    const update = () => { if (!document.hidden) setObservedClock(new Date(observed + Date.now() - received).toISOString()); };
+    update();
+    if (!active) return;
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [snapshot?.observedAt, active]);
+  const repositories = repositoryActivity(jobs);
+  const days = activityDays(jobs);
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const { counts, byRole } = activitySummary(jobs);
   const visibleJobs = filterActivity(jobs, filter);
   const groups = groupActivity(visibleJobs);
@@ -96,7 +105,7 @@ export const Dashboard = ({ logout, language, languageControl, view, navigate }:
   return <div className="shell" onClick={follow}>
     <aside><a className="console-brand" href={href("overview")} aria-label={t("Agents Console")}><img src={brandLogo} width={38} height={38} alt=""/><span>oddmash<span className="brand-dot">.</span></span></a><p className="muted">{t("Release:")} {typeof releaseTag === 'string' && /^v\d+\.\d+\.\d+$/.test(releaseTag) ? releaseTag : t("Unknown")}</p><DocsNavigation aria-label={t('Console navigation')} currentId={view} groups={[{ id: 'console', items: views.map(item => ({ id: item, href: href(item), label: t(viewLabels[item]) })) }]}/><div className="logout">{languageControl}{logout}</div></aside>
     <main>
-      <header><div><h2>{t(viewLabels[view])}</h2></div><div className="header-actions"><Button variant="secondary" onClick={() => { pollingRef.current?.setPaused(!paused); setPaused(!paused); }}>{t(paused ? "Resume live updates" : "Pause live updates")}</Button><Button variant="secondary" onClick={() => void pollingRef.current?.refresh()}>{t("Refresh")}</Button></div></header>
+      <header><div><h2>{t(viewLabels[view])}</h2></div><span className="muted">{t('Automatic updates')}</span></header>
       <div role="status" aria-live="polite" className="muted status-line">{loading ? null : error ? <Alert tone="danger">{t(error)}{snapshot?.connected ? t(" Showing the last successful snapshot.") : ''}</Alert> : (snapshot?.connected ? t("Connected to worker telemetry") : t("Telemetry storage is not configured."))}</div>
       {loading && !snapshot && <AgentLoading label={t("Loading status…")}/>}
       <div hidden={!snapshot}>
@@ -111,15 +120,10 @@ export const Dashboard = ({ logout, language, languageControl, view, navigate }:
       <section aria-labelledby="review-targets">
         <h2 id="review-targets">{t("Review targets")}</h2>
         <p className="muted">{t("Agents shown are observed executions. Unreported assignments are not inferred; execution completion is not approval.")}</p>
-        <div className="activity-filters"><div className="filter-control"><span>{t("Agent")}</span><Select aria-label={t("Agent")} value={filter.role} options={[{ value: 'all', label: t("All agents") }, ...byRole.map(row => ({ value: row.role, label: names[row.role] }))]} onValueChange={value => setFilter(current => ({ ...current, role: value as ActivityFilter['role'] }))}/></div><div className="filter-control"><span>{t("State")}</span><Select aria-label={t("State")} value={filter.state} options={[{ value: 'all', label: t("All states") }, ...jobStates.map(state => ({ value: state, label: t(state) }))]} onValueChange={value => setFilter(current => ({ ...current, state: value as ActivityFilter['state'] }))}/></div><span className="muted">{connected ? executionCount(language, visibleJobs.length, jobs.length) : t("No live activity source")}</span></div>
-        <div className="review-list">{displayedGroups.map(group => <Card key={group.key} className="review-group">
-          <div className="review-heading"><div><p className="muted">{group.target ? group.target.repository : t("Target not reported")}</p><h3>{group.target ? <a href={'https://github.com/' + group.target.repository + '/issues/' + group.target.number} target="_blank" rel="noreferrer">#{group.target.number}</a> : t("Unattributed executions")}</h3></div><span className="muted">{executionCount(language, group.jobs.length, group.total)}</span></div>
-          <ul className="review-agents">{group.jobs.map(job => <li key={job.role + ':' + job.correlationId + ':' + job.attempt} className="review-agent">
-            <div><AgentIdentity role={job.role} compact/><small>{t(descriptions[job.role])}</small></div>
-            <div className="review-phase"><strong>{job.phase ? t(job.phase) : t("Not reported")}</strong><small>{t("Attempt")} {job.attempt} · {formatElapsed(job, language, snapshot?.observedAt)}</small></div>
-            <div className="review-state"><Badge tone={job.state === 'running' ? 'accent' : 'neutral'}>{t(job.state)}</Badge>{job.failure && <small>{Object.hasOwn(korean, job.failure) ? t(job.failure as Message) : t("unexpected")}</small>}<small><time dateTime={job.updatedAt}>{new Date(job.updatedAt).toLocaleString(language)}</time></small></div>
-          </li>)}</ul>
-        </Card>)}</div>
+        <div className="repository-browser" role="group" aria-label={t('Repository')}><Button variant="secondary" aria-pressed={!filter.repository || filter.repository === 'all'} onClick={() => setFilter(current => ({ ...current, repository: 'all' }))}>{t('All repositories')} ({jobs.length})</Button>{repositories.map(repository => <Button key={repository.key} variant="secondary" aria-pressed={filter.repository === repository.key} onClick={() => setFilter(current => ({ ...current, repository: repository.key }))}>{repository.repository ?? t('Target not reported')} ({repository.jobs.length})</Button>)}</div>
+        <div className="activity-filters"><div className="filter-control"><span>{t('Activity day')}</span><Select aria-label={t('Activity day')} value={filter.day ?? 'all'} options={[{ value: 'all', label: t('All days') }, ...days.map(day => ({ value: day, label: day }))]} onValueChange={value => setFilter(current => ({ ...current, day: value }))}/></div><div className="filter-control"><span>{t("Agent")}</span><Select aria-label={t("Agent")} value={filter.role} options={[{ value: 'all', label: t("All agents") }, ...byRole.map(row => ({ value: row.role, label: names[row.role] }))]} onValueChange={value => setFilter(current => ({ ...current, role: value as ActivityFilter['role'] }))}/></div><div className="filter-control"><span>{t("State")}</span><Select aria-label={t("State")} value={filter.state} options={[{ value: 'all', label: t("All states") }, ...jobStates.map(state => ({ value: state, label: t(state) }))]} onValueChange={value => setFilter(current => ({ ...current, state: value as ActivityFilter['state'] }))}/></div><span className="muted">{connected ? executionCount(language, visibleJobs.length, jobs.length) : t("No live activity source")}</span></div>
+        <p className="muted">{t('Local time zone')}: {timeZone} · {t('Retained observations (up to 7 days or 500 recent events)')}</p>
+        <RepositoryActivity groups={displayedGroups} visibleJobs={visibleJobs} observedAt={observedClock ?? snapshot?.observedAt ?? new Date().toISOString()} language={language} renderAgent={role => <><AgentIdentity role={role} compact/><small>{t(descriptions[role])}</small></>}/>
         {view === 'overview' && (overview.identifiedCount > 5 || overview.unattributedCount > 0 || overview.groups.some(group => group.total > group.jobs.length)) && <div className="history-summary">{overview.unattributedCount > 0 && <span className="muted">{t("Target not reported")}: {overview.unattributedCount.toLocaleString(language)}</span>}<a href={href("activity")}>{t("View all executions")}</a></div>}
         {!displayedGroups.length && <Card><EmptyState className="empty">{!connected ? t("Live activity unavailable.") : view === 'overview' && overview.unattributedCount > 0 ? t("No identified review targets.") : jobs.length ? t("No executions match these filters.") : t("No recent execution events.")}</EmptyState></Card>}
       </section>
