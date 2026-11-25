@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { authorizedSessionId } from '../apps/console/auth-policy.ts';
 import { consoleApi } from '../apps/console/auth.ts';
 import { POST as advisoryPost } from '../api/advisory.ts';
 import { workerEndpoint } from '../src/worker-http.ts';
@@ -64,4 +65,21 @@ test('exported advisory POST matches the deployed path and preserves query routi
   } finally {
     if (previous === undefined) delete process.env.QA_APP_ENABLED; else process.env.QA_APP_ENABLED = previous;
   }
+});
+
+test('only the currently configured owner receives a valid projected session ID', () => {
+  assert.equal(authorizedSessionId('123', '123'), '123');
+  assert.equal(authorizedSessionId('123', '124'), '');
+  assert.equal(authorizedSessionId(undefined, '123'), '');
+  assert.equal(authorizedSessionId('123', undefined), '');
+});
+
+test('worker failures record only a static endpoint and return a generic response', async t => {
+  const logs: unknown[][] = [];
+  t.mock.method(console, 'error', (...args: unknown[]) => { logs.push(args); });
+  const app = workerEndpoint('/api/github', async () => { throw new Error('synthetic exception detail'); });
+  const response = await app.request('/api/github', { method: 'POST' });
+  assert.equal(response.status, 500);
+  assert.equal(await response.text(), 'Internal server error');
+  assert.deepEqual(logs, [['Worker HTTP request failed', { endpoint: '/api/github' }]]);
 });
