@@ -355,7 +355,7 @@ test('coordinated reviews publish only after all selected specialists finish', a
   const target = { installation: 3, repository: repository.full_name, repositoryId: repository.id, number: 1, expectedHead: head };
   const config = { appId: '42', key, slug: 'oddmash-reviewer', openaiKey: 'lead', model: 'fixture' };
   await reviewWebhook(target, config);
-  assert.deepEqual(events, ['assessed lead', 'assessed qa', 'assessed docs', 'published lead', 'published qa', 'published docs']);
+  assert.deepEqual(events, ['assessed lead', 'assessed qa', 'assessed docs', 'published qa', 'published docs', 'published lead']);
   events.length = 0;
   const recheck = { ...target, recheck: 'fixture-recheck' };
   await reviewWebhook(recheck, config);
