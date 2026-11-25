@@ -117,7 +117,7 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import { existsSync } from 'node:fs';
-          const expected = ['static/index.html', 'functions/api/github.func/.vc-config.json', 'functions/api/advisory.func/.vc-config.json', 'functions/api/review-jobs.func/.vc-config.json', 'functions/api/status.func/.vc-config.json', 'functions/api/availability.func/.vc-config.json'];
+          const expected = ['static/index.html', 'functions/api/github.func/.vc-config.json', 'functions/api/advisory.func/.vc-config.json', 'functions/api/review-jobs.func/.vc-config.json', 'functions/api/status.func/.vc-config.json', 'functions/api/availability.func/.vc-config.json', 'functions/api/auth/signin/github.func/.vc-config.json', 'functions/api/auth/callback/github.func/.vc-config.json'];
           for (const entry of expected) if (!existsSync('.vercel/output/' + entry)) throw new Error('Missing combined deployment artifact: ' + entry);
           NODE
       - name: Stage production
@@ -162,13 +162,17 @@ jobs:
           const secret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
           if (!secret) throw new Error('Missing staging protection credential');
           const origin = process.env.DEPLOYMENT_URL;
-          const request = path => fetch(new URL(path, origin), { headers: { 'x-vercel-protection-bypass': secret }, redirect: 'error', signal: AbortSignal.timeout(30000) });
+          const request = (path, method = 'GET') => fetch(new URL(path, origin), { method, headers: { 'x-vercel-protection-bypass': secret }, redirect: 'error', signal: AbortSignal.timeout(30000) });
           const shell = await request('/');
           if (!shell.ok || !shell.headers.get('content-type')?.includes('text/html') || !(await shell.text()).includes('id="root"')) throw new Error('Console shell unavailable');
           const availability = await request('/api/availability');
           if (!availability.ok || typeof (await availability.json()).configured !== 'boolean') throw new Error('Console availability route unavailable');
           const session = await request('/api/auth/session');
           if (![400, 503].includes(session.status) || !session.headers.get('cache-control')?.includes('no-store')) throw new Error('Console auth route unavailable or accepted noncanonical staging origin');
+          for (const [path, method] of [['/api/auth/signin/github', 'POST'], ['/api/auth/callback/github', 'GET']]) {
+            const response = await request(path, method);
+            if (![400, 503].includes(response.status) || !response.headers.get('cache-control')?.includes('no-store') || !response.headers.get('content-type')?.includes('application/json')) throw new Error('Console provider route unavailable or accepted noncanonical staging origin');
+          }
           const status = await request('/api/status');
           if (status.status !== 401 || !status.headers.get('cache-control')?.includes('no-store')) throw new Error('Console status failed unauthenticated denial');
           NODE
