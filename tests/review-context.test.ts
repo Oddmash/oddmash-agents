@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 test('bounded relative imports exclude sensitive paths and changed files', () => {
   const files = [{ filename: 'src/ui.ts', status: 'modified', patch: '+import { a } from "./helper";\n+import { b } from "./auth";\n+import { c } from "../../outside";\n+import { d } from "./changed.ts";' }, { filename: 'src/changed.ts', status: 'modified' }];
   assert.deepEqual(relatedPaths(files), ['src/helper.ts', 'src/helper.tsx', 'src/helper/index.ts']);
-  assert.match(reviewFocus('Oddmash/kowrap').join(' '), /Unicode/);
+  assert.match(reviewFocus('Oddmash/juliya').join(' '), /Unicode/);
 });
 
 test('deleted code findings are advisory and cannot suggest code replacements', () => {
@@ -47,8 +47,9 @@ test('product-specific guidance and reviewed feedback cover distinct product con
 test('product profiles remain specific and unrecognized products use the common baseline', () => {
   const fallback = reviewFocus('Oddmash/unrecognized');
   assert.deepEqual(fallback, ['Correctness, regression, error handling and test coverage']);
+  assert.deepEqual(reviewFocus('Oddmash/kowrap'), fallback);
   assert.match(reviewFocus('Oddmash/oddmash-ui').join(' '), /Keyboard interaction/);
   assert.match(reviewFocus('Oddmash/interaction-inspector').join(' '), /Event lifecycle/);
-  assert.doesNotMatch(reviewFocus('Oddmash/kowrap').join(' '), /map coordinate/);
+  assert.doesNotMatch(reviewFocus('Oddmash/juliya').join(' '), /map coordinate/);
   assert.doesNotMatch(reviewFocus('Oddmash/boundra').join(' '), /design tokens/);
 });
