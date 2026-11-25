@@ -31,6 +31,7 @@ const safeField = (value: unknown): value is string =>
 const plain = (value: string) => value.replace(/@/g, '＠').replace(/[\\`*_\[\]()#!|~]/g, '\\$&').replace(/https?:\/\//gi, 'https[:]//');
 
 function renamedType(file: ChangedFile, target: number): { previous: string; current: string } | undefined {
+  if (!/\.[cm]?tsx?$/.test(file.filename)) return;
   let position = 0;
   let previous: string | undefined;
   for (const line of (file.patch ?? '').split('\n')) {
@@ -53,18 +54,21 @@ function renamedType(file: ChangedFile, target: number): { previous: string; cur
 
 function matchingTypeAlias(file: ChangedFile, originalPath: string, rename: { previous: string; current: string }): boolean {
   if (!/\.[cm]?tsx?$/.test(file.filename) || file.filename === originalPath) return false;
-  for (const hunk of (file.patch ?? '').split(/^@@ .*@@.*$/m).slice(1)) {
-    const source = hunk.split('\n').filter(line => line.startsWith(' ') || line.startsWith('+')).map(line => line.slice(1)).join('\n');
+  const matches = (hunk: string, side: '-' | '+', importedName: string, expectedAlias: string) => {
+    const source = hunk.split('\n').filter(line => line.startsWith(' ') || line.startsWith(side)).map(line => line.slice(1)).join('\n');
     for (const match of source.matchAll(/(?:^|\n)\s*export\s+(type\s+)?\{([^{}]*)\}\s+from\s+(['"])(\.[^'"\n]*)\3/g)) {
       const importedPath = posix.normalize(posix.join(posix.dirname(file.filename), match[4]));
       if (importedPath !== originalPath && importedPath !== originalPath.replace(/\.[cm]?tsx?$/, '')) continue;
       for (const specifier of match[2].split(',')) {
-        const alias = /^\s*(type\s+)?([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)\s*$/.exec(specifier);
-        if (alias && (match[1] || alias[1]) && alias[2] === rename.current && alias[3] === rename.previous) return true;
+        const alias = /^\s*(type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(specifier);
+        if (alias && (match[1] || alias[1]) && alias[2] === importedName && (alias[3] ?? alias[2]) === expectedAlias) return true;
       }
     }
-  }
-  return false;
+    return false;
+  };
+  return (file.patch ?? '').split(/^@@ .*@@.*$/m).slice(1).some(hunk =>
+    matches(hunk, '-', rename.previous, rename.previous) && matches(hunk, '+', rename.current, rename.previous)
+  );
 }
 
 function contradictedMissingAlias(finding: Finding, file: ChangedFile, files: ChangedFile[]): boolean {
