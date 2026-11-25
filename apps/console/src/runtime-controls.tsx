@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card } from '@oddmash/ui';
 import { defaultControls, optionalRoles, type ControlsRecord, type OperatorControls, type OptionalRole } from '@oddmash/agent-operator-contract';
+import { reviewRetainedDraft } from './control-draft';
 import { translate, type Language, type Message } from './i18n';
 
 const roleNames: Record<OptionalRole, string> = { impact: 'Impact', qa: 'QA', release: 'Release', docs: 'Docs', architect: 'Architect' };
@@ -39,14 +40,15 @@ export const RuntimeControls = ({ language }: { language: Language }) => {
     finally { setBusy(false); }
   };
   const reloadRevision = async () => {
-    if (busy) return;
+    if (busy || !draft) return;
     setBusy(true);
     try {
       const response = await fetch('/api/controls', { cache: 'no-store' });
       if (response.status === 401 || response.status === 403) { setNotice('Session expired. Sign in again.'); return; }
       if (!response.ok) throw new Error('Controls unavailable');
       const record = await response.json() as ControlsRecord;
-      setSaved(record); setConflict(false); setNotice('Latest revision loaded. Review your draft before saving.');
+      const recovery = reviewRetainedDraft(record, draft);
+      setSaved(recovery.saved); setDraft(recovery.draft); setConflict(false); setNeedsReview(recovery.needsReview); setNotice('Latest revision loaded. Review your draft before saving.');
     } catch { setNotice('Unable to reload saved revision. Your draft is retained.'); }
     finally { setBusy(false); }
   };

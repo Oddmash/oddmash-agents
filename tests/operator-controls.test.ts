@@ -53,3 +53,15 @@ test('canonical control write handler preserves the revision and signals conflic
   const invalid = new Request('https://console.example.test/api/controls', { method: 'POST', body: JSON.stringify({ controls: { ...controls, autoMerge: true }, revision: null }) });
   assert.equal((await handleControlWrite(invalid, async () => { throw new Error('must not write'); })).status, 400);
 });
+
+test('conflict review retains local edits and requires explicit review of latest saved settings', async () => {
+  const { reviewRetainedDraft } = await import('../apps/console/src/control-draft.ts');
+  const draft = { ...defaultControls(), paused: true, maxRequests: 2 };
+  const latest = { revision: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', controls: { ...defaultControls(), maxRequests: 4 }, updatedAt: '2026-01-01T00:00:00Z' };
+  const result = reviewRetainedDraft(latest, draft);
+  assert.equal(result.needsReview, true);
+  assert.equal(result.saved, latest);
+  assert.equal(result.draft, draft);
+  assert.equal(result.draft.maxRequests, 2);
+  assert.equal(result.saved.controls.maxRequests, 4);
+});
