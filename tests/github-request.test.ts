@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { githubRequest } from '../src/github-request.ts';
+import { githubRequest, trackGitHubRequests } from '../src/github-request.ts';
 
 test('retries a rate-limited read only once', async () => {
   let calls = 0;
@@ -50,4 +50,26 @@ test('logs only numeric quota metadata and classified request context', async t 
     remaining: 0, reset: 1800000000
   });
   assert.doesNotMatch(messages[0], /fixture/);
+});
+
+test('aggregates bounded request dimensions separately across concurrent executions', async () => {
+  const summaries: unknown[][] = [];
+  const path = '/repos/Oddmash/.github/contents/fixture-path?ref=fixture-ref';
+  const first = trackGitHubRequests(async () => {
+    let calls = 0;
+    await githubRequest(async () => new Response(null, { status: ++calls === 1 ? 503 : 200 }), path, { headers: { Authorization: 'Bearer fixture-token' } }, false, async () => {});
+    await githubRequest(async () => new Response(null, { status: 304 }), path, { headers: { Authorization: 'Bearer fixture-token', 'If-None-Match': 'fixture-etag' } });
+  }, counts => { summaries[0] = counts; });
+  const second = trackGitHubRequests(async () => {
+    await githubRequest(async () => new Response(null, { status: 200 }), path, {});
+  }, counts => { summaries[1] = counts; });
+  await Promise.all([first, second]);
+  const all = JSON.stringify(summaries);
+  assert.doesNotMatch(all, /fixture/);
+  assert.deepEqual(summaries[0], [
+    { category: 'organization-guidance', authenticated: true, read: true, outcome: 'http-error', count: 1, retries: 0 },
+    { category: 'organization-guidance', authenticated: true, read: true, outcome: 'not-modified', count: 1, retries: 0 },
+    { category: 'organization-guidance', authenticated: true, read: true, outcome: 'success', count: 1, retries: 1 }
+  ]);
+  assert.deepEqual(summaries[1], [{ category: 'organization-guidance', authenticated: false, read: true, outcome: 'success', count: 1, retries: 0 }]);
 });
