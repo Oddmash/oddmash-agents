@@ -9,7 +9,7 @@ export type ExecutionEvent = {
   timestamp: string; outcome: ExecutionOutcome; durationMs?: number; failure?: string; target?: PublicTarget; phase?: ExecutionPhase;
 };
 export type JobState = 'queued' | 'running' | 'returned' | 'failed' | 'stale';
-export type Job = { role: AgentRole; correlationId: string; attempt: number; state: JobState; updatedAt: string; target?: PublicTarget; phase?: ExecutionPhase; durationMs?: number; failure?: string };
+export type Job = { role: AgentRole; correlationId: string; attempt: number; state: JobState; updatedAt: string; startedAt?: string; target?: PublicTarget; phase?: ExecutionPhase; durationMs?: number; failure?: string };
 export type AgentSettings = { role: AgentRole; enabled: boolean; configured: boolean; model: string | null; autoMerge: boolean };
 export type WorkerSettings = { queueEnabled: boolean; coordinatedAdvisoriesEnabled: boolean; agents: AgentSettings[] };
 
@@ -53,7 +53,8 @@ export function projectJobs(inputs: readonly unknown[], now: number, staleAfterM
     if (sameAttempt && previous?.state === 'running' && state === 'queued') continue;
     const target = event.target ?? (sameAttempt ? previous?.target : undefined);
     const phase = event.phase ?? (sameAttempt ? previous?.phase : undefined);
-    jobs.set(key, { role: event.role, correlationId: event.correlationId, attempt: event.attempt, state, updatedAt: event.timestamp, ...(target ? { target } : {}), ...(phase ? { phase } : {}), ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }), ...(event.failure ? { failure: event.failure } : {}) });
+    const startedAt = event.outcome === 'started' ? event.timestamp : sameAttempt ? previous?.startedAt : undefined;
+    jobs.set(key, { role: event.role, correlationId: event.correlationId, attempt: event.attempt, state, updatedAt: event.timestamp, ...(startedAt ? { startedAt } : {}), ...(target ? { target } : {}), ...(phase ? { phase } : {}), ...(event.durationMs === undefined ? {} : { durationMs: event.durationMs }), ...(event.failure ? { failure: event.failure } : {}) });
   }
   return [...jobs.values()].map(job => ['queued', 'running'].includes(job.state) && now - Date.parse(job.updatedAt) > staleAfterMs ? { ...job, state: 'stale' as const } : job).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }

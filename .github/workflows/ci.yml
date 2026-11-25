@@ -24,7 +24,7 @@ jobs:
     needs: scope
     if: needs.scope.outputs.runtime == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
       actions: read
@@ -69,6 +69,21 @@ jobs:
         if: steps.prior.outputs.run == ''
       - run: pnpm test
         if: steps.prior.outputs.run == ''
+      - run: pnpm --filter @oddmash/agents-console typecheck
+        if: steps.prior.outputs.run == ''
+      - run: pnpm --filter @oddmash/agents-console build
+        if: steps.prior.outputs.run == ''
+      - name: Confirm console denies unauthenticated status requests
+        if: steps.prior.outputs.run == ''
+        run: |
+          pnpm --filter @oddmash/agents-console exec next start -p 4312 > /tmp/console-smoke.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:4312/ > /dev/null; then break; fi
+            sleep 1
+          done
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:4312/api/status)" = 401
       - name: Record full test result for ${{ github.sha }}
         if: steps.prior.outputs.run == ''
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"

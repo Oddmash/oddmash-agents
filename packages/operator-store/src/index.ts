@@ -1,7 +1,7 @@
 import { parseExecutionEvent, parseWorkerSettings, projectJobs, type ExecutionEvent, type WorkerSettings, type Job } from '../../operator-contract/src/index.ts';
 
 type StoreConfig = { url: string; token: string };
-type Status = { connected: boolean; jobs: Job[]; settings: WorkerSettings | null; observedAt: string };
+type Status = { connected: boolean; jobs: Job[]; settings: WorkerSettings | null; settingsUpdatedAt?: string; observedAt: string };
 const eventKey = 'oddmash:operator:events:v1';
 const settingsKey = 'oddmash:operator:settings:v1';
 const retention = 604800;
@@ -28,7 +28,7 @@ export async function writeOperatorEvent(config: StoreConfig, event: ExecutionEv
   const safeEvent = parseExecutionEvent(event);
   const safeSettings = parseWorkerSettings(settings);
   if (!safeEvent || !safeSettings) return;
-  await pipeline(config, [['LPUSH', eventKey, JSON.stringify(safeEvent)], ['LTRIM', eventKey, 0, limit - 1], ['EXPIRE', eventKey, retention], ['SET', settingsKey, JSON.stringify(safeSettings), 'EX', retention]], request);
+  await pipeline(config, [['LPUSH', eventKey, JSON.stringify(safeEvent)], ['LTRIM', eventKey, 0, limit - 1], ['EXPIRE', eventKey, retention], ['SET', settingsKey, JSON.stringify({ settings: safeSettings, recordedAt: safeEvent.timestamp }), 'EX', retention]], request);
 }
 
 function decode(value: unknown): unknown {
@@ -42,5 +42,9 @@ export async function readOperatorStatus(config: StoreConfig | undefined, reques
   const [events, settings] = await pipeline(config, [['LRANGE', eventKey, 0, limit - 1], ['GET', settingsKey]], request);
   if (!Array.isArray(events)) throw new Error('Operator store unavailable');
   const valid = events.slice(0, limit).map(decode).map(parseExecutionEvent).filter(event => event && now - Date.parse(event.timestamp) <= retention * 1000 && Date.parse(event.timestamp) <= now + 60000);
-  return { connected: true, jobs: projectJobs(valid, now), settings: parseWorkerSettings(decode(settings)) ?? null, observedAt };
+  const snapshot = decode(settings);
+  const record = snapshot && typeof snapshot === 'object' ? snapshot as Record<string, unknown> : undefined;
+  const parsedSettings = parseWorkerSettings(record?.settings);
+  const recordedAt = typeof record?.recordedAt === 'string' && Number.isFinite(Date.parse(record.recordedAt)) && Date.parse(record.recordedAt) <= now + 60000 && now - Date.parse(record.recordedAt) <= retention * 1000 ? new Date(record.recordedAt).toISOString() : undefined;
+  return { connected: true, jobs: projectJobs(valid, now), settings: recordedAt ? parsedSettings ?? null : null, ...(recordedAt && parsedSettings ? { settingsUpdatedAt: recordedAt } : {}), observedAt };
 }

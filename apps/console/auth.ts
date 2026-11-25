@@ -1,14 +1,12 @@
 import NextAuth from 'next-auth';
 import GitHub from 'next-auth/providers/github';
+import { isAuthorizedOwner } from './auth-policy';
 
 export function authConfigured() {
   return Boolean(process.env.AUTH_SECRET && process.env.AUTH_GITHUB_ID && process.env.AUTH_GITHUB_SECRET && /^\d+$/.test(process.env.CONSOLE_OWNER_GITHUB_ID ?? ''));
 }
 
-function owner(id: unknown) {
-  const expected = process.env.CONSOLE_OWNER_GITHUB_ID;
-  return typeof expected === 'string' && /^\d+$/.test(expected) && (typeof id === 'string' || typeof id === 'number') && String(id) === expected;
-}
+function owner(id: unknown) { return isAuthorizedOwner(id, process.env.CONSOLE_OWNER_GITHUB_ID); }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [GitHub({ authorization: { params: { scope: 'read:user' } } })],
