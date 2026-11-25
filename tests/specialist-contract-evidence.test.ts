@@ -46,7 +46,8 @@ test('only a retained alias from the exact renamed declaration suppresses the mi
   const unrelatedModule = { ...preserved, patch: preserved.patch!.replace('./select-dropdown', './other/select-dropdown') };
   const unrelatedName = { ...preserved, patch: preserved.patch!.replace('as SelectDropdownOption', 'as DifferentOption') };
   const deletedAlias = reexport("@@ -1 +1 @@\n-export type { SelectOption as SelectDropdownOption } from './select-dropdown';\n+export type { SelectOption } from './select-dropdown';");
-  for (const files of [[internal], [internal, unrelatedModule], [internal, unrelatedName], [internal, deletedAlias]]) {
+  const newReexport = reexport("@@ -1 +1 @@\n-export type { DifferentOption } from './select-dropdown';\n+export type { SelectOption as SelectDropdownOption } from './select-dropdown';");
+  for (const files of [[internal], [internal, unrelatedModule], [internal, unrelatedName], [internal, deletedAlias], [internal, newReexport]]) {
     assert.equal((await publish(files, missingAlias)).length, 1);
   }
   const distinct = await publish([internal, preserved], changedContract);
