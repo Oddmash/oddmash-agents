@@ -1,4 +1,8 @@
 export const korean = {
+  "Execution": "실행 환경",
+  "Review limits": "검토 한도",
+  "Agent configuration": "에이전트 구성",
+  "Ready": "설정 완료",
   "Pause live updates": "실시간 갱신 일시정지",
   "Resume live updates": "실시간 갱신 재개",
   "No identified review targets.": "확인된 리뷰 대상이 없습니다.",
