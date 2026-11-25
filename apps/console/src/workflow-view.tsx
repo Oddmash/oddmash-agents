@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Badge, Button, Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription, DialogClose } from '@oddmash/ui';
 import { jobElapsedMs, type AgentRole, type PublicTarget } from '@oddmash/agent-operator-contract';
 import { korean, translate, type Language, type Message } from './i18n';
-import { type ObservedJob, type WorkflowState, specialistRoles, targetObservations, roleObservations, stateCounts, publicationObservations, publicationPhaseObserved, publicationLink } from './workflow-model';
+import { type ObservedJob, type WorkflowState, specialistRoles, targetObservations, roleObservations, stateCounts, publicationObservations, publicationPhaseObserved, publicationLink, executionGroups } from './workflow-model';
 import './workflow.css';
 
 const words = {
@@ -18,7 +18,7 @@ const words = {
     queued: 'Queued', running: 'In progress', failed: 'Failed', stale: 'Stale', skipped: 'Skipped',
     noDetails: 'No retained observations for this stage in the current selection.',
     skip: 'Skip reason', publication: 'Published result', noResult: 'No publication evidence',
-    review: 'Review', comment: 'Comment', inlineComment: 'Inline comment', detail: 'Execution details'
+    review: 'Review', comment: 'Comment', inlineComment: 'Inline comment', detail: 'Execution details', run: 'Observed execution'
   },
   ko: {
     workflow: '리뷰 워크플로우', note: '작업 흐름 템플릿 · 현재 선택에서 관측된 기록이며 하나의 순차 실행을 보장하지 않습니다.',
@@ -32,7 +32,7 @@ const words = {
     queued: '대기 중', running: '진행 중', failed: '검토 실패', stale: '갱신 지연', skipped: '검토 건너뜀',
     noDetails: '현재 선택에서 이 단계의 보관 기록이 없습니다.',
     skip: '건너뜀 사유', publication: '게시 결과', noResult: '게시 기록 없음',
-    review: '리뷰', comment: '댓글', inlineComment: '인라인 댓글', detail: '실행 상세'
+    review: '리뷰', comment: '댓글', inlineComment: '인라인 댓글', detail: '실행 상세', run: '관측된 실행'
   }
 } as const;
 
@@ -94,7 +94,7 @@ const RoleNode = ({ role, description, jobs, target, observedAt, language, rende
   const counts = stateCounts(records);
   const badges = order.filter(state => counts[state]).map(state => <Badge key={state} tone={tones[state]}>{stateLabel(language, state, role)} {counts[state]}</Badge>);
   return <StageDialog title={renderAgent(role)} description={description} language={language} target={target} trigger={<><span className="workflow-node-title">{renderAgent(role)}</span><span className="workflow-node-status">{badges.length ? badges : <Badge tone="neutral">{w.unobserved}</Badge>}</span></>}>
-    {records.length ? records.map(job => <JobObservation key={job.correlationId + ':' + job.attempt} job={job} language={language} target={target} observedAt={observedAt}/>) : <p>{w.noDetails}</p>}
+    {records.length ? executionGroups(records).map(group => <section key={group.key}><h4>{w.run} · <code>{group.records[0].correlationId.slice(0, 12)}</code></h4>{group.records.map(job => <JobObservation key={job.correlationId + ':' + job.attempt} job={job} language={language} target={target} observedAt={observedAt}/>)}</section>) : <p>{w.noDetails}</p>}
   </StageDialog>;
 };
 
