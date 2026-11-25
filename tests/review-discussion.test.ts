@@ -518,3 +518,45 @@ test('approved specialist identities resolve through a single temporary reposito
     assert.equal(scopedAgentThreadResolution(scoped, '42', key, 'oddmash-triage', true, request), undefined);
   }
 });
+
+test('scoped own-thread resolution rejects invalid installation evidence and cleans up temporary grants on denied paths', async () => {
+  const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const scoped: Target = { ...target, repository: 'Oddmash/oddmash-ui', repositoryId: 1456324802, advisory: 'qa', advisoryIdentity: 'qa' };
+  const slug = 'oddmash-qa';
+  for (const scenario of ['wrong-installation', 'wrong-app', 'wrong-slug', 'suspended', 'downgraded', 'wrong-repository', 'wrong-visibility', 'graphql-failure'] as const) {
+    const calls: string[] = [];
+    const request: typeof fetch = async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      calls.push(path);
+      if (path === '/app/installations/1') return Response.json({
+        id: scenario === 'wrong-installation' ? 2 : 1,
+        app_id: scenario === 'wrong-app' ? 99 : 42,
+        app_slug: scenario === 'wrong-slug' ? 'oddmash-docs' : slug,
+        account: { login: 'Oddmash' },
+        suspended_at: scenario === 'suspended' ? '2026-01-01T00:00:00Z' : null
+      });
+      if (path === '/app/installations/1/access_tokens') return Response.json({ token: 'fixture', permissions: { contents: scenario === 'downgraded' ? 'read' : 'write', pull_requests: 'write' } });
+      if (path === '/repos/' + scoped.repository) return Response.json({
+        id: scenario === 'wrong-repository' ? 99 : scoped.repositoryId,
+        full_name: scoped.repository,
+        private: scenario === 'wrong-visibility',
+        visibility: scenario === 'wrong-visibility' ? 'private' : 'public',
+        owner: { login: 'Oddmash' }
+      });
+      if (path === '/installation/token') { assert.equal(init?.method, 'DELETE'); return new Response(null, { status: 204 }); }
+      assert.equal(path, '/graphql');
+      assert.equal(scenario, 'graphql-failure');
+      return new Response(null, { status: 403 });
+    };
+    const resolve = scopedAgentThreadResolution(scoped, '42', key, slug, true, request)!;
+    if (scenario === 'graphql-failure') await assert.rejects(() => resolve('PRRT_fixture', async () => true));
+    else assert.equal(await resolve('PRRT_fixture', async () => true), false);
+    if (['wrong-installation', 'wrong-app', 'wrong-slug', 'suspended'].includes(scenario)) {
+      assert.deepEqual(calls, ['/app/installations/1']);
+    } else {
+      assert.equal(calls.filter(path => path === '/installation/token').length, 1);
+      assert.equal(calls.at(-1), '/installation/token');
+      assert.equal(calls.includes('/graphql'), scenario === 'graphql-failure');
+    }
+  }
+});
