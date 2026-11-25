@@ -18,10 +18,12 @@ export function consolidateAdvisoryFindings(context: ReviewContext, findings: Fi
     const key = eligible && text ? repeatedEvidenceKey(text) : '';
     const rationale = (value: Finding) => [value.rule, value.evidence, value.recommendation].join(' ');
     const prior = key && result.find(item => keys.get(item) === key && item.severity === finding.severity &&
-      item.confidence === finding.confidence && item.path !== finding.path &&
+      item.confidence === finding.confidence && (item.path !== finding.path || item.line !== finding.line) &&
       sameFindingText(rationale(item), rationale(finding)));
     if (prior) {
-      prior.relatedLocations = [...(prior.relatedLocations ?? []), { path: finding.path, line: finding.line }];
+      if (!prior.relatedLocations?.some(location => location.path === finding.path && location.line === finding.line)) {
+        prior.relatedLocations = [...(prior.relatedLocations ?? []), { path: finding.path, line: finding.line }];
+      }
       continue;
     }
     const copy = { ...finding };
