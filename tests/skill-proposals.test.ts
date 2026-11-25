@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseProposalArgs, proposeSkillImprovement } from '../src/skill-proposals.ts';
 
-const examples = ['Oddmash/kowrap#17', 'Oddmash/oddmash-ui#25'];
+const examples = ['Oddmash/juliya#17', 'Oddmash/oddmash-ui#25'];
 const category = 'ui-feedback';
 const title = 'Skill proposal: oddmash-ux-design (ui-feedback)';
 const marker = '<!-- oddmash-skill-proposal:oddmash-ux-design:ui-feedback -->';
@@ -29,7 +29,7 @@ test('restricts input to distinct product PR references and approved quality cat
   for (const args of [
     ['security', ...examples],
     [category, examples[0]],
-    [category, examples[0], 'oddmash/KOWRAP#17'],
+    [category, examples[0], 'oddmash/JULIYA#17'],
     [category, examples[0], 'External/product#22'],
     [category, examples[0], 'Oddmash/oddmash-agents#22'],
     [category, examples[0], 'Oddmash/product#0'],
@@ -43,7 +43,7 @@ test('preview includes only controlled text and canonical public references; pub
   const preview = await proposeSkillImprovement(request, [category, ...examples]);
   assert.equal(preview.action, 'create-preview');
   assert.equal(preview.title, title);
-  assert.match(preview.body ?? '', /https:\/\/github\.com\/Oddmash\/kowrap\/pull\/17/);
+  assert.match(preview.body ?? '', /https:\/\/github\.com\/Oddmash\/juliya\/pull\/17/);
   assert.equal(writes.length, 0);
   assert.deepEqual(await proposeSkillImprovement(request, [category, ...examples, '--confirm-gap', '--publish']), { action: 'created', number: 101 });
   assert.equal(writes.length, 1);
@@ -59,7 +59,7 @@ test('private or unmerged evidence cannot publish', async () => {
 });
 
 test('appends new evidence only once and leaves closed issues unchanged', async () => {
-  const existing = { number: 99, title, body: `${marker}\n- https://github.com/Oddmash/kowrap/pull/17`, state: 'open' };
+  const existing = { number: 99, title, body: `${marker}\n- https://github.com/Oddmash/juliya/pull/17`, state: 'open' };
   const first = fixture({ issues: [existing] });
   assert.deepEqual(await proposeSkillImprovement(first.request, [category, ...examples, '--confirm-gap', '--publish']), { action: 'appended', number: 99 });
   assert.deepEqual(first.writes, [{ path: `${catalog}/issues/99/comments`, body: { body: `${evidenceMarker}\n\nAdditional verified examples for the same guidance gap:\n\n- https://github.com/Oddmash/oddmash-ui/pull/25` } }]);
