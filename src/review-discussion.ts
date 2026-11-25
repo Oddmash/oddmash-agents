@@ -369,7 +369,7 @@ const reconciliationPrefix = '<!-- oddmash-verified-thread-reconciliation';
 const pathFingerprint = (path: string) => createHash('sha256').update(path).digest('hex');
 
 export function shouldReconcileEarlierFindings(input: { confirmedEmpty: boolean; fullReview: boolean; checksSuccessful: boolean; event: string; earlierReview: boolean; explicitRequest: boolean; boundedFollowUp?: boolean }) {
-  return !input.confirmedEmpty && (input.fullReview || input.boundedFollowUp) && input.checksSuccessful &&
+  return !input.confirmedEmpty && (input.fullReview || input.boundedFollowUp === true) && input.checksSuccessful &&
     ((input.fullReview && input.event === 'APPROVE' && (input.earlierReview || input.explicitRequest)) ||
       (input.event === 'COMMENT' && input.earlierReview));
 }
