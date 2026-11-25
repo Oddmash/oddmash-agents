@@ -1,4 +1,13 @@
 export const korean = {
+  "Pause live updates": "실시간 갱신 일시정지",
+  "Resume live updates": "실시간 갱신 재개",
+  "View all executions": "전체 실행 보기",
+  "Review workspace": "리뷰 작업 공간",
+  "Execution history": "실행 기록",
+  "Review targets": "PR 및 이슈별 활동",
+  "Target not reported": "대상 미보고",
+  "Unattributed executions": "대상을 확인할 수 없는 실행",
+  "Agents shown are observed executions. Unreported assignments are not inferred; execution completion is not approval.": "실제로 관측된 에이전트 실행입니다. 보고되지 않은 배정은 추정하지 않으며, 실행 종료는 승인을 의미하지 않습니다.",
   "Agents Console": "에이전트 콘솔",
   "Console navigation": "콘솔 탐색",
   "Overview": "개요",
