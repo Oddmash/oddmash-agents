@@ -276,3 +276,62 @@ test('fully reviewed approved private PR can approve without any merge proof', a
   assert.equal(result.decision, 'APPROVE');
   assert.equal(result.issueVerified, false);
 });
+
+test('only a stable complete empty full-scope PR is confirmed empty without model usage', async () => {
+  const cases = [
+    { name: 'confirmed zero', count: 0, listing: [], expected: true },
+    { name: 'partial listing', count: 2, listing: [], expected: false },
+    { name: 'missing count', count: undefined, listing: [], expected: false },
+    { name: 'null listing', count: 0, listing: null, expected: false },
+    { name: 'paginated empty listing', count: 0, listing: [], link: '<https://api.github.com/page2>; rel="next"', expected: false },
+    { name: 'incremental empty scope', count: 0, listing: [], incremental: [] as string[], expected: false },
+    { name: 'contradictory recheck', count: 0, listing: [], recheckCount: 1, expected: false },
+    { name: 'omitted file', count: 1, listing: [{ filename: 'docs/demo.png', status: 'modified' }], expected: false },
+    { name: 'contradictory omitted file', count: 0, listing: [{ filename: 'docs/demo.png', status: 'modified' }], expected: false }
+  ];
+  for (const scenario of cases) {
+    const { request } = mock();
+    let reads = 0;
+    const result = await runReview({ ...config, incrementalFiles: scenario.incremental }, async (input, init) => {
+      const url = String(input);
+      assert.ok(!url.includes('api.openai.com'), scenario.name);
+      if (url.endsWith('/pulls/1')) {
+        reads++;
+        return Response.json({ ...pr, changed_files: reads > 1 && scenario.recheckCount !== undefined ? scenario.recheckCount : scenario.count });
+      }
+      if (url.includes('/files?')) return Response.json(scenario.listing, { headers: scenario.link ? { link: scenario.link } : undefined });
+      return request(input, init);
+    });
+    assert.equal(result.followUp.confirmedEmpty ?? false, scenario.expected, scenario.name);
+    assert.equal(result.followUp.incompleteCoverage, !scenario.expected, scenario.name);
+    assert.equal(result.followUp.invalidEvidence, !scenario.expected, scenario.name);
+    assert.equal(result.assessment, 'COMMENT', scenario.name);
+    assert.equal(result.decision, 'COMMENT', scenario.name);
+    assert.equal(result.issueVerified, false, scenario.name);
+    assert.deepEqual(result.comments, [], scenario.name);
+  }
+});
+
+test('withholds empty review if the PR changes while verifying the empty file listing', async () => {
+  const { request } = mock();
+  let reads = 0;
+  await assert.rejects(runReview(config, async (input, init) => {
+    const url = String(input);
+    assert.ok(!url.includes('api.openai.com'));
+    if (url.endsWith('/pulls/1')) return Response.json({ ...pr, changed_files: 0, head: ++reads === 1 ? pr.head : { sha: 'c'.repeat(40) } });
+    if (url.includes('/files?')) return Response.json([]);
+    return request(input, init);
+  }), /PR changed while confirming an empty review/);
+});
+
+test('contradictory zero metadata cannot approve even with valid model output for listed changes', async () => {
+  const { request } = mock();
+  const result = await runReview(config, async (input, init) => {
+    if (String(input).endsWith('/pulls/1')) return Response.json({ ...pr, changed_files: 0 });
+    return request(input, init);
+  });
+  assert.equal(result.assessment, 'COMMENT');
+  assert.equal(result.followUp.confirmedEmpty, undefined);
+  assert.equal(result.followUp.incompleteCoverage, true);
+  assert.match(result.report, /GitHub file-list metadata was missing or inconsistent/);
+});
