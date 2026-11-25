@@ -1,6 +1,7 @@
 export const korean = {
   "Pause live updates": "실시간 갱신 일시정지",
   "Resume live updates": "실시간 갱신 재개",
+  "No identified review targets.": "확인된 리뷰 대상이 없습니다.",
   "View all executions": "전체 실행 보기",
   "Review workspace": "리뷰 작업 공간",
   "Execution history": "실행 기록",
