@@ -45,3 +45,7 @@ export function executionGroups(jobs: readonly ObservedJob[]) {
   }
   return [...groups.entries()].map(([key, records]) => ({ key, records: records.sort((a, b) => b.attempt - a.attempt) }));
 }
+
+export function publicationCounts(jobs: readonly ObservedJob[]) {
+  return { review: jobs.filter(job => job.publication?.kind === 'review').length, 'inline-comment': jobs.filter(job => job.publication?.kind === 'inline-comment').length, comment: jobs.filter(job => job.publication?.kind === 'comment').length };
+}
