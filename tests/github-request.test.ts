@@ -34,3 +34,20 @@ test('recovers from transient read failure', async () => {
   assert.equal(response.status, 200);
   assert.equal(calls, 2);
 });
+
+test('logs only numeric quota metadata and classified request context', async t => {
+  const messages: string[] = [];
+  t.mock.method(console, 'warn', (message: string) => { messages.push(message); });
+  const response = await githubRequest(async () => new Response('fixture-response-body', {
+    status: 403,
+    headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1800000000', 'retry-after': 'fixture-untrusted-header' }
+  }), '/repos/Oddmash/.github/contents/fixture-path?ref=fixture-ref', { headers: { Authorization: 'Bearer fixture-token' } });
+  assert.equal(response.status, 403);
+  assert.equal(messages.length, 1);
+  assert.deepEqual(JSON.parse(messages[0]), {
+    event: 'github_request_failed', category: 'organization-guidance', status: 403,
+    attempt: 1, read: true, authenticated: true, failure: 'primary-rate-limit',
+    remaining: 0, reset: 1800000000
+  });
+  assert.doesNotMatch(messages[0], /fixture/);
+});
