@@ -1,3 +1,4 @@
+import { scopedAgentThreadResolution } from './review-discussion.ts';
 import { advisoryConfig } from './runtime-config.ts';
 import { type AdvisoryRole } from './advisory-agents.ts';
 import { appJwt, authorize, githubApi, privateRepositoryAllowed, type Target } from './webhook.ts';
@@ -11,5 +12,6 @@ export async function authorizeCoordinatedAdvisor(target: Target, role: Advisory
   if (!Number.isSafeInteger(installation.id) || installation.id <= 0 || installation.app_id !== Number(config.appId) || installation.app_slug !== config.slug || installation.suspended_at) throw new Error('Installation not eligible');
   const advisor: Target = { installation: installation.id, repository: target.repository, repositoryId: target.repositoryId, private: target.private, number: target.number, expectedHead: target.expectedHead, requestComment: target.requestComment, reply: target.reply, advisory: role, advisoryIdentity: role, ...(role === 'impact' ? { impact: true as const } : {}) };
   const { api, token } = await authorize(advisor, config.appId, config.key, request);
-  return { api, publicationApi: githubApi(token), target: advisor, config: { bot: config.slug + '[bot]', model: config.model, openaiKey: config.openaiKey } };
+  return { api, publicationApi: githubApi(token), target: advisor,
+    resolve: scopedAgentThreadResolution(advisor, config.appId, config.key, config.slug, process.env.REVIEWER_SCOPED_THREAD_RESOLVE_ENABLED === 'true', request), config: { bot: config.slug + '[bot]', model: config.model, openaiKey: config.openaiKey } };
 }
