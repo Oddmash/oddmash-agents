@@ -82,3 +82,15 @@ test('retains observed attempt timing, bounded phase transitions and measured te
   assert.equal(retry.phaseHistory, undefined);
   assert.equal(retry.usage, undefined);
 });
+
+test('phase-only observations cannot invent an execution start or elapsed duration', () => {
+  const phase = { ...event, outcome: 'phase', phase: 'reviewing', timestamp: '2026-11-25T05:00:04.000Z' };
+  const now = Date.parse(phase.timestamp) + 10000;
+  const [job] = projectJobs([event, phase], now);
+  assert.equal(job.state, 'running');
+  assert.equal(job.startedAt, undefined);
+  assert.equal(jobElapsedMs(job, new Date(now).toISOString()), undefined);
+  const [stale] = projectJobs([event, phase], now + 360000);
+  assert.equal(stale.state, 'stale');
+  assert.equal(jobElapsedMs(stale, new Date(now + 360000).toISOString()), undefined);
+});
