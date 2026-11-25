@@ -77,3 +77,10 @@ export function repositoryActivity(jobs: readonly Job[]) {
   }
   return [...repositories.values()].sort((a, b) => Number(!a.repository) - Number(!b.repository) || b.active - a.active || b.latest - a.latest || a.key.localeCompare(b.key));
 }
+
+export function toggleRepositoryCollapse(previous: ReadonlySet<string>, key: string): Set<string> {
+  const next = new Set(previous);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  return next;
+}
