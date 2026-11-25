@@ -1,4 +1,5 @@
 export const korean = {
+  "Clear a limit to inherit its deployment default. Save to apply to future jobs only.": "한도를 지우면 배포 기본값을 상속합니다. 저장하면 이후 실행부터 적용됩니다.",
   "Expand repository": "저장소 펼치기",
   "Collapse repository": "저장소 접기",
   "Maximum requests": "최대 요청 수",
