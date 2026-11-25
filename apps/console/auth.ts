@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { initAuthConfig, authHandler, verifyAuth } from '@hono/auth-js';
 import GitHub from '@auth/core/providers/github';
 import { authorizedSessionId, isAuthorizedOwner } from './auth-policy.ts';
-import { operatorStoreConfig, readOperatorStatus } from '@oddmash/agent-operator-store';
+import { operatorStoreConfig, readOperatorStatus } from '../../packages/operator-store/src/index.ts';
 
 function owner(id: unknown) { return isAuthorizedOwner(id, process.env.CONSOLE_OWNER_GITHUB_ID); }
 
