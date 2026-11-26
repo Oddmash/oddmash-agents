@@ -14,7 +14,8 @@ const jobs = [
   job('reviewer', 'failed', { finishedAt: updatedAt, failure: 'unexpected', phase: 'validating', phaseHistory: [{ phase: 'collecting-changes', timestamp: startedAt }, { phase: 'validating', timestamp: '2026-01-01T12:00:30Z' }] }),
   job('qa', 'running', { phase: 'specialist-review' }),
   job('docs', 'returned', { finishedAt: updatedAt }),
-  job('impact', 'published', { phase: 'publishing', publication: { kind: 'comment', id: 1, at: updatedAt }, finishedAt: updatedAt })
+  job('impact', 'published', { phase: 'publishing', publication: { kind: 'comment', id: 1, at: updatedAt }, finishedAt: updatedAt }),
+  job('docs','returned',{target:{repository:target.repository,number:43},correlationId:'fixture-other-target',finishedAt:updatedAt})
 ];
 const snapshot = { connected: true, jobs, settings: null, observedAt: updatedAt };
 let browser;
@@ -45,18 +46,43 @@ try {
             await contributorsGate;
             return route.fulfill({json:{observedAt:updatedAt,partial:false,pulls:[{repository:target.repository, number:43, title:'Improve component accessibility for long localized labels on narrow screens',author:'external-contributor',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[{role:'reviewer',state:'APPROVED',currentHead:true,submittedAt:updatedAt,id:91}],workflow:{state:'action-required',id:71}}},{repository:target.repository,number:45,title:'Workflow rerun in progress',author:'guest',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[{role:'reviewer',state:'APPROVED',currentHead:true,submittedAt:updatedAt,id:92}],workflow:{state:'running',id:72,attempt:2,name:'CI'}}},{repository:target.repository,number:46,title:'Failed browser tests',author:'guest',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[],reviewStatus:{state:'failed',id:93,updatedAt,reason:'checks-failed'},workflow:{state:'failed',id:73,attempt:2,name:'CI',failures:[{job:'extension',step:'Chromium extension E2E',conclusion:'failure',jobId:74}]}}},{repository:target.repository,number:44,title:'Handle missing workflow evidence',author:'guest',updatedAt,draft:false}]}});
           }
+          if (path === '/api/adoption') return route.fulfill({json:{metrics:[{id:'@oddmash/ui',kind:'npm',source:'https://www.npmjs.com/package/@oddmash/ui',count:133,observedAt:updatedAt,history:Array.from({length:30},(_,index)=>({day:new Date(Date.UTC(2025,11,index+2)).toISOString().slice(0,10),downloads:index===24?0:index%7===0?50:index})).filter((_,index)=>index!==26)},{id:'oddmash.boundra-vscode',kind:'marketplace',source:'https://marketplace.visualstudio.com/items?itemName=oddmash.boundra-vscode',count:12,history:null,observedAt:updatedAt}]}});
           if (path === '/api/status') return route.fulfill({ json: snapshot });
           if (path === '/api/models') return route.fulfill({ json: { revision: 'fixture', overrides: {}, policy: Object.fromEntries(['reviewer','impact','triage','qa','release','docs','architect'].map(role => [role, { defaultModel: 'fixture-model', allowed: [] }])) } });
           if (path === '/api/controls') return route.fulfill({ json: { revision: 'fixture', controls: { paused: false, excludedRoles: [], maxRequests: null, maxMs: null } } });
           return route.fulfill({ status: 503, json: { error: 'Not part of render fixture' } });
         });
         await page.goto(base + '/tests/render-fixture.html?theme=' + theme + '&language=' + language);
+        const overviewTarget=page.locator('.overview-target').first();
+        await overviewTarget.waitFor({state:'visible'});
+        assert.equal(await page.locator('.overview-metrics .metric-link').count(),4,label);
+        assert.equal(await page.locator('.workflow-view:visible').count(),0,label);
+        assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),label+' overview overflow');
+        await page.screenshot({path:dir+'/'+label+'-overview.png',fullPage:true,animations:'disabled'});
+        assert.equal(await page.locator('.overview-target').count(),2,label);
+        await page.locator('.overview-target').nth(1).click();
+        await page.locator('.review-target').first().waitFor({state:'visible'});
+        assert.equal(await page.locator('.review-target').count(),1,label);
+        assert.match(await page.locator('.review-target').first().innerText(),/#43/,label);
+        await page.getByRole('button',{name:language==='ko'?'모든 대상 보기':'View all targets',exact:true}).click();
+        assert.equal(await page.locator('.review-target').count(),2,label);
+        await page.goto(base+'/tests/render-fixture.html?theme='+theme+'&language='+language);
+        await overviewTarget.waitFor({state:'visible'});
+        await overviewTarget.click();
         const workflow = page.locator('.workflow-view').first();
         try { await workflow.waitFor({ state: 'visible', timeout: 12000 }); } catch (error) {
           console.error('FIXTURE BODY', (await page.locator('body').innerText()).slice(0, 2000));
           await page.screenshot({ path: dir + '/' + label + '-failure.png', fullPage: true });
           throw error;
         }
+        const toggle=page.locator('.repository-toggle').first();
+        assert(await toggle.evaluate(element=>{const a=element.getBoundingClientRect(),b=element.querySelector('svg').getBoundingClientRect();return Math.abs(a.x+a.width/2-b.x-b.width/2)<1&&Math.abs(a.y+a.height/2-b.y-b.height/2)<1}),label+' centered chevron');
+        const targetToggle=page.locator('.review-target-toggle').first();
+        await targetToggle.click();
+        assert.equal(await targetToggle.getAttribute('aria-expanded'),'false',label);
+        await workflow.waitFor({state:'hidden'});
+        await targetToggle.click();
+        await workflow.waitFor({state:'visible'});
         const nodes = workflow.locator('.workflow-grid').first().locator('.workflow-node');
         assert.equal(await nodes.count(), 5, label);
         assert.match(await nodes.first().innerText(), /Lead/, label);
@@ -138,6 +164,24 @@ try {
         assert.deepEqual(errors,[],label);
         await page.screenshot({path:dir+'/'+label+'-contributor.png',fullPage:true,animations:'disabled'});
         console.log('PASS '+label+': contributor skeleton, review evidence, approval action link and no overflow');
+        await page.goto(base+'/tests/render-fixture.html?theme='+theme+'&language='+language+'&view=usage');
+        const chart=page.locator('.download-chart').first();
+        await chart.waitFor({state:'visible'});
+        assert.equal(await chart.locator('.download-bar').count(),7,label);
+        assert.equal(await chart.locator('[data-missing="true"]').count(),1,label);
+        assert.equal(await chart.locator('[data-zero="true"]').count(),1,label);
+        assert(await chart.locator('[data-zero="true"] .download-bar-fill').evaluate(el=>el.getBoundingClientRect().height>=2),label+' observed zero marker');
+        assert.match(await page.locator('.adoption-reported-total').first().innerText(),/133/,label+' reported monthly aggregate');
+        await chart.locator('.download-bar').first().focus();
+        assert(await chart.locator('.download-bar').first().getAttribute('aria-label'),label);
+        assert.equal(await chart.locator('.download-bar-fill').first().evaluate(el=>getComputedStyle(el).animationName),'none',label);
+        await page.screenshot({path:dir+'/'+label+'-downloads-week.png',fullPage:true,animations:'disabled'});
+        await page.getByRole('button',{name:language==='ko'?'월간':'Month',exact:true}).click();
+        assert.equal(await chart.locator('.download-bar').count(),30,label);
+        assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),label+' download document overflow');
+        assert(await chart.locator('.download-plot').evaluate(el=>el.scrollWidth<=el.clientWidth+1),label+' complete monthly chart visible');
+        await page.screenshot({path:dir+'/'+label+'-downloads-month.png',fullPage:true,animations:'disabled'});
+        assert.deepEqual(errors,[],label);
         await context.close();
       }
     }

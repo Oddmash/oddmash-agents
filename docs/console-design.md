@@ -1,10 +1,12 @@
 # Operator console design
 
-Primary task: identify active or failed work, open its target and inspect retained evidence. The console is not a generic analytics landing. Overview prioritizes operational attention; history preserves repository and target filters; Contributor PRs excludes internal contributions; Usage and Settings retain separate responsibilities.
+Primary task: identify active or failed work, open its target and inspect retained evidence. The console is not a generic analytics landing. Overview prioritizes operational attention with four actionable metrics and compact recent target rows; selecting a target opens its exact history workflow with an explicit action to return to all targets in that repository. History preserves repository and target filters; Contributor PRs excludes internal contributions; Usage and Settings retain separate responsibilities.
 
 Replace the fixed graph canvas with responsive observed-role cards and accessible execution detail timelines. A static topology canvas was rejected because fixed scaling reduced control and type legibility, required unnecessary zoom/pan controls, and emphasized unobserved roles. Sort failures and active work first; group unobserved roles in a disclosure. Publication is separate from execution and approval. Do not infer a single chronological sequence, an overall progress percentage or unsupported CI status.
 
 Use released Oddmash UI, shared semantic tokens and local geometry tokens. Keep icon sizes consistent, labels readable and rows aligned without shrinking controls. Support Korean/English and light/dark. Running emphasis is limited to observed running state and respects reduced motion.
+
+Public product adoption shows the last seven or thirty reported UTC calendar days as bars, with an observed total, exact daily values, explicit zero and unknown states, and the provider-reported month aggregate. Marketplace installs remain an independent cumulative metric. The chart fits narrow screens without page overflow.
 
 ## Acceptance evidence
 
