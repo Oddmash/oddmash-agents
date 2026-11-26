@@ -284,6 +284,8 @@ aside > p.muted { margin: var(--console-length-6) 0 var(--console-length-26); }
 .overview-metrics .metric-link:hover { background: var(--panel); }
 .overview-metrics .metric-link > span { color: var(--muted); font-size: var(--console-length-13); }
 .repository-chooser { margin-block: var(--om-semantic-space-lg); }
+.history-repository-scope { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: var(--om-semantic-space-sm); margin-block: var(--om-semantic-space-lg); }
+.history-repository-scope > span { min-width: 0; overflow-wrap: anywhere; }
 .repository-chooser ul { display: grid; list-style: none; padding: 0; margin: 0; gap: var(--om-semantic-space-sm); }
 .repository-chooser button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--om-semantic-space-sm); background: var(--panel); color: var(--text); border: var(--om-semantic-border-width) solid var(--border); border-radius: var(--om-semantic-radius-md); padding: var(--om-semantic-space-lg); text-align: start; font: inherit; overflow-wrap: anywhere; cursor: pointer; }
 .repository-chooser button:hover { border-color: var(--om-semantic-color-border); background: var(--background); }
