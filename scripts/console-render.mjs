@@ -230,6 +230,19 @@ try {
         await page.locator('.settings-tabs button').first().click();
         assert(await page.locator('.runtime-controls:visible .control-check input').first().isChecked(),label+' draft persists across settings tabs');
         await page.screenshot({path:dir+'/'+label+'-settings.png',fullPage:true,animations:'disabled'});
+        await page.locator('.console-nav a').first().click();
+        const discardDialog=page.getByRole('dialog');
+        await discardDialog.waitFor({state:'visible'});
+        await discardDialog.getByRole('button',{name:language==='ko'?'계속 편집':'Stay',exact:true}).click();
+        await discardDialog.waitFor({state:'hidden'});
+        assert(await page.locator('.runtime-controls:visible .control-check input').first().isChecked(),label+' canceled departure retains draft');
+        await page.locator('.console-nav a').first().click();
+        await discardDialog.waitFor({state:'visible'});
+        await discardDialog.getByRole('button',{name:language==='ko'?'변경 사항 버리고 나가기':'Discard and leave',exact:true}).click();
+        await page.locator('.overview-content').waitFor({state:'visible'});
+        await page.locator('.console-nav a').nth(4).click();
+        await page.locator('.runtime-controls:visible .control-check input').first().waitFor({state:'visible'});
+        assert.equal(await page.locator('.runtime-controls:visible .control-check input').first().isChecked(),false,label+' confirmed departure discards only draft');
         assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),label+' settings document overflow');
         await context.close();
       }
