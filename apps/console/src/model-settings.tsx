@@ -28,7 +28,7 @@ const messages = {
 
 const StatusValue = ({ value, language, yes = 'Enabled', no = 'Disabled' }: { value: boolean | undefined; language: Language; yes?: Message; no?: Message }) => <Badge tone={value === true ? 'success' : value === false && no === 'Incomplete' ? 'warning' : 'neutral'}>{translate(language, value === undefined ? 'Unknown' : value ? yes : no)}</Badge>;
 
-export const ModelSettings = ({ language, agents, updatedAt, renderAgent }: { language: Language; agents?: readonly AgentSettings[]; updatedAt?: string; renderAgent: (role: AgentRole) => ReactNode }) => {
+export const ModelSettings = ({ language, agents, updatedAt, renderAgent, onDirtyChange }: { language: Language; agents?: readonly AgentSettings[]; updatedAt?: string; renderAgent: (role: AgentRole) => ReactNode; onDirtyChange?: (dirty: boolean) => void }) => {
   const t = (key: keyof typeof messages) => language === 'ko' ? messages[key] : key;
   const [saved, setSaved] = useState<OperatorModelsResponse>();
   const [draft, setDraft] = useState<ModelOverrides>();
@@ -39,6 +39,8 @@ export const ModelSettings = ({ language, agents, updatedAt, renderAgent }: { la
   const [review, setReview] = useState(false);
   const [notice, setNotice] = useState<keyof typeof messages | ''>('');
   const dirty = !!(saved && draft && modelRoles.some(role => saved.overrides[role] !== draft[role]));
+  useEffect(() => { onDirtyChange?.(dirty || busy); }, [dirty, busy, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   const valid = !!(draft && saved && approvedModelOverrides(draft, saved.policy));
   const approvedAlternates = !!(saved && modelRoles.some(role => saved.policy[role].allowed.length));
 
@@ -94,7 +96,19 @@ export const ModelSettings = ({ language, agents, updatedAt, renderAgent }: { la
     <p className="muted">{t('Observed worker configuration is read-only. Model choices are staged until saved.')}{updatedAt && <> · {translate(language, 'Updated')}: {new Date(updatedAt).toLocaleString(language)}</>}</p>
     {failed && <><Alert tone="danger">{failed === 'unauthorized' ? translate(language, 'Session expired. Sign in again.') : t('Model selection unavailable.')}</Alert><Button variant="secondary" onClick={() => setRetry(value => value + 1)}>{translate(language, 'Refresh')}</Button></>}
     {saved && !approvedAlternates && <p className="muted">{t('No alternate models are approved for this deployment.')}</p>}
-    {!failed && !saved && <p className="muted" role="status">{translate(language, 'Loading status…')}</p>}
+    {!failed && !saved && <span role="status" aria-label={translate(language, 'Loading status…')} className="skeleton-line"/>}
+    {saved && draft && <>
+      <div className="control-actions">
+        <Button onClick={() => void save()} disabled={!dirty || !valid || busy || conflict || review}>{translate(language, busy ? 'Saving…' : 'Save changes')}</Button>
+        <Button variant="secondary" disabled={busy} onClick={() => setDraft({})}>{translate(language, 'Restore defaults')}</Button>
+        {conflict && <Button variant="secondary" disabled={busy} onClick={() => void reload()}>{translate(language, 'Keep draft and reload revision')}</Button>}
+        {(dirty || review || conflict) && <Button variant="secondary" disabled={busy} onClick={() => {
+          if (conflict) { void reload(true); return; }
+          setDraft(saved.overrides); setReview(false); setNotice('');
+        }}>{conflict ? t('Discard draft and reload saved settings') : translate(language, 'Discard changes')}</Button>}
+        {!dirty && !conflict && !review && <Button variant="secondary" disabled={busy} onClick={() => setRetry(n => n + 1)}>{translate(language, 'Reload saved settings')}</Button>}
+      </div>
+    </>}
     <ul className="agent-settings-rows">{modelRoles.map(role => {
       const agent = agents?.find(item => item.role === role);
       const policy = saved?.policy[role];
@@ -124,16 +138,7 @@ export const ModelSettings = ({ language, agents, updatedAt, renderAgent }: { la
       {review && <div className="conflict-review"><h3>{translate(language, 'Latest saved settings')}</h3>
         {modelRoles.map(role => <p key={role}>{roles[role]}: {saved.overrides[role] ?? t('Inherit') + ': ' + (saved.policy[role].defaultModel ?? translate(language, 'Unknown'))}</p>)}
         <Button variant="secondary" disabled={busy} onClick={() => setReview(false)}>{translate(language, 'Use my draft')}</Button></div>}
-      <div className="control-actions">
-        <Button onClick={() => void save()} disabled={!dirty || !valid || busy || conflict || review}>{translate(language, busy ? 'Saving…' : 'Save changes')}</Button>
-        <Button variant="secondary" disabled={busy} onClick={() => setDraft({})}>{translate(language, 'Restore defaults')}</Button>
-        {conflict && <Button variant="secondary" disabled={busy} onClick={() => void reload()}>{translate(language, 'Keep draft and reload revision')}</Button>}
-        {(dirty || review || conflict) && <Button variant="secondary" disabled={busy} onClick={() => {
-          if (conflict) { void reload(true); return; }
-          setDraft(saved.overrides); setReview(false); setNotice('');
-        }}>{conflict ? t('Discard draft and reload saved settings') : translate(language, 'Discard changes')}</Button>}
-        {!dirty && !conflict && !review && <Button variant="secondary" disabled={busy} onClick={() => setRetry(n => n + 1)}>{translate(language, 'Reload saved settings')}</Button>}
-      </div>
+
       {notice && <p role="status" className="control-notice">{t(notice)}</p>}
       {saved.updatedAt && <small className="muted">{translate(language, 'Updated')}: {new Date(saved.updatedAt).toLocaleString(language)}</small>}
     </>}
