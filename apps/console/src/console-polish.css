@@ -116,7 +116,6 @@
 .theme-options > button { flex:1; min-block-size:44px; display:grid; place-items:center; padding:var(--om-semantic-space-xs); }
 .console-logout { color:var(--om-semantic-color-danger,#b42318) !important; }
 .console-discard-dialog { max-inline-size:min(92vw,28rem); inline-size:100%; box-sizing:border-box; padding:var(--om-semantic-space-lg); border:1px solid var(--border); border-radius:var(--om-semantic-radius-md); background:var(--panel); color:var(--text); }
-.console-discard-dialog::backdrop { background:rgba(0,0,0,.45); }
 .console-discard-dialog h2 { margin-block-start:0; }
 .console-discard-dialog .control-actions { justify-content:flex-end; margin-block-start:var(--om-semantic-space-md); }
 .adoption-skeleton-chart { display:block; min-block-size:var(--console-length-140); width:100%; }
