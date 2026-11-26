@@ -6,16 +6,18 @@ type Json = Record<string, unknown>;
 const object = (value: unknown): Json | undefined => value && typeof value === 'object' && !Array.isArray(value) ? value as Json : undefined;
 const count = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const date = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value;
-export function parseNpmHistory(payload: unknown, id: string): DailyDownload[] {
+export function parseNpmHistory(payload: unknown, id: string, maxDays = 31): DailyDownload[] {
   const row = object(payload);
-  if (!row || row.package !== id || !Array.isArray(row.downloads) || row.downloads.length === 0 || row.downloads.length > 31) throw new Error('Invalid npm data');
+  if (!row || row.package !== id || !Array.isArray(row.downloads) || row.downloads.length === 0 || row.downloads.length > maxDays) throw new Error('Invalid npm data');
   const seen = new Set<string>();
-  return row.downloads.map(raw => {
+  const history = row.downloads.map(raw => {
     const day = object(raw);
     if (!day || !date(day.day) || !count(day.downloads) || seen.has(day.day)) throw new Error('Invalid npm series');
     seen.add(day.day);
     return { day: day.day, downloads: day.downloads };
   }).sort((a,b) => a.day.localeCompare(b.day));
+  if (Date.parse(history.at(-1)!.day) - Date.parse(history[0].day) >= maxDays * 86_400_000) throw new Error('Invalid npm date range');
+  return history;
 }
 export function parseMarketplaceCount(payload: unknown): number {
   const results = object(payload)?.results;
@@ -38,14 +40,17 @@ const readJson = async (request: typeof fetch, url: string, init: RequestInit = 
   return response.json() as Promise<unknown>;
 };
 const metricIds = [...packages, extension] as const;
-export async function collectAdoptionMetrics(request: typeof fetch = fetch, now = new Date(), ids: readonly string[] = metricIds): Promise<AdoptionMetric[]> {
+export async function collectAdoptionMetrics(request: typeof fetch = fetch, now = new Date(), ids: readonly string[] = metricIds, extendedHistory = false): Promise<AdoptionMetric[]> {
   const observedAt = now.toISOString();
   const npm = packages.filter(id => ids.includes(id)).map(async id => {
     const metric: AdoptionMetric = {id, kind:'npm', source:npmSource(id), count:null, history:null, observedAt};
     try {
-      const history = parseNpmHistory(await readJson(request, 'https://api.npmjs.org/downloads/range/last-month/' + id), id);
-      const total = history.reduce((sum, item) => sum + item.downloads, 0);
-      if (!count(total)) throw new Error('Invalid total');
+      const history = parseNpmHistory(await readJson(request, 'https://api.npmjs.org/downloads/range/' + (extendedHistory ? 'last-year/' : 'last-month/') + id), id, extendedHistory ? 366 : 31);
+      const reportingEnd = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - 86_400_000;
+      const reportingStart = reportingEnd - 29 * 86_400_000;
+      const recent = history.filter(item => !extendedHistory || (Date.parse(item.day) >= reportingStart && Date.parse(item.day) <= reportingEnd));
+      const total = recent.length ? recent.reduce((sum, item) => sum + item.downloads, 0) : null;
+      if (total !== null && !count(total)) throw new Error('Invalid total');
       return {...metric, count:total, history};
     } catch { return metric; }
   });
@@ -71,8 +76,8 @@ export function createAdoptionReader(clock: () => number = Date.now) {
     const expired = metricIds.filter(id => (cached.get(id)?.expires ?? 0) <= now);
     const snapshot = () => metricIds.map(id => cached.get(id)!.metric);
     if (!expired.length) return snapshot();
-    const promise = collectAdoptionMetrics(request, new Date(now), expired).then(metrics => {
-      for (const metric of metrics) cached.set(metric.id, { expires: now + (metric.count === null ? 60_000 : 3_600_000), metric });
+    const promise = collectAdoptionMetrics(request, new Date(now), expired, true).then(metrics => {
+      for (const metric of metrics) cached.set(metric.id, { expires: now + (metric.count === null && !metric.history?.length ? 60_000 : 3_600_000), metric });
       return snapshot();
     });
     pending = promise;
