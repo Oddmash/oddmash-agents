@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Card } from '@oddmash/ui';
 import { defaultControls, optionalRoles, type ControlsRecord, type OperatorControls, type OptionalRole } from '@oddmash/agent-operator-contract';
 import { displayLimit, readLimitInput, validControlLimits, controlsDirty, reviewRetainedDraft } from './control-draft';
-import { ModelSettings } from './model-settings';
 import { ConsoleSkeleton } from './console-skeleton';
 import { translate, type Language, type Message } from './i18n';
 
@@ -56,7 +55,7 @@ export const RuntimeControls = ({ language, defaults }: { language: Language; de
     } catch { setNotice('Unable to reload saved revision. Your draft is retained.'); }
     finally { setBusy(false); }
   };
-  return <><Card className="settings-panel runtime-controls">
+  return <Card className="settings-panel runtime-controls">
     <h3>{t("Runtime controls")}</h3>
     <p className="muted">{t("Restrict optional coordinated reviews. Deployment permissions, configured agents and approval gates remain unchanged.")}</p>
     {failed ? <><Alert tone="danger">{t(failed === 'unauthorized' ? "Session expired. Sign in again." : "Runtime controls unavailable.")}</Alert><Button variant="secondary" onClick={() => setRetry(value => value + 1)}>{t("Refresh")}</Button></> : !draft ? <ConsoleSkeleton view="controls" language={language}/> :
@@ -77,5 +76,5 @@ export const RuntimeControls = ({ language, defaults }: { language: Language; de
         {notice && <p role="status" className="control-notice">{t(notice)}</p>}
         {saved?.updatedAt && <small className="muted">{t("Updated")}: {new Date(saved.updatedAt).toLocaleString(language)}</small>}
       </form>}
-  </Card><ModelSettings language={language}/></>;
+  </Card>;
 };

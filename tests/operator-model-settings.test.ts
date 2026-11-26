@@ -8,6 +8,7 @@ import { approvedModelOverrides, effectiveOperatorModel, modelPolicy, parseModel
 import { operatorStoreConfig, readOperatorModels, saveOperatorModels } from '../packages/operator-store/src/index.ts';
 import { readReviewModelOverrides, advisoryModelConfig } from '../apps/worker/src/runtime-config.ts';
 import { handleModelWrite } from '../apps/console/model-request.ts';
+import { verifyModelAvailability } from '../apps/console/model-availability.ts';
 
 const revision = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const updatedAt = '2026-01-01T00:00:00.000Z';
@@ -54,16 +55,38 @@ test('owner write handler enforces policy prior to persist and returns revision 
   const policy = modelPolicy(env);
   const request = (value: unknown) => new Request('https://console.example.test/api/models', { method: 'POST', body: JSON.stringify(value) });
   const valid = { revision, overrides: { qa: 'gpt-approved' } };
-  const response = await handleModelWrite(request(valid), policy, async (expected, overrides) => {
+  const response = await handleModelWrite(request(valid), policy, async overrides => { assert.deepEqual(overrides, valid.overrides); return true; }, async (expected, overrides) => {
     assert.equal(expected, revision);
     assert.deepEqual(overrides, valid.overrides);
     return { revision, updatedAt, overrides };
   });
   assert.equal(response.status, 200);
-  assert.equal((await handleModelWrite(request(valid), policy, async () => null)).status, 409);
+  assert.equal((await handleModelWrite(request(valid), policy, async () => true, async () => null)).status, 409);
+  assert.equal((await handleModelWrite(request(valid), policy, async () => false, async () => assert.fail('must not persist an unverified model'))).status, 422);
   for (const input of [{ ...valid, overrides: { reviewer: 'gpt-approved' } }, { ...valid, approval: true }, { ...valid, overrides: { qa: 'gpt-revoked' } }]) {
-    assert.equal((await handleModelWrite(request(input), policy, async () => assert.fail('must not persist'))).status, 400);
+    assert.equal((await handleModelWrite(request(input), policy, async () => assert.fail('must not verify rejected inputs'), async () => assert.fail('must not persist'))).status, 400);
   }
+});
+
+test('owner save verifies role project model metadata without generation, and fails closed', async () => {
+  const provider = { OPENAI_API_KEY: 'fixture-shared', QA_OPENAI_API_KEY: 'fixture-qa' };
+  const calls: Array<{ url: string; auth: string | null }> = [];
+  const read: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    assert.equal(url.origin, 'https://api.openai.com');
+    assert.equal(init?.method ?? 'GET', 'GET');
+    assert.equal(init?.body, undefined);
+    assert.equal(init?.redirect, 'error');
+    calls.push({ url: url.pathname, auth: new Headers(init?.headers).get('authorization') });
+    return Response.json({ object: 'model', id: url.pathname.split('/').at(-1) });
+  };
+  assert.equal(await verifyModelAvailability({ reviewer: 'gpt-approved', docs: 'gpt-approved', qa: 'gpt-approved' }, provider, read), true);
+  assert.deepEqual(calls, [{ url: '/v1/models/gpt-approved', auth: 'Bearer fixture-shared' }, { url: '/v1/models/gpt-approved', auth: 'Bearer fixture-qa' }]);
+  assert.equal(await verifyModelAvailability({}, {}, async () => assert.fail('inherit must not contact provider')), true);
+  assert.equal(await verifyModelAvailability({ qa: 'gpt-approved' }, {}, async () => assert.fail('missing key')), false);
+  assert.equal(await verifyModelAvailability({ qa: 'gpt-approved' }, provider, async () => new Response(null, { status: 404 })), false);
+  assert.equal(await verifyModelAvailability({ qa: 'gpt-approved' }, provider, async () => Response.json({ object: 'model', id: 'gpt-other' })), false);
+  assert.equal(await verifyModelAvailability({ qa: 'gpt-approved' }, provider, async () => { throw new Error('provider failure'); }), false);
 });
 
 test('future jobs read approved settings once and fall back to deployment defaults when unavailable', async () => {
@@ -154,9 +177,12 @@ test('shared webhook and queue execution entry honors the dedicated and coordina
 });
 
 test('model conflict recovery keeps local choices until explicit discard succeeds', async () => {
-  const { reconcileModelDraft } = await import('../apps/console/src/model-settings-draft.ts');
+  const { modelSelectionAvailable, reconcileModelDraft } = await import('../apps/console/src/model-settings-draft.ts');
   const latest = { revision, updatedAt, overrides: { qa: 'gpt-approved' }, policy: modelPolicy(env) };
   const draft = { reviewer: 'gpt-lead-approved' };
   assert.deepEqual(reconcileModelDraft(latest, draft, false), { saved: latest, draft, needsReview: true });
   assert.deepEqual(reconcileModelDraft(latest, draft, true), { saved: latest, draft: latest.overrides, needsReview: false });
+  assert.equal(modelSelectionAvailable([], undefined), false);
+  assert.equal(modelSelectionAvailable(['gpt-approved'], undefined), true);
+  assert.equal(modelSelectionAvailable([], 'gpt-revoked'), true);
 });
