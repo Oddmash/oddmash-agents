@@ -6,6 +6,8 @@ import { activitySummary, repositoryActivity, type groupActivity } from './activ
 import { WorkflowView } from './workflow-view';
 import { executionCount, korean, translate, type Language, type Message } from './i18n';
 import { visibleTargetSelection, toggleTargetSelection } from './target-selection';
+import { Chevron } from './chevron';
+import { Collapsible } from './collapsible';
 import './repository-target.css';
 
 type TargetGroup = ReturnType<typeof groupActivity>[number] & { total: number };
@@ -65,10 +67,10 @@ const ExecutionEntry = ({ job, language, observedAt, live, agent }: { job: Job; 
         </li>;
 };
 
-export const RepositoryActivity = ({ collapsed, onToggle, groups, visibleJobs, observedAt, live, language, renderAgent }: { collapsed: ReadonlySet<string>; onToggle: (key: string) => void; groups: TargetGroup[]; visibleJobs: readonly Job[]; observedAt: string; live: boolean; language: Language; renderAgent: (role: AgentRole) => ReactNode }) => {
+export const RepositoryActivity = ({ collapsed, onToggle, groups, visibleJobs, observedAt, live, language, renderAgent, initialSelection }: { initialSelection?: string; collapsed: ReadonlySet<string>; onToggle: (key: string) => void; groups: TargetGroup[]; visibleJobs: readonly Job[]; observedAt: string; live: boolean; language: Language; renderAgent: (role: AgentRole) => ReactNode }) => {
   const t = (message: Message) => translate(language, message);
   const repositories = repositoryActivity(visibleJobs);
-  const [selection, setSelection] = useState<string | null | undefined>(() => visibleTargetSelection(groups, undefined));
+  const [selection, setSelection] = useState<string | null | undefined>(() => visibleTargetSelection(groups, initialSelection));
   const visibleSelection = visibleTargetSelection(groups, selection);
   useEffect(() => { if (selection !== visibleSelection) setSelection(visibleSelection); }, [selection, visibleSelection]);
   const workflowLabel = language === 'ko' ? '워크플로우' : 'Workflow';
@@ -87,9 +89,9 @@ export const RepositoryActivity = ({ collapsed, onToggle, groups, visibleJobs, o
     const isCollapsed = collapsed.has(repository.key);
     const contentId = "repository-" + encodeURIComponent(repository.key);
     return <section className="repository-activity" key={repository.key} aria-label={repository.repository ?? t('Unattributed executions')}>
-      <div className="repository-heading"><div className="repository-title"><button type="button" className="repository-toggle" aria-label={t(isCollapsed ? "Expand repository" : "Collapse repository") + ": " + (repository.repository ?? t("Unattributed executions"))} aria-expanded={!isCollapsed} aria-controls={contentId} onClick={() => onToggle(repository.key)}><span aria-hidden="true">{isCollapsed ? "›" : "⌄"}</span></button><div><h3>{repository.repository ? <a href={'https://github.com/' + repository.repository} target="_blank" rel="noreferrer">{repository.repository}</a> : t('Unattributed executions')}</h3><small className="muted">{executionCount(language, repository.jobs.length, repository.jobs.length)}</small></div></div>
+      <div className="repository-heading"><div className="repository-title"><button type="button" className="repository-toggle" aria-label={t(isCollapsed ? "Expand repository" : "Collapse repository") + ": " + (repository.repository ?? t("Unattributed executions"))} aria-expanded={!isCollapsed} aria-controls={contentId} onClick={() => onToggle(repository.key)}><Chevron expanded={!isCollapsed} direction="right"/></button><div><h3>{repository.repository ? <a href={'https://github.com/' + repository.repository} target="_blank" rel="noreferrer">{repository.repository}</a> : t('Unattributed executions')}</h3><small className="muted">{executionCount(language, repository.jobs.length, repository.jobs.length)}</small></div></div>
         <div className="repository-counts"><Badge tone={counts.running ? 'active' : 'neutral'}>{t('Running')} {counts.running}</Badge><Badge tone={counts.queued ? 'warning' : 'neutral'}>{t('Queued')} {counts.queued}</Badge>{counts.failed > 0 && <Badge tone="danger">{t('Recent failures')} {counts.failed}</Badge>}</div></div>
-      <div id={contentId} hidden={isCollapsed} className="review-list">{!isCollapsed && targets.map(group => {
+      <Collapsible id={contentId} open={!isCollapsed} className="review-list">{targets.map(group => {
         const target = group.target;
         const selected = target !== undefined && visibleSelection === group.key;
         const targetId = 'target-workflow-' + encodeURIComponent(group.key);
@@ -101,11 +103,11 @@ export const RepositoryActivity = ({ collapsed, onToggle, groups, visibleJobs, o
           <div className="review-target-row">
             <div className="review-target-identity"><h3>{target ? <a href={'https://github.com/' + target.repository + '/issues/' + target.number} target="_blank" rel="noreferrer">#{target.number}</a> : t('Target not reported')}</h3><small className="muted">{executionCount(language, records.length, group.total)}{latest && <> · {timestamp(latest.updatedAt, language)}</>}</small></div>
             <div className="review-target-states">{(['running', 'queued', 'failed', 'stale', 'returned', 'skipped', 'published'] as const).map(state => summary[state] > 0 ? <Badge key={state} tone={executionTone(state)}>{executionLabel(language, state)} {summary[state]}</Badge> : null)}</div>
-            {target && <button type="button" className="review-target-toggle" aria-expanded={selected} aria-controls={targetId} aria-label={`${workflowLabel} #${target.number}`} onClick={() => setSelection(toggleTargetSelection(visibleSelection, group.key))}><span>{workflowLabel}</span><span aria-hidden="true">{selected ? '⌃' : '⌄'}</span></button>}
+            {target && <button type="button" className="review-target-toggle" aria-expanded={selected} aria-controls={targetId} aria-label={`${workflowLabel} #${target.number}`} onClick={() => setSelection(toggleTargetSelection(visibleSelection, group.key))}><span>{workflowLabel}</span><Chevron expanded={selected}/></button>}
           </div>
-          {target ? <div id={targetId} hidden={!selected}>{selected && <><WorkflowView target={target} visibleJobs={visibleJobs} observedAt={observedAt} language={language} renderAgent={renderAgent}/><details className="execution-details"><summary>{t('Execution details')}</summary>{agentList}</details></>}</div> : agentList}
+          {target ? <Collapsible id={targetId} open={selected}><WorkflowView target={target} visibleJobs={visibleJobs} observedAt={observedAt} language={language} renderAgent={renderAgent}/><details className="execution-details"><summary>{t('Execution details')}</summary>{agentList}</details></Collapsible> : agentList}
         </Card>;
-      })}</div>
+      })}</Collapsible>
     </section>;
   })}</div>;
 };
