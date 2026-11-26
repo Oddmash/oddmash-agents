@@ -129,7 +129,7 @@ const RoleNode = ({ role, description, jobs, target, observedAt, language, rende
   return <StageDialog title={renderAgent(role)} description={description} language={language} target={target} running={latest?.state === 'running'} trigger={<>
     <span className="workflow-node-title">{renderAgent(role)}{latest && records.length > (counts[latest.state] ?? 0) && <span className="workflow-other-count" title={w.other} aria-label={w.other + ' ' + (records.length - (counts[latest.state] ?? 0))}>+{records.length - (counts[latest.state] ?? 0)}</span>}</span>
     <span className="workflow-node-status">{latest ? <Badge tone={executionTone(latest.state)}>{stateLabel(language, latest.state, role)} {counts[latest.state]}</Badge> : <Badge tone="neutral">{w.unobserved}</Badge>}</span>
-    <LatestDetail job={latest} language={language} observedAt={observedAt}/>{latestFailure && <span className="workflow-node-failure">{w.failed} {failed.length} · {latestFailure.phase ? phaseLabel(language, latestFailure.phase) : translate(language, 'Not reported')}</span>
+    <LatestDetail job={latest} language={language} observedAt={observedAt}/>{latestFailure && <span className="workflow-node-failure">{w.failed} {failed.length} · {latestFailure.phase ? phaseLabel(language, latestFailure.phase) : translate(language, 'Not reported')}</span>}
   </>}>
     {records.length ? executionGroups(records).map(group => <section key={group.key}><h4>{w.run} · <code>{group.records[0].correlationId.slice(0, 12)}</code></h4>{group.records.map(job => <JobObservation key={job.correlationId + ':' + job.attempt} job={job} language={language} target={target} observedAt={observedAt}/>)}</section>) : <p>{w.noDetails}</p>}
   </StageDialog>;
