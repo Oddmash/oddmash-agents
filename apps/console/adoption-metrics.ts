@@ -72,7 +72,7 @@ export function createAdoptionReader(clock: () => number = Date.now) {
     const snapshot = () => metricIds.map(id => cached.get(id)!.metric);
     if (!expired.length) return snapshot();
     const promise = collectAdoptionMetrics(request, new Date(now), expired).then(metrics => {
-      for (const metric of metrics) cached.set(metric.id, { expires: clock() + (metric.count === null ? 60_000 : 3_600_000), metric });
+      for (const metric of metrics) cached.set(metric.id, { expires: now + (metric.count === null ? 60_000 : 3_600_000), metric });
       return snapshot();
     });
     pending = promise;
