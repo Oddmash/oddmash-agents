@@ -34,6 +34,8 @@ test('operator controls reject unsupported role and authority fields', () => {
 });
 test('controls store returns default or validated records and writes atomic revision/audit commands', async () => {
   assert.deepEqual(await readOperatorControls(config, async () => Response.json([{ result: null }])), { revision: null, controls: defaultControls(), updatedAt: null });
+  const legacy = { revision: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', updatedAt: '2026-01-01T00:00:00Z', controls: { ...defaultControls(), excludedRoles: ['qa'] } };
+  assert.deepEqual(await readOperatorControls(config, async () => Response.json([{ result: JSON.stringify(legacy) }])), legacy);
   let persisted: string | undefined;
   const record = await saveOperatorControls(config, null, { ...defaultControls(), paused: true, excludedRoles: ['qa', 'reviewer'] }, '123', async (_url, init) => {
     const command = JSON.parse(String(init?.body))[0];

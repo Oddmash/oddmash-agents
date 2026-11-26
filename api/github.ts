@@ -46,7 +46,7 @@ async function receive(request: Request) {
   }
   waitUntil(runAgentExecution(execution, () => reviewWebhook(target, config)).catch(error => {
     const message = error instanceof Error ? error.message : '';
-    const known = /^(?:GitHub request failed \(\d{3}\)|Model request failed \(\d{3}\)|Incomplete review response|Model input budget exceeded|Unexpected pending review response|Missing app configuration|Installation not eligible|Repository not eligible|Model quota, rate or credit limit reached; stop and check API billing before retrying|Pending review: Unexpected pending review response|Pending review: GitHub request failed \(\d{3}\)|Submit review: GitHub request failed \(\d{3}\))$/;
+    const known = /^(?:GitHub request failed \(\d{3}\)|Model request failed \(\d{3}\)|Operator controls unavailable|Incomplete review response|Model input budget exceeded|Unexpected pending review response|Missing app configuration|Installation not eligible|Repository not eligible|Model quota, rate or credit limit reached; stop and check API billing before retrying|Pending review: Unexpected pending review response|Pending review: GitHub request failed \(\d{3}\)|Submit review: GitHub request failed \(\d{3}\))$/;
     console.error('Webhook review failed: ' + (known.test(message) ? message : 'Unexpected error'));
   }));
   if (target.requestComment) console.info('Reviewer comment request accepted');

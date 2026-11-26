@@ -29,7 +29,10 @@ async function receive(request: Request) {
     try { await send(reviewTopic, job, { idempotencyKey: `${role}:${delivery}`, retentionSeconds: 86400 }); }
     catch { return new Response('Unavailable', { status: 503 }); }
     waitUntil(recordQueued(execution));
-  } else waitUntil(runAgentExecution(execution, () => reviewWebhook(target, config)).catch(() => console.error('Advisory job failed')));
+  } else waitUntil(runAgentExecution(execution, () => reviewWebhook(target, config)).catch(error => {
+    const controlsUnavailable = error instanceof Error && error.message === 'Operator controls unavailable';
+    console.error(controlsUnavailable ? 'Advisory job deferred: operator controls unavailable' : 'Advisory job failed');
+  }));
   return new Response('Accepted', { status: 202 });
 }
 

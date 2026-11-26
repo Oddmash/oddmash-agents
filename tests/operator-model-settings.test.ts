@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
+import { executionContext, runAgentExecution } from '../apps/worker/src/agent-execution.ts';
+import { retryableJobError } from '../apps/worker/src/review-job.ts';
 import { reviewWebhook } from '../apps/worker/src/webhook-review.ts';
 import { advisoryConfig } from '../apps/worker/src/runtime-config.ts';
 import { type Target } from '../apps/worker/src/webhook.ts';
@@ -140,13 +142,18 @@ test('shared webhook and queue execution entry honors the dedicated and coordina
   const requests: string[] = [];
   let reads = 0;
   let pausedPrimaryRoles: string[] = ['reviewer'];
+  let controlsUnavailable = false;
+  let scopedRequestObserved = false;
   t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     if (url.origin === 'https://fixture.upstash.io') {
       const [[, key]] = JSON.parse(String(init?.body));
-      if (String(key).includes(':controls:')) return Response.json([{ result: JSON.stringify({
-        revision, updatedAt, pausedPrimaryRoles, controls: { paused: false, excludedRoles: [], maxRequests: null, maxMs: null }
-      }) }]);
+      if (String(key).includes(':controls:')) {
+        if (controlsUnavailable) return new Response(null, { status: 503 });
+        return Response.json([{ result: JSON.stringify({
+          revision, updatedAt, pausedPrimaryRoles, controls: { paused: false, excludedRoles: [], maxRequests: null, maxMs: null }
+        }) }]);
+      }
       reads++;
       return Response.json([{ result: JSON.stringify({ revision, updatedAt, overrides: { triage: 'gpt-approved-triage' } }) }]);
     }
@@ -159,6 +166,10 @@ test('shared webhook and queue execution entry honors the dedicated and coordina
     }
     assert.equal(url.origin, 'https://api.github.com');
     const path = url.pathname;
+    if (path === root + '/pulls/comments/4' && controlsUnavailable) {
+      scopedRequestObserved = true;
+      return Response.json({ id: 4, user: { login: 'fixture', type: 'User' } });
+    }
     if (path === root + '/installation') return Response.json({ id: 3, app_id: 43, app_slug: 'oddmash-triage', suspended_at: null });
     if (path === '/app/installations/3') return Response.json({ account: { login: 'Oddmash' }, suspended_at: null });
     if (path === '/app/installations/3/access_tokens') return Response.json({ token: 'fixture-token' });
@@ -181,12 +192,27 @@ test('shared webhook and queue execution entry honors the dedicated and coordina
   assert.equal(reads, 2);
   const lead = { appId: '42', key, slug: 'oddmash-lead', openaiKey: 'fixture-shared', model: 'gpt-default' };
   const { advisory, requestComment, ...leadTarget } = target;
-  await reviewWebhook(leadTarget, lead);
+  async function assertSkipped(role: 'reviewer' | 'triage', action: () => Promise<void>) {
+    const events: string[] = [];
+    await runAgentExecution(executionContext(role, ''), action, event => events.push(event.outcome));
+    assert.deepEqual(events, ['started', 'skipped']);
+  }
+  await assertSkipped('reviewer', () => reviewWebhook(leadTarget, lead));
   pausedPrimaryRoles = ['triage'];
-  await reviewWebhook({ ...target, advisoryIdentity: 'triage' }, dedicated);
+  await assertSkipped('triage', () => reviewWebhook({ ...target, advisoryIdentity: 'triage' }, dedicated));
   await reviewWebhook(target, lead);
   assert.equal(reads, 2, 'paused roles perform no model lookup');
   assert.equal(requests.length, 2, 'paused roles make no model call');
+  controlsUnavailable = true;
+  pausedPrimaryRoles = ['reviewer', 'triage'];
+  await assert.rejects(reviewWebhook(leadTarget, lead), error => error instanceof Error && /Operator controls unavailable/.test(error.message) && retryableJobError(error));
+  await assert.rejects(reviewWebhook({ ...target, advisoryIdentity: 'triage' }, dedicated), /Operator controls unavailable/);
+  assert.equal(reads, 2, 'unconfirmed roles defer before model lookup');
+  assert.equal(requests.length, 2);
+  assert.equal(scopedRequestObserved, false);
+  await reviewWebhook({ ...leadTarget, reply: { root: 4, comment: 5, byThread: true } }, lead);
+  assert.equal(scopedRequestObserved, true, 'scoped replies continue to the existing authorization path');
+
 });
 
 test('model conflict recovery keeps local choices until explicit discard succeeds', async () => {
