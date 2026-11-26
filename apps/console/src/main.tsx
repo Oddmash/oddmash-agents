@@ -2,10 +2,13 @@ import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { authConfigManager, SessionProvider, useSession, signIn, signOut } from '@hono/auth-js/react';
 import { chooseLanguage, consoleRoute, localizedCallback, localizedUrl, translate, type Language, type ConsoleView } from './i18n';
-import { Button, LocalePicker, Select } from '@oddmash/ui';
+import { Button, LocalePicker } from '@oddmash/ui';
 import { AgentLoading } from './agent-loading';
 import { parseTheme, resolveTheme, type ThemePreference } from './console-preferences';
 import { Dashboard } from './dashboard';
+import { ThemeControl, SignOutButton } from './preference-controls';
+import { useUnsavedGuard } from './unsaved-guard';
+import { useConsoleHistory } from './use-console-history';
 import { SignInScreen } from './sign-in-screen';
 import { clearSignInError, signInErrorMessage } from './sign-in-feedback';
 import { useFirstPartySession } from './use-first-party-session';
@@ -37,23 +40,11 @@ const Console = () => {
     return () => systemDark.removeEventListener('change', update);
   }, [theme]);
   const t = (message: Parameters<typeof translate>[1]) => translate(language, message);
-  const navigate = (nextLanguage: Language, nextView: ConsoleView) => {
-    const url = localizedUrl(window.location.href, nextLanguage, nextView);
-    if (url.href !== window.location.href) window.history.pushState(window.history.state, '', url);
-    setRoute({ language: nextLanguage, view: nextView });
-  };
-  useEffect(() => {
-    const sync = () => {
-      const next = consoleRoute(window.location.href);
-      setRoute(current => ({ language: next.language ?? current.language, view: next.view }));
-    };
-    window.addEventListener('popstate', sync);
-    window.addEventListener('hashchange', sync);
-    return () => { window.removeEventListener('popstate', sync); window.removeEventListener('hashchange', sync); };
-  }, []);
+  const { unsaved, setUnsaved, guard, dialog } = useUnsavedGuard(language);
+  const navigate = useConsoleHistory(route, setRoute, unsaved, guard);
   useEffect(() => { const url = localizedUrl(window.location.href, language, view); if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url); try { localStorage.setItem('oddmash-console-language', language); } catch {} }, [language, view]);
   const languageControl = <div className="language-control"><span>{t('Language')}</span><LocalePicker label={t('Language')} value={language} options={[{ value: 'en', label: 'English', lang: 'en', href: localizedUrl(window.location.href, 'en', view).href }, { value: 'ko', label: '한국어', lang: 'ko', href: localizedUrl(window.location.href, 'ko', view).href }]} onValueChange={value => navigate(chooseLanguage(value), view)}/></div>;
-  const themeControl = <div className="language-control"><span>{t('Theme')}</span><Select aria-label={t('Theme')} value={theme} options={[{ value: 'light', label: t('Light') }, { value: 'dark', label: t('Dark') }, { value: 'system', label: t('System') }]} onValueChange={value => { const preference = parseTheme(value); applyTheme(preference); setTheme(preference); }}/></div>;
+  const themeControl = <ThemeControl language={language} theme={theme} onChange={setTheme}/>;
   const { status, data } = useSession();
   const [configured, setConfigured] = useState<'checking' | 'ready' | 'unconfigured' | 'error'>('checking');
   const [mode, setMode] = useState<'legacy' | 'first-party'>('legacy');
@@ -89,6 +80,6 @@ const Console = () => {
   if (mode === 'first-party' && firstParty.state === 'logout-pending') return <main className="session-loading" lang="en"><p role="alert">Sign-out could not be confirmed. Retry to revoke this session.</p><Button onClick={() => void logout()}>Retry sign out</Button></main>;
   if (status === 'loading' || configured === 'checking' || (configured === 'ready' && mode === 'first-party' && firstParty.state === 'checking')) return <main className="session-loading" lang="en"><AgentLoading label="Checking session…"/></main>;
   if (!authenticated) return <SignInScreen availability={mode === 'first-party' && firstParty.state === 'unavailable' ? 'error' : configured} errorMessage={loginError} onSignIn={async () => { setLoginError(undefined); const url = clearSignInError(window.location.href); if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url); await signIn('github', { callbackUrl: localizedCallback(window.location.origin, localizedUrl(window.location.href, language, view).pathname, language) }); }} />;
-  return <Dashboard view={view} navigate={nextView => navigate(language, nextView)} language={language} languageControl={languageControl} themeControl={themeControl} logout={<Button variant="secondary" className="login-button" onClick={() => void logout()}>{t("Sign out")}</Button>} />;
+  return <><Dashboard onUnsavedChange={setUnsaved} view={view} navigate={nextView => navigate(language, nextView)} language={language} languageControl={languageControl} themeControl={themeControl} logout={<SignOutButton language={language} onClick={() => guard(() => void logout())}/>} />{dialog}</>;
 }
 createRoot(document.getElementById('root')!).render(<StrictMode><SessionProvider><Console /></SessionProvider></StrictMode>);

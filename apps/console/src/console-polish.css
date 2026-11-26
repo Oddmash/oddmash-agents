@@ -107,3 +107,23 @@
 
 .download-hover-tooltip { position:absolute; z-index:3; inset-block-end:100%; inset-inline-start:clamp(0px,calc(var(--tooltip-position) - var(--console-length-140)/2),calc(100% - var(--console-length-140))); inline-size:min(100%,var(--console-length-140)); display:grid; gap:var(--om-semantic-space-xs); padding:var(--om-semantic-space-sm); background:var(--panel); border:var(--om-semantic-border-width) solid var(--border); border-radius:var(--om-semantic-radius-md); color:var(--text); font-size:var(--console-length-12); pointer-events:auto; }
 .download-hover-tooltip strong { font-size:var(--console-length-16); font-variant-numeric:tabular-nums; }
+
+.settings-workspace { display:grid; gap:var(--om-semantic-space-md); }
+.settings-workspace [hidden] { display:none !important; }
+.settings-summary { display:flex; align-items:center; justify-content:space-between; gap:var(--om-semantic-space-md); }
+.settings-summary p { margin:var(--om-semantic-space-xs) 0 0; }
+.settings-tabs,.theme-options { display:flex; flex-wrap:wrap; gap:var(--om-semantic-space-xs); }
+.theme-options > button { flex:1; min-block-size:44px; display:grid; place-items:center; padding:var(--om-semantic-space-xs); }
+.console-logout { color:var(--om-semantic-color-danger,#b42318) !important; }
+.console-discard-dialog { max-inline-size:min(92vw,28rem); inline-size:100%; box-sizing:border-box; padding:var(--om-semantic-space-lg); border:1px solid var(--border); border-radius:var(--om-semantic-radius-md); background:var(--panel); color:var(--text); }
+.console-discard-dialog h2 { margin-block-start:0; }
+.console-discard-dialog .control-actions { justify-content:flex-end; margin-block-start:var(--om-semantic-space-md); }
+.adoption-skeleton-chart { display:block; min-block-size:var(--console-length-140); width:100%; }
+.settings-workspace .control-actions { position:sticky; inset-block-start:0; background:var(--panel); z-index:2; padding-block:var(--om-semantic-space-xs); }
+
+.settings-summary .status-value { flex:none; white-space:nowrap; }
+@media(max-width:680px) {
+  .settings-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .settings-tabs > button { white-space:normal; min-block-size:44px; min-inline-size:0; padding-inline:var(--om-semantic-space-xs); }
+  .theme-options { flex-wrap:nowrap; }
+}
