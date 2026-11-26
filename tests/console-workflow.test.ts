@@ -103,3 +103,10 @@ test('observed roles surface failed and active attempts first; missing roles sta
   assert.deepEqual(result.unobserved,['triage','impact','architect','release']);
   assert.equal(workflowRoleGroups([]).observed.length,0);
 });
+
+test('roles in the same attention bucket sort by relevant newest observation', () => {
+  const old = { ...job, role:'docs' as const, state:'failed' as const };
+  const recent = { ...old, role:'qa' as const, updatedAt:'2026-01-02T00:00:00Z' };
+  const unrelated = { ...old, state:'returned' as const, updatedAt:'2026-01-03T00:00:00Z' };
+  assert.deepEqual(workflowRoleGroups([old,recent,unrelated]).observed,['qa','docs']);
+});

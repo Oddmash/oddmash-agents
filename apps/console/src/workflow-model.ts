@@ -72,5 +72,11 @@ export function workflowRoleGroups(jobs: readonly ObservedJob[]) {
     const records = roleObservations(role, jobs);
     return records.some(job => job.state === 'failed') ? 0 : records.some(job => job.state === 'running' || job.state === 'queued') ? 1 : 2;
   };
-  return { observed: [...observed].sort((a,b) => priority(a) - priority(b)), unobserved: workflowRoles.filter(role => !observed.includes(role)) };
+  const latestAt = (role: WorkflowRole) => {
+    const matching = roleObservations(role, jobs);
+    const rank = priority(role);
+    const relevant = rank === 0 ? matching.filter(job => job.state === 'failed') : rank === 1 ? matching.filter(job => job.state === 'running' || job.state === 'queued') : matching;
+    return Date.parse(latestObservation(relevant)?.updatedAt ?? '') || 0;
+  };
+  return { observed: [...observed].sort((a,b) => priority(a) - priority(b) || latestAt(b) - latestAt(a)), unobserved: workflowRoles.filter(role => !observed.includes(role)) };
 }
