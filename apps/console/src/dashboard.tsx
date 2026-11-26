@@ -46,6 +46,7 @@ const StatusValue = ({ value, language, yes = 'Enabled', no = 'Disabled' }: { va
 export const Dashboard = ({ logout, language, languageControl, themeControl, view, navigate, onUnsavedChange }: { logout: ReactNode; language: Language; languageControl: ReactNode; themeControl: ReactNode; view: ConsoleView; navigate: (view: ConsoleView) => void; onUnsavedChange?: (dirty: boolean) => void }) => {
   const t = (message: Message) => translate(language, message);
   const [settingsTab, setSettingsTab] = useState<'runtime' | 'agents' | 'execution'>('runtime');
+  const [usageTab, setUsageTab] = useState<'model' | 'package'>('model');
   const [modelDirty, setModelDirty] = useState(false);
   const [runtimeDirty, setRuntimeDirty] = useState(false);
   useEffect(() => { onUnsavedChange?.(view === 'settings' && (modelDirty || runtimeDirty)); }, [view, modelDirty, runtimeDirty, onUnsavedChange]);
@@ -125,8 +126,11 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
     <main>
       <header><div><h2 ref={headingRef} tabIndex={-1}>{t(viewLabels[view])}</h2></div><span role="status" aria-live="polite" className="live-label" data-connected={connected && !error}>{!error && <><span className="status-dot" aria-hidden="true"/>{t(loading && !snapshot ? 'Loading status…' : connected ? 'Connected to worker telemetry' : 'Telemetry storage is not configured.')}</>}</span></header>
       <div role="status" aria-live="polite" className="muted status-line">{error && <Alert tone="danger">{t(error)}{snapshot?.connected ? t(" Showing the last successful snapshot.") : ''}</Alert>}</div>
-      {loading && !snapshot && view !== 'settings' && view !== 'contributors' && <ConsoleSkeleton view={view} language={language}/>}
-      {error !== 'Session expired. Sign in again.' && <div hidden={view !== 'usage'}><AdoptionMetrics language={language} active={view === 'usage'}/></div>}
+      {loading && !snapshot && view !== 'settings' && view !== 'contributors' && (view !== 'usage' || usageTab === 'model') && <ConsoleSkeleton view={view} language={language}/>}
+      {view === 'usage' && error !== 'Session expired. Sign in again.' && <div className="usage-tabs" role="group" aria-label={t('Usage')}>
+        {(['model','package'] as const).map(tab => <Button key={tab} variant={usageTab === tab ? 'primary' : 'secondary'} aria-pressed={usageTab === tab} onClick={() => setUsageTab(tab)}>{t(tab === 'model' ? 'Model usage' : 'Package usage')}</Button>)}
+      </div>}
+      {error !== 'Session expired. Sign in again.' && <div hidden={view !== 'usage' || usageTab !== 'package'}><AdoptionMetrics language={language} active={view === 'usage' && usageTab === 'package'}/></div>}
       <div hidden={!snapshot && (view !== 'settings' || error === 'Session expired. Sign in again.')}>
       {view === 'overview' && <div className="overview-content">
         <section className="metrics overview-metrics" aria-label={t('Overview')}>
@@ -160,7 +164,7 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
         {(choosingRepository ? !matchedRepositories.length : !displayedGroups.length) && <Card><EmptyState className="empty">{!connected ? t("Live activity unavailable.") : jobs.length ? t("No executions match these filters.") : t("No recent execution events.")}</EmptyState></Card>}
       </section>
       </div>}
-      <section hidden={view !== 'usage'} id="usage" className="detail-view">
+      <section hidden={view !== 'usage' || usageTab !== 'model'} id="usage" className="detail-view">
         <h2>{t("Model usage")}</h2>
         <JuliyaText as="p" locale={language} className="muted view-description">{t("Observed usage in retained terminal executions, including retries. Missing counts and unobserved calls are not zero-cost; these are token counts, not a billing total.")}</JuliyaText>
         {snapshot?.usage?.length ? <Card className="data-panel"><div aria-hidden="true" className="data-heading usage-grid"><span>{t("Agent")}</span><span>{t("Observed calls:")}</span><span>{t("Known input tokens:")}</span><span>{t("Known output tokens:")}</span></div><ul className="data-rows">{snapshot.usage.map(row => <li key={row.role} className="usage-grid data-row"><AgentIdentity role={row.role}/><div><small className="field-label">{t("Observed calls:")}</small><strong>{row.calls.toLocaleString(language)}</strong></div><div><small className="field-label">{t("Known input tokens:")}</small><strong>{row.inputTokens.toLocaleString(language)}</strong><small className="muted">{missingCalls(language, row.missingInput)}</small></div><div><small className="field-label">{t("Known output tokens:")}</small><strong>{row.outputTokens.toLocaleString(language)}</strong><small className="muted">{missingCalls(language, row.missingOutput)}</small></div></li>)}</ul></Card> : <Card><EmptyState className="empty">{t("No measured model usage is retained yet.")}</EmptyState></Card>}
@@ -174,7 +178,7 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
         {snapshot?.settings ? <div className="settings-panels"><Card className="settings-panel"><h3>{t("Execution")}</h3><dl><div><dt>{t("Queue")}</dt><dd><StatusValue value={snapshot.settings.queueEnabled} language={language}/></dd></div><div><dt>{t("Coordinated advisories")}</dt><dd><StatusValue value={snapshot.settings.coordinatedAdvisoriesEnabled} language={language}/></dd></div><div><dt>{t("Authenticated guidance")}</dt><dd><StatusValue value={snapshot.settings.authenticatedGuidanceEnabled} language={language}/></dd></div><div><dt>{t("Scoped thread resolution")}</dt><dd><StatusValue value={snapshot.settings.scopedThreadResolutionEnabled} language={language}/></dd></div></dl></Card><Card className="settings-panel"><h3>{t("Review limits")}</h3><dl><div><dt>{t("Advisory request limit")}</dt><dd>{snapshot.settings.advisoryMaxRequests ?? t("Unknown")}</dd></div><div><dt>{t("Advisory time budget")}</dt><dd>{snapshot.settings.advisoryMaxMs === undefined ? t("Unknown") : new Intl.NumberFormat(language, { style: 'unit', unit: 'second', unitDisplay: 'short' }).format(snapshot.settings.advisoryMaxMs / 1000)}</dd></div></dl></Card></div> : <Card><EmptyState className="empty">{t("No worker configuration snapshot is available.")}</EmptyState></Card>}
         </div>
       </section>}
-      {snapshot && view !== 'contributors' && <p className="muted">{t("Last observed:")} <time dateTime={snapshot.observedAt}>{new Date(snapshot.observedAt).toLocaleString(language)}</time></p>}
+      {snapshot && view !== 'contributors' && (view !== 'usage' || usageTab === 'model') && <p className="muted">{t("Last observed:")} <time dateTime={snapshot.observedAt}>{new Date(snapshot.observedAt).toLocaleString(language)}</time></p>}
       </div>
       {view === 'contributors' && error !== 'Session expired. Sign in again.' && <ContributorPulls language={language} jobs={jobs} renderAgent={role => <AgentIdentity role={role} compact/>}/>}
 
