@@ -1,4 +1,12 @@
 export const korean = {
+  "Public product adoption": "제품 사용량",
+  "Public aggregate counts are not unique users. Missing values are unavailable, not zero.": "공개 집계 수치는 고유 사용자 수가 아닙니다. 누락된 값은 0이 아니라 확인 불가입니다.",
+  "Product adoption metrics unavailable.": "제품 사용량을 불러올 수 없습니다.",
+  "Downloads in reported month": "제공 기간의 다운로드",
+  "Marketplace reported installs": "Marketplace 설치 집계",
+  "Daily download history": "일별 다운로드 기록",
+  "Historical observations are retained in the daily collection runs.": "이전 관측값은 일별 수집 실행에 보관됩니다.",
+  "Daily collection history": "일별 수집 기록",
   "Contributor PRs": "외부 기여 PR",
   "Open public pull requests from external contributors. Agent states show retained observations, not current GitHub approval.": "외부 기여자의 공개 PR입니다. 에이전트 상태는 보관된 관측 기록이며 현재 GitHub 승인 상태가 아닙니다.",
   "Contributor pull requests unavailable. Try again later.": "기여 PR을 불러오지 못했습니다. 잠시 후 다시 시도하세요.",

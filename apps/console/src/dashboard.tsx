@@ -4,6 +4,7 @@ import { type Job, type WorkerSettings, type ModelUsageSummary, type AgentRole }
 import { JuliyaText } from '@oddmash/juliya/react';
 import { NavigationIcon } from './console-sidebar';
 import { ContributorPulls } from './contributor-pulls';
+import { AdoptionMetrics } from './adoption-metrics';
 import { executionLabel, executionTone } from './execution-status';
 import { createStatusPolling } from './status-polling';
 import { RuntimeControls } from './runtime-controls';
@@ -145,7 +146,6 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
         {(choosingRepository ? !matchedRepositories.length : !displayedGroups.length) && <Card><EmptyState className="empty">{!connected ? t("Live activity unavailable.") : view === 'overview' && overview.unattributedCount > 0 ? t("No identified review targets.") : jobs.length ? t("No executions match these filters.") : t("No recent execution events.")}</EmptyState></Card>}
       </section>
       </div>
-      {view === 'contributors' && error !== 'Session expired. Sign in again.' && <ContributorPulls language={language} jobs={jobs} renderAgent={role => <AgentIdentity role={role} compact/>}/>}
       <section hidden={view !== 'usage'} id="usage" className="detail-view">
         <JuliyaText as="p" locale={language} className="muted view-description">{t("Observed usage in retained terminal executions, including retries. Missing counts and unobserved calls are not zero-cost; these are token counts, not a billing total.")}</JuliyaText>
         {snapshot?.usage?.length ? <Card className="data-panel"><div aria-hidden="true" className="data-heading usage-grid"><span>{t("Agent")}</span><span>{t("Observed calls:")}</span><span>{t("Known input tokens:")}</span><span>{t("Known output tokens:")}</span></div><ul className="data-rows">{snapshot.usage.map(row => <li key={row.role} className="usage-grid data-row"><AgentIdentity role={row.role}/><div><small className="field-label">{t("Observed calls:")}</small><strong>{row.calls.toLocaleString(language)}</strong></div><div><small className="field-label">{t("Known input tokens:")}</small><strong>{row.inputTokens.toLocaleString(language)}</strong><small className="muted">{missingCalls(language, row.missingInput)}</small></div><div><small className="field-label">{t("Known output tokens:")}</small><strong>{row.outputTokens.toLocaleString(language)}</strong><small className="muted">{missingCalls(language, row.missingOutput)}</small></div></li>)}</ul></Card> : <Card><EmptyState className="empty">{t("No measured model usage is retained yet.")}</EmptyState></Card>}
@@ -158,5 +158,7 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
       </section>
       {snapshot && <p className="muted">{t("Last observed:")} <time dateTime={snapshot.observedAt}>{new Date(snapshot.observedAt).toLocaleString(language)}</time></p>}
       </div>
+      {view === 'contributors' && error !== 'Session expired. Sign in again.' && <ContributorPulls language={language} jobs={jobs} renderAgent={role => <AgentIdentity role={role} compact/>}/>}
+      {view === 'usage' && error !== 'Session expired. Sign in again.' && <AdoptionMetrics language={language}/>}
     </main></div>;
 }

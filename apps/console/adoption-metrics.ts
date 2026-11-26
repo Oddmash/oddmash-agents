@@ -60,3 +60,16 @@ export async function collectAdoptionMetrics(request: typeof fetch = fetch, now 
   };
   return Promise.all([...npm, marketplace()]);
 }
+
+let cached: { expires: number; metrics: AdoptionMetric[] } | undefined;
+let pending: Promise<AdoptionMetric[]> | undefined;
+export async function readAdoptionMetrics(request: typeof fetch = fetch) {
+  if (cached && Date.now() < cached.expires) return cached.metrics;
+  if (pending) return pending;
+  const promise = collectAdoptionMetrics(request).then(metrics => {
+    cached = { expires: Date.now() + (metrics.every(metric => metric.count === null) ? 60_000 : 3600_000), metrics };
+    return metrics;
+  });
+  pending = promise;
+  try { return await promise; } finally { if (pending === promise) pending = undefined; }
+}
