@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card } from '@oddmash/ui';
-import { defaultControls, optionalRoles, type ControlsRecord, type OperatorControls, type OptionalRole } from '@oddmash/agent-operator-contract';
+import { defaultControls, optionalRoles, type ControlsResponse, type OperatorControls, type OptionalRole } from '@oddmash/agent-operator-contract';
 import { displayLimit, readLimitInput, validControlLimits, controlsDirty, reviewRetainedDraft } from './control-draft';
 import { ConsoleSkeleton } from './console-skeleton';
 import { translate, type Language, type Message } from './i18n';
 
 const roleNames: Record<OptionalRole, string> = { impact: 'Impact', qa: 'QA', release: 'Release', docs: 'Docs', architect: 'Architect' };
 
-export const RuntimeControls = ({ language, defaults, onDirtyChange }: { language: Language; defaults: { maxRequests?: number; maxMs?: number }; onDirtyChange?: (dirty: boolean) => void }) => {
+export const RuntimeControls = ({ language, onDirtyChange }: { language: Language; onDirtyChange?: (dirty: boolean) => void }) => {
   const t = (key: Message) => translate(language, key);
-  const [saved, setSaved] = useState<ControlsRecord>();
+  const [saved, setSaved] = useState<ControlsResponse>();
   const [draft, setDraft] = useState<OperatorControls>();
   const [emptyLimit, setEmptyLimit] = useState<'requests' | 'seconds' | null>(null);
   const [busy, setBusy] = useState(false);
@@ -22,7 +22,7 @@ export const RuntimeControls = ({ language, defaults, onDirtyChange }: { languag
     const controller = new AbortController();
     setSaved(undefined); setDraft(undefined); setNotice(''); setFailed(''); setConflict(false); setNeedsReview(false);
     fetch('/api/controls', { cache: 'no-store', signal: controller.signal })
-      .then(response => { if (response.status === 401 || response.status === 403) throw new Error('unauthorized'); if (!response.ok) throw new Error('Controls unavailable'); return response.json() as Promise<ControlsRecord>; })
+      .then(response => { if (response.status === 401 || response.status === 403) throw new Error('unauthorized'); if (!response.ok) throw new Error('Controls unavailable'); return response.json() as Promise<ControlsResponse>; })
       .then(record => { if (!controller.signal.aborted) { setSaved(record); setDraft(record.controls); } })
       .catch(error => { if (!controller.signal.aborted) setFailed(error instanceof Error && error.message === 'unauthorized' ? 'unauthorized' : 'unavailable'); });
     return () => controller.abort();
@@ -30,16 +30,18 @@ export const RuntimeControls = ({ language, defaults, onDirtyChange }: { languag
   const dirty = Boolean(saved && draft && controlsDirty(saved.controls, draft));
   useEffect(() => { onDirtyChange?.(dirty || busy); }, [dirty, busy, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+  const defaults: Partial<ControlsResponse['limits']> = saved?.limits ?? {};
   const valid = draft ? validControlLimits(draft, defaults) : false;
   const save = async () => {
     if (!saved || !draft || busy || !dirty || !valid || conflict || needsReview) return;
     setBusy(true); setNotice('');
     try {
       const response = await fetch('/api/controls', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: saved.revision, controls: draft }), cache: 'no-store' });
+      if (response.status === 422) { setConflict(true); setNotice('Enter valid limits within the deployment defaults.'); return; }
       if (response.status === 409) { setConflict(true); setNotice('Controls changed in another session. Reload before saving.'); return; }
       if (response.status === 401 || response.status === 403) { setNotice('Session expired. Sign in again.'); return; }
       if (!response.ok) throw new Error('Save failed');
-      const record = await response.json() as ControlsRecord;
+      const record = await response.json() as ControlsResponse;
       setSaved(record); setDraft(record.controls); setNotice('Saved for future coordinated reviews.');
     } catch { setNotice('Unable to save runtime controls. Your draft is retained.'); }
     finally { setBusy(false); }
@@ -51,9 +53,9 @@ export const RuntimeControls = ({ language, defaults, onDirtyChange }: { languag
       const response = await fetch('/api/controls', { cache: 'no-store' });
       if (response.status === 401 || response.status === 403) { setNotice('Session expired. Sign in again.'); return; }
       if (!response.ok) throw new Error('Controls unavailable');
-      const record = await response.json() as ControlsRecord;
+      const record = await response.json() as ControlsResponse;
       const recovery = reviewRetainedDraft(record, draft);
-      setSaved(recovery.saved); setDraft(recovery.draft); setConflict(false); setNeedsReview(recovery.needsReview); setNotice('Latest revision loaded. Review your draft before saving.');
+      setSaved(record); setDraft(recovery.draft); setConflict(false); setNeedsReview(recovery.needsReview); setNotice('Latest revision loaded. Review your draft before saving.');
     } catch { setNotice('Unable to reload saved revision. Your draft is retained.'); }
     finally { setBusy(false); }
   };
