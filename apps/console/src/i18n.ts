@@ -19,7 +19,7 @@ export const korean = {
   "By month": "월별",
   "Partial month": "부분 집계",
   "Partial months contain observed days only.": "부분 집계 월은 관측된 일자의 합계만 표시합니다.",
-  "Monthly history requires at least 30 days of observed downloads.": "월별 조회에는 최소 30일의 다운로드 관측 기록이 필요합니다.",
+  "Monthly history requires at least 30 days between the first download and latest reported date.": "월별 조회는 첫 다운로드와 최신 집계일 사이에 최소 30일이 지나야 가능합니다.",
   "Recent review targets": "최근 리뷰 대상",
   "Failed jobs and steps": "실패한 작업 및 단계",
   "Failure details unavailable. Open the workflow run.": "실패 상세를 확인할 수 없습니다. 워크플로우를 열어주세요.",
