@@ -10,7 +10,7 @@ test('first-party mode denies all protected reads and writes without first-party
     const origin = 'https://console.example.test';
     const send = (path: string, method = 'GET', source = origin) => consoleApi.fetch(new Request(origin + path, { method, headers: { origin: source, 'content-type': 'application/json' }, ...(method === 'POST' ? { body: '{}' } : {}) }));
     assert.deepEqual(await (await send('/api/availability')).json(), { configured: true, sessionMode: 'first-party' });
-    for (const path of ['/api/status', '/api/controls', '/api/models', '/api/contributors']) assert.equal((await send(path)).status, 401);
+    for (const path of ['/api/status', '/api/controls', '/api/models', '/api/contributors', '/api/adoption']) assert.equal((await send(path)).status, 401);
     for (const path of ['/api/controls', '/api/models']) assert.equal((await send(path, 'POST')).status, 401);
     assert.deepEqual(await (await send('/api/session/status')).json(), { authenticated: false });
     assert.equal((await send('/api/session/bootstrap', 'POST')).status, 401);

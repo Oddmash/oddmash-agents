@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseNpmHistory, parseMarketplaceCount, collectAdoptionMetrics } from '../apps/console/adoption-metrics.ts';
+import { parseNpmHistory, parseMarketplaceCount, collectAdoptionMetrics, readAdoptionMetrics } from '../apps/console/adoption-metrics.ts';
 test('npm daily counts preserve zero and reject invalid, duplicate or mismatched data', () => {
   const history = [{day:'2026-11-24',downloads:0},{day:'2026-11-25',downloads:3}];
   assert.deepEqual(parseNpmHistory({package:'boundra',downloads:history},'boundra'),history);
@@ -27,4 +27,15 @@ test('provider failure is unavailable, separate from successful zero; no credent
   assert.equal(result[0].count,0);
   assert.equal(result[3].count,null);
   assert.equal(result[3].history,null);
+});
+
+test('console reads share an in-flight public snapshot and reuse it', async () => {
+  let calls = 0;
+  const request: typeof fetch = async () => { calls++; return new Response('', {status:429}); };
+  const [a,b] = await Promise.all([readAdoptionMetrics(request),readAdoptionMetrics(request)]);
+  assert.equal(calls,4);
+  assert.deepEqual(a,b);
+  assert.ok(a.every(metric => metric.count === null));
+  await readAdoptionMetrics(request);
+  assert.equal(calls,4);
 });
