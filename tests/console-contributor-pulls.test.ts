@@ -88,3 +88,30 @@ test('verified Lead status overrides misleading retained completion only for the
   assert.equal(parseReviewStatus([{...comment,user:{id:42,type:'Bot'}}],head.sha),undefined);
   assert.equal(parseReviewStatus([comment],'b'.repeat(40)),undefined);
 });
+
+test('optional enrichment cannot exhaust the search reserve and cached lists retain original observation time', async () => {
+  const calls: string[] = [];
+  const start = Date.now();
+  const items = Array.from({length:4},(_,i)=>({...row, number:42+i}));
+  const fake: typeof fetch = async input => {
+    const url = new URL(String(input)); calls.push(url.pathname);
+    if (url.pathname === '/search/issues') return Response.json({items,total_count:4,incomplete_results:false});
+    const detail = /\/pulls\/(\d+)$/.exec(url.pathname);
+    if (detail) return Response.json({number:Number(detail[1]),head:{sha:head.sha,ref:head.branch,repo:{id:head.repositoryId}},base:{repo:{full_name:'Oddmash/oddmash-ui',private:false}}});
+    if (url.pathname.endsWith('/reviews') || url.pathname.endsWith('/comments')) return Response.json([]);
+    return Response.json({total_count:0,workflow_runs:[]});
+  };
+  const original = Date.now;
+  try {
+    let now = start;
+    Date.now = () => now;
+    const first = await readContributorPulls('700',fake);
+    now += 61_000;
+    const cachedSearch = await readContributorPulls('700',fake);
+    assert.equal(cachedSearch.observedAt,first.observedAt);
+    for(let i=0;i<9;i++){now += 5*60_000+1000; const result=await readContributorPulls('700',fake); assert.equal(result.pulls.length,4);}
+    assert(calls.length <= 50);
+    assert(calls.filter(path=>path.endsWith('/reviews') || path.endsWith('/comments')).length <= 18);
+    assert(calls.filter(path=>path==='/search/issues').length >= 2);
+  } finally { Date.now=original; }
+});

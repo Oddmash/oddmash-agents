@@ -100,14 +100,31 @@ export function parseReviewStatus(payload: unknown, sha: string): ContributorRev
   return latest;
 }
 const headers = { Accept:'application/vnd.github+json', 'User-Agent':'Oddmash-Console', 'X-GitHub-Api-Version':'2022-11-28' };
-const publicReadTimes: number[] = [];
+type PublicReadState = { times: Array<{at:number;kind:'search'|'workflow'|'optional'}>; cached: Map<string,{expires:number;response:Response;observedAt:string}> };
+const publicObservedAt = new WeakMap<Response,string>();
+const publicReads = new WeakMap<typeof fetch, PublicReadState>();
 const readPublic = async (request: typeof fetch, url: string, signal: AbortSignal) => {
+  let state = publicReads.get(request);
+  if (!state) { state = {times:[],cached:new Map()}; publicReads.set(request,state); }
   const now = Date.now();
-  while (publicReadTimes.length && publicReadTimes[0] <= now - 60 * 60_000) publicReadTimes.shift();
-  if (publicReadTimes.length >= 50) throw new Error('Public observation budget exhausted');
-  publicReadTimes.push(now);
+  const path = new URL(url).pathname;
+  const kind = path === '/search/issues' ? 'search' : /\/actions\/runs$/.test(path) || /\/pulls\/\d+$/.test(path) ? 'workflow' : 'optional';
+  const ttl = kind === 'search' ? 5 * 60_000 : /\/actions\/runs$/.test(path) ? 0 : kind === 'workflow' ? 2 * 60_000 : 5 * 60_000;
+  const previous = state.cached.get(url);
+  if (previous && previous.expires > now) { const response = previous.response.clone(); publicObservedAt.set(response,previous.observedAt); return response; }
+  state.times = state.times.filter(item => item.at > now - 60 * 60_000);
+  const optional = state.times.filter(item => item.kind === 'optional').length;
+  const nonSearch = state.times.filter(item => item.kind !== 'search').length;
+  if (state.times.length >= 50 || (kind !== 'search' && nonSearch >= 38) || (kind === 'optional' && optional >= 18)) throw new Error('Public observation budget exhausted');
+  state.times.push({at:now,kind});
   const response = await request(url, { headers, redirect:'error', signal });
   if (!response.ok) throw new Error('Public evidence unavailable');
+  const observedAt = new Date(now).toISOString();
+  publicObservedAt.set(response,observedAt);
+  if (ttl) {
+    if (state.cached.size >= 100) state.cached.delete(state.cached.keys().next().value!);
+    state.cached.set(url,{expires:now+ttl,response:response.clone(),observedAt});
+  }
   return response;
 };
 const readEvidence = async (pull: ContributorPull, request: typeof fetch, signal: AbortSignal): Promise<ContributorEvidence> => {
@@ -161,7 +178,7 @@ export async function readContributorPulls(owner: string, request: typeof fetch 
       if (cached?.owner !== owner) throw error;
       return { ...cached.value, partial: true, pulls: cached.value.pulls.map(({evidence: _evidence, ...pull}) => pull) };
     }
-    const value = parseContributorPulls(await response.json(), owner, new Date().toISOString());
+    const value = parseContributorPulls(await response.json(), owner, publicObservedAt.get(response) ?? new Date().toISOString());
     const signal = AbortSignal.timeout(6000);
     const detailed = value.pulls.slice(0, 4);
     await Promise.all(detailed.map(async pull => { pull.evidence = await readEvidence(pull, request, signal); }));
