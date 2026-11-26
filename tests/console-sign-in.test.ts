@@ -25,8 +25,12 @@ test('sign-in uses one pending action and leaves account authorization server-si
   assert.match(screen, /inFlight\.current \|\| availability === 'unconfigured'/);
   assert.match(screen, /disabled=\{pending\}/);
   assert.match(screen, /role="status" aria-live="polite"/);
-  assert.match(screen, /disabled=\{pending\} onClick=\{\(\) => void start\(\)\}>Sign in with GitHub<\/Button>/);
-  assert.match(screen, /login-progress[^>]*>\{pending \? 'Opening GitHub sign-in\.'/);
+  assert.match(screen, /disabled=\{pending\} aria-busy=\{pending\}/);
+  assert.match(screen, /<svg className="login-github-icon"[^>]*aria-hidden="true"/);
+  assert.match(screen, /<span>\{pending \? 'Redirecting\.\.\.' : 'Sign in with GitHub'\}<\/span>/);
+  assert.match(screen, /login-progress[^>]*>\{pending \? 'Redirecting to GitHub\.'/);
+  assert.doesNotMatch(screen, /Opening GitHub sign-in/);
+  assert.match(screen, /finally \{ inFlight\.current = false; setPending\(false\); \}/);
   assert.match(auth, /scope: 'read:user', prompt: 'select_account'/);
   assert.match(auth, /signIn\(\{ account, profile \}\) \{ return account\?\.provider === 'github' && owner\(profile\?\.id\); \}/);
 });
@@ -61,4 +65,15 @@ test('login glow remains static and token-backed', () => {
   assert.match(glow, /opacity: var\(--console-login-glow-opacity\)/);
   assert.doesNotMatch(glow, /animation|transition/);
   assert.match(css, /\.login-action \{[^}]+min-height: var\(--console-length-44\)/);
+  assert.match(css, /\.login-progress \{[^}]+position: absolute;[^}]+clip-path: inset\(50%\)/);
+  assert.match(css, /\.login-github-icon \{[^}]+width: var\(--console-length-18\)/);
+});
+
+test('login copy uses Juliya for responsive wrapping', () => {
+  const screen = source('src/sign-in-screen.tsx');
+  assert.match(screen, /import \{ JuliyaText \} from '@oddmash\/juliya\/react'/);
+  assert.match(screen, /<JuliyaText as="p" locale="en">Monitor agent activity/);
+  assert.match(screen, /<Alert[^>]*><JuliyaText as="span" locale="en">/);
+  assert.match(screen, /<JuliyaText as="p" locale="en" className="login-restriction">/);
+  assert.equal(signInErrorMessage('https://console.example.test/?error=AccessDenied'), 'Access denied. This GitHub account is not authorized. Try another account.');
 });
