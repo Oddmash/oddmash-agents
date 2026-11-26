@@ -166,6 +166,8 @@ try {
         await summaries.nth(1).click();
         await summaries.nth(2).click();
         assert.match(await cards.first().innerText(), /Lead/,label);
+        const pullLink = cards.first().getByRole('link', {name: language === 'ko' ? 'PR 보기' : 'View pull request'});
+        assert.equal(await pullLink.getAttribute('href'), 'https://github.com/Oddmash/example/pull/43');
         assert.match(await cards.nth(3).innerText(), language === 'ko' ? /확인 불가/ : /unavailable/,label);
         assert.equal(await cards.first().locator('.contributor-workflow-link').getAttribute('href'),'https://github.com/Oddmash/example/actions/runs/71',label);
         assert.match(await cards.nth(1).innerText(),language === 'ko' ? /현재 검사 완료 대기/ : /Waiting on current checks/,label);
@@ -328,6 +330,15 @@ try {
         assert(await page.locator('.runtime-controls:visible .control-actions button').first().isDisabled(),label+' deployment cap cannot be expanded');
         await requestLimit.fill('1');
         assert(await page.locator('.runtime-controls:visible .control-actions button').first().isEnabled(),label+' restriction remains editable while status unavailable');
+        await page.locator('.settings-tabs button').last().click();
+        const executionText = page.locator('.execution-summary-meta > p');
+        await executionText.waitFor();
+        assert.equal(await executionText.locator('br').count(), 0, label + ' native execution copy wrapping');
+        assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).scrollbarGutter), 'stable');
+        await page.route('**/api/contributors', route => route.fulfill({status:401,json:{error:'Fixture session expired'}}));
+        await page.goto(base + '/tests/render-fixture.html?theme=' + theme + '&language=' + language + '&view=contributors');
+        await page.locator('.expired-session').waitFor();
+        assert.equal(await page.locator('.contributor-card').count(), 0, label + ' denied reads clear contributor content');
         assert.deepEqual(errors,[],label);
         await context.close();
       }
