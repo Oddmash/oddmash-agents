@@ -29,7 +29,7 @@ export async function readContributorPulls(owner: string, request: typeof fetch 
   if (pending?.owner === owner) return pending.promise;
   const promise = (async () => {
     const url = new URL('https://api.github.com/search/issues');
-    url.searchParams.set('q', 'org:Oddmash is:pr is:open is:public -author:qtaghdi');
+    url.searchParams.set('q', 'org:Oddmash is:pr is:open is:public');
     url.searchParams.set('sort', 'updated');
     url.searchParams.set('order', 'desc');
     url.searchParams.set('per_page', '100');
