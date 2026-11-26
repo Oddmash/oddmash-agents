@@ -6,7 +6,8 @@ export type CheckEvidence = { total_count?: number; check_runs: Check[]; workflo
 type WorkflowRun = {
   workflow_id: number; run_number: number; check_suite_id: number; head_sha: string;
   event: string; status: string; conclusion: string | null;
-  pull_requests: { number: number }[];
+  pull_requests: { number: number; base?: { sha: string }; head?: { sha: string } }[];
+  referenced_workflows?: { path: string; ref: string; sha: string }[];
   head_branch?: string; head_repository?: { id: number } | null;
 };
 type WorkflowRuns = { total_count: number; workflow_runs: WorkflowRun[] };
@@ -24,12 +25,17 @@ const boundraRepository = 'Oddmash/boundra';
 const boundraRepositoryId = 1218645367;
 const boundraCI = 296703178;
 const boundraPages = 427973803;
-const boundraScopeContract = {
-  '.github/workflows/boundra.yml': '111d1bc79cebd2d8223b7587af35deee4f35f8a3',
-  'scripts/classify-ci-scope.mjs': '4f941d29489a3fc007e9285f87b4d6a369e441b2',
-  'scripts/classify-ci-scope.test.mjs': '44adee98496346c5e154b48d81263f9b5a284949',
-  '.github/workflows/pages.yml': '3bb95fdf641880ada87f4bf2eadcd602886ccf88'
+const boundraScopeFiles = {
+  workflow: '.github/workflows/boundra.yml',
+  classifier: 'scripts/classify-ci-scope.mjs',
+  classifierTests: 'scripts/classify-ci-scope.test.mjs',
+  pages: '.github/workflows/pages.yml'
 } as const;
+const boundraScopeContracts = [
+  { workflow: '111d1bc79cebd2d8223b7587af35deee4f35f8a3', classifierTests: '44adee98496346c5e154b48d81263f9b5a284949', sharedWorkflow: null },
+  { workflow: 'de7b774b19321864a81edc320e0631b10b1fe14b', classifierTests: '186d9a534c56adf5dcd90f94ed14690d85aeeaca', sharedWorkflow: '78fb14cdfa36c2b348f8216369fabc3cd661f4a2' }
+] as const;
+const sharedScopeWorkflow = '.github/workflows/ci-scope.yml';
 const boundraSiteJobs = {
   'scope': 'success', 'contribution / scope': 'success', 'verify': 'success',
   'verify-example': 'skipped', 'verify-runtime': 'skipped', 'verify-cli-platforms': 'skipped',
@@ -77,23 +83,61 @@ async function verifiedBoundraScope(root: string, number: number, sha: string, e
     check.app?.id === actionsApp && Number.isSafeInteger(check.check_suite?.id) && check.check_suite!.id > 0 ? [check.check_suite!.id] : []))];
   const ci = suites.filter(suite => boundraScopedProfiles.some(profile => suiteMatches(evidence.check_runs, suite, profile, 'CI')));
   const pages = suites.filter(suite => suiteMatches(evidence.check_runs, suite, boundraPagesJobs, 'Deploy Pages'));
-  if (!ci.length || !pages.length) return false;
+  if (!ci.length) return false;
   const runs = await publicJson<WorkflowRuns>(request, root + '/actions/runs?head_sha=' + source.head.sha + '&per_page=100');
   if (!Array.isArray(runs?.workflow_runs) || runs.total_count !== runs.workflow_runs.length) return false;
-  const isLatest = (workflow: number, candidates: number[]) => {
+  const latestSuiteRun = (workflow: number, candidates: number[]) => {
     const related = runs.workflow_runs.filter(run => run.workflow_id === workflow && run.head_sha === source.head.sha && run.event === 'pull_request');
     if (!related.length || related.some(run => !Number.isSafeInteger(run.run_number) || run.pull_requests?.length !== 1 ||
-      run.pull_requests[0].number !== number || run.head_repository?.id !== boundraRepositoryId || run.head_branch !== source.head.ref)) return false;
+      run.pull_requests[0].number !== number || run.head_repository?.id !== boundraRepositoryId || run.head_branch !== source.head.ref)) return null;
     const latest = Math.max(...related.map(run => run.run_number));
-    const current = related.filter(run => run.run_number === latest);
-    return current.length === 1 && candidates.includes(current[0].check_suite_id) && current[0].status === 'completed' && current[0].conclusion === 'success';
+    const [current, duplicate] = related.filter(run => run.run_number === latest);
+    return current && !duplicate && candidates.includes(current.check_suite_id) && current.status === 'completed' && current.conclusion === 'success' ? current : null;
   };
-  if (!isLatest(boundraCI, ci) || !isLatest(boundraPages, pages)) return false;
-  const blobs = await Promise.all(Object.entries(boundraScopeContract).map(async ([path, expected]) => {
-    const item = await publicJson<{ type?: string; sha?: string }>(request, root + '/contents/' + path + '?ref=' + source.merge);
-    return item?.type === 'file' && item.sha === expected;
-  }));
-  return blobs.every(Boolean);
+  const ciRun = latestSuiteRun(boundraCI, ci);
+  const pagesRun = latestSuiteRun(boundraPages, pages);
+  if (!ciRun) return false;
+  const hasPagesRun = runs.workflow_runs.some(run =>
+    run.workflow_id === boundraPages && run.head_sha === source.head.sha && run.event === 'pull_request');
+  if (hasPagesRun && !pagesRun) return false;
+
+  const readBlob = (path: string) =>
+    publicJson<{ type?: string; sha?: string }>(request, root + '/contents/' + path + '?ref=' + source.merge);
+  const [mergeCommit, workflow, classifier, classifierTests, pagesWorkflow] = await Promise.all([
+    publicJson<{ parents?: { sha: string }[] }>(request, root + '/git/commits/' + source.merge),
+    readBlob(boundraScopeFiles.workflow),
+    readBlob(boundraScopeFiles.classifier),
+    readBlob(boundraScopeFiles.classifierTests),
+    readBlob(boundraScopeFiles.pages)
+  ]);
+  const parents = mergeCommit?.parents;
+  const base = parents?.[0]?.sha;
+  if (parents?.length !== 2 || !base || !/^[a-f0-9]{40}$/.test(base) || parents[1]?.sha !== source.head.sha ||
+      [ciRun, pagesRun].some(run => run && (run.pull_requests[0].base?.sha !== base || run.pull_requests[0].head?.sha !== source.head.sha))) return false;
+
+  if ([workflow, classifier, classifierTests, pagesWorkflow].some(item => item?.type !== 'file') ||
+      classifier?.sha !== '4f941d29489a3fc007e9285f87b4d6a369e441b2' || pagesWorkflow?.sha !== '3bb95fdf641880ada87f4bf2eadcd602886ccf88') return false;
+  const contract = boundraScopeContracts.find(item => item.workflow === workflow?.sha && item.classifierTests === classifierTests?.sha);
+  if (!contract) return false;
+  if (!pagesRun) {
+    const comparison = await publicJson<{ status?: string; merge_base_commit?: { sha: string }; files?: { filename: string; status: string }[] }>(
+      request, root + '/compare/' + base + '...' + source.merge + '?per_page=1'
+    );
+    // Boundra's Pages workflow intentionally does not run for a root guidance edit.
+    if (comparison?.status !== 'ahead' || comparison.merge_base_commit?.sha !== base || comparison.files?.length !== 1 ||
+        comparison.files[0]?.filename !== 'AGENTS.md' || comparison.files[0]?.status !== 'modified') return false;
+  }
+  if (!contract.sharedWorkflow) return true;
+
+  // The workflow run records the immutable revision actually used by its ci-v1 call.
+  if (!Array.isArray(ciRun.referenced_workflows)) return false;
+  const [shared, extra] = ciRun.referenced_workflows;
+  if (!shared || extra || shared.path !== 'Oddmash/.github/' + sharedScopeWorkflow + '@ci-v1' ||
+      shared.ref !== 'refs/heads/ci-v1' || !/^[a-f0-9]{40}$/.test(shared.sha)) return false;
+  const sharedFile = await publicJson<{ type?: string; sha?: string }>(
+    request, '/repos/Oddmash/.github/contents/' + sharedScopeWorkflow + '?ref=' + shared.sha
+  );
+  return sharedFile?.type === 'file' && sharedFile.sha === contract.sharedWorkflow;
 }
 
 export function reviewChecksAreScopedAdvisory(evidence: CheckEvidence, repository?: string): boolean {

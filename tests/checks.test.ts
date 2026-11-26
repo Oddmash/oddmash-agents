@@ -220,6 +220,7 @@ test('actionable findings remain neutral for all authors while approval rules st
 const scopedRepository = 'Oddmash/boundra';
 const scopedHead = 'a'.repeat(40);
 const scopedMerge = 'b'.repeat(40);
+const scopedBase = 'c'.repeat(40);
 const scopedNumber = 126;
 const scopedRepoId = 1218645367;
 const scopedBranch = 'fix/site';
@@ -229,6 +230,18 @@ const scopedBlobs: Record<string, string> = {
   'scripts/classify-ci-scope.test.mjs': '44adee98496346c5e154b48d81263f9b5a284949',
   '.github/workflows/pages.yml': '3bb95fdf641880ada87f4bf2eadcd602886ccf88'
 };
+const currentScopedBlobs = {
+  ...scopedBlobs,
+  '.github/workflows/boundra.yml': 'de7b774b19321864a81edc320e0631b10b1fe14b',
+  'scripts/classify-ci-scope.test.mjs': '186d9a534c56adf5dcd90f94ed14690d85aeeaca'
+};
+const sharedScopeBlob = '78fb14cdfa36c2b348f8216369fabc3cd661f4a2';
+const sharedScopeRun = {
+  path: 'Oddmash/.github/.github/workflows/ci-scope.yml@ci-v1',
+  ref: 'refs/heads/ci-v1',
+  sha: 'd470ec5f76590ca90ca9ba1eda4ba550c5b7a98e'
+};
+const associatedPull = { number: scopedNumber, head: { sha: scopedHead }, base: { sha: scopedBase } };
 const scopeJob = (suite: number, name: string, conclusion: string, app = 15368): Check => ({
   name, status: 'completed', conclusion, app: { id: app }, check_suite: { id: suite }
 });
@@ -240,14 +253,23 @@ const scopedJobs = [
 const scopedRuns = [296703178, 427973803].map((workflow_id, index) => ({
   workflow_id, check_suite_id: 10 + index, run_number: 213, head_sha: scopedHead, head_branch: scopedBranch,
   head_repository: { id: scopedRepoId }, event: 'pull_request', status: 'completed', conclusion: 'success',
-  pull_requests: [{ number: scopedNumber }]
+  pull_requests: [associatedPull], referenced_workflows: [] as typeof sharedScopeRun[]
 }));
+type ScopedRun = Omit<(typeof scopedRuns)[number], 'pull_requests' | 'referenced_workflows'> & {
+  pull_requests: { number: number; head?: { sha: string }; base?: { sha: string } }[];
+  referenced_workflows?: typeof sharedScopeRun[];
+};
 const scopedSource = { head: { sha: scopedHead, ref: scopedBranch, repo: { id: scopedRepoId, owner: { login: 'Oddmash' } } },
   merge: scopedMerge, readPulls: async () => null };
 const evaluateScoped = async ({
   jobs = scopedJobs, runs = scopedRuns, totalRuns = runs.length, blobs = scopedBlobs,
-  source = scopedSource, second: secondEvidence = { total_count: 0, check_runs: [] }
-}: { jobs?: Check[]; runs?: typeof scopedRuns; totalRuns?: number; blobs?: Record<string, string>; source?: typeof scopedSource; second?: CheckEvidence | null } = {}) => {
+  source = scopedSource, second: secondEvidence = { total_count: 0, check_runs: [] },
+  mergeParents = [scopedBase, scopedHead], sharedBlob = sharedScopeBlob, comparisonFiles = [], comparisonResponse
+}: {
+  jobs?: Check[]; runs?: ScopedRun[]; totalRuns?: number; blobs?: Record<string, string>;
+  source?: typeof scopedSource; second?: CheckEvidence | null; mergeParents?: string[]; sharedBlob?: string;
+  comparisonFiles?: { filename: string; status: string }[]; comparisonResponse?: Response;
+} = {}) => {
   const reader = publicReviewCheckReader('/repos/' + scopedRepository, scopedNumber, async ref =>
     ref === scopedHead ? { total_count: jobs.length, check_runs: jobs } : secondEvidence, async (url, init) => {
     const path = new URL(String(url));
@@ -255,6 +277,17 @@ const evaluateScoped = async ({
     if (path.pathname.endsWith('/actions/runs')) {
       assert.equal(path.searchParams.get('head_sha'), scopedHead);
       return Response.json({ total_count: totalRuns, workflow_runs: runs });
+    }
+    if (path.pathname.includes('/compare/')) {
+      assert.equal(path.pathname.split('/compare/')[1], scopedBase + '...' + scopedMerge);
+      return comparisonResponse ?? Response.json({ status: 'ahead', merge_base_commit: { sha: scopedBase }, files: comparisonFiles });
+    }
+    if (path.pathname.endsWith('/git/commits/' + scopedMerge)) {
+      return Response.json({ parents: mergeParents.map(sha => ({ sha })) });
+    }
+    if (path.pathname === '/repos/Oddmash/.github/contents/.github/workflows/ci-scope.yml') {
+      assert.equal(path.searchParams.get('ref'), sharedScopeRun.sha);
+      return Response.json({ type: 'file', sha: sharedBlob });
     }
     if (path.pathname.includes('/contents/')) {
       assert.equal(path.searchParams.get('ref'), scopedMerge);
@@ -354,7 +387,7 @@ test('Boundra scoped review refuses superseded, ambiguous, unrelated and stale w
   const runVariations = [
     scopedRuns.slice(0, 1),
     scopedRuns.map(run => ({ ...run, head_sha: 'c'.repeat(40) })),
-    scopedRuns.map(run => ({ ...run, pull_requests: [{ number: scopedNumber + 1 }] })),
+    scopedRuns.map(run => ({ ...run, pull_requests: [{ ...associatedPull, number: scopedNumber + 1 }] })),
     scopedRuns.map(run => ({ ...run, head_repository: { id: 123 } })),
     [...scopedRuns, { ...scopedRuns[0], run_number: 214, check_suite_id: 12, status: 'queued', conclusion: 'success' }],
     [...scopedRuns, { ...scopedRuns[0], run_number: 214, check_suite_id: 12, pull_requests: [] }],
@@ -369,4 +402,70 @@ test('Boundra scoped review refuses superseded, ambiguous, unrelated and stale w
     assert.equal(reviewChecksMayStart(await evaluateScoped({ blobs: { ...scopedBlobs, [path]: 'f'.repeat(40) } }), scopedRepository), false);
   }
   assert.equal(reviewChecksMayStart(await evaluateScoped({ source: { ...scopedSource, merge: '' } }), scopedRepository), false);
+});
+
+
+test('Boundra current reviewed contract uses the shared workflow resolved by the actual CI run', async () => {
+  const runs = [{ ...scopedRuns[0], referenced_workflows: [sharedScopeRun] }, scopedRuns[1]];
+  const current = { blobs: currentScopedBlobs, runs };
+  const evidence = await evaluateScoped(current);
+  assert.equal(reviewChecksAreScopedAdvisory(evidence, scopedRepository), true);
+  assert.equal(reviewChecksSuccessful(evidence, scopedRepository), false);
+  assert.equal(finalReviewEvent('APPROVE', evidence, scopedRepository), 'COMMENT');
+  for (const input of [
+    { ...current, runs: scopedRuns },
+    { ...current, sharedBlob: 'f'.repeat(40) },
+    { ...current, runs: [{ ...runs[0], referenced_workflows: [{ ...sharedScopeRun, ref: 'refs/heads/main' }] }, runs[1]] },
+    { ...current, runs: [{ ...runs[0], referenced_workflows: [sharedScopeRun, sharedScopeRun] }, runs[1]] },
+    { ...current, blobs: { ...currentScopedBlobs, 'scripts/classify-ci-scope.test.mjs': scopedBlobs['scripts/classify-ci-scope.test.mjs'] } },
+    { ...current, blobs: { ...scopedBlobs, 'scripts/classify-ci-scope.test.mjs': currentScopedBlobs['scripts/classify-ci-scope.test.mjs'] } },
+  ]) {
+    assert.equal(reviewChecksMayStart(await evaluateScoped(input), scopedRepository), false);
+  }
+});
+
+test('Boundra scoped CI and Pages runs must both match the checked merge parents', async () => {
+  const stalePull = { ...associatedPull, base: { sha: 'd'.repeat(40) } };
+  const staleCI = [{ ...scopedRuns[0], pull_requests: [stalePull] }, scopedRuns[1]];
+  const stalePages = [scopedRuns[0], { ...scopedRuns[1], pull_requests: [stalePull] }];
+  const wrongRunHead = [{ ...scopedRuns[0], pull_requests: [{ ...associatedPull, head: stalePull.base }] }, scopedRuns[1]];
+  const withoutBase = [{ ...scopedRuns[0], pull_requests: [{ ...associatedPull, base: undefined }] }, scopedRuns[1]];
+  const withoutHead = [scopedRuns[0], { ...scopedRuns[1], pull_requests: [{ ...associatedPull, head: undefined }] }];
+  for (const input of [
+    { runs: staleCI }, { runs: stalePages }, { runs: wrongRunHead }, { runs: withoutBase }, { runs: withoutHead },
+    { mergeParents: [scopedBase] }, { mergeParents: [scopedHead, scopedBase] }
+  ]) {
+    assert.equal(reviewChecksMayStart(await evaluateScoped(input), scopedRepository), false);
+  }
+});
+
+
+test('Boundra may omit Pages only for a verified root guidance edit with no Pages run', async () => {
+  const jobs = scopedJobs.filter(job => job.check_suite?.id === 10);
+  const runs = [{ ...scopedRuns[0], referenced_workflows: [sharedScopeRun] }];
+  const guidance = { filename: 'AGENTS.md', status: 'modified' };
+  const input = { blobs: currentScopedBlobs, jobs, runs, comparisonFiles: [guidance] };
+  const evidence = await evaluateScoped(input);
+  assert.equal(reviewChecksAreScopedAdvisory(evidence, scopedRepository), true);
+  assert.equal(finalReviewEvent('APPROVE', evidence, scopedRepository), 'COMMENT');
+  for (const variation of [
+    { ...input, comparisonFiles: [{ filename: 'site/src/index.astro', status: 'modified' }] },
+    { ...input, comparisonFiles: [guidance, { filename: 'docs/usage.md', status: 'modified' }] },
+    { ...input, comparisonFiles: [{ ...guidance, status: 'renamed' }] },
+    { ...input, runs: [...runs, { ...scopedRuns[1], conclusion: 'failure' }] },
+    { ...input, comparisonResponse: new Response(null, { status: 503 }) },
+    { ...input, comparisonResponse: Response.json({ status: 'ahead', merge_base_commit: { sha: scopedBase } }) },
+    { ...input, comparisonResponse: new Response('malformed JSON') }
+  ]) {
+    assert.equal(reviewChecksMayStart(await evaluateScoped(variation), scopedRepository), false);
+  }
+});
+
+
+test('legacy immutable Boundra workflow does not require the mutable ci-v1 reference payload', async () => {
+  const runs = scopedRuns.map(run => ({ ...run, referenced_workflows: undefined }));
+  const evidence = await evaluateScoped({ runs });
+  assert.equal(reviewChecksAreScopedAdvisory(evidence, scopedRepository), true);
+  assert.equal(finalReviewEvent('APPROVE', evidence, scopedRepository), 'COMMENT');
+  assert.equal(reviewChecksMayStart(await evaluateScoped({ runs, blobs: currentScopedBlobs }), scopedRepository), false);
 });
