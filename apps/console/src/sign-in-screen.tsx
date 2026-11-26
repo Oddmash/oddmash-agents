@@ -3,7 +3,7 @@ import { Alert, Button } from '@oddmash/ui';
 
 type SignInAvailability = 'ready' | 'unconfigured' | 'error';
 
-export const SignInScreen = ({ availability, onSignIn }: { availability: SignInAvailability; onSignIn: () => Promise<void> }) => {
+export const SignInScreen = ({ availability, errorMessage, onSignIn }: { availability: SignInAvailability; errorMessage?: string; onSignIn: () => Promise<void> }) => {
   const inFlight = useRef(false);
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -28,8 +28,8 @@ export const SignInScreen = ({ availability, onSignIn }: { availability: SignInA
         <div className="login-actions">
           {availability === 'unconfigured' && <Alert role="alert" tone="danger">Console authentication is not configured.</Alert>}
           {availability === 'error' && <p role="status">Unable to verify configuration. You can retry sign-in or reload this page.</p>}
-          {failed && <Alert role="alert" tone="danger">Unable to start GitHub sign-in. Please try again.</Alert>}
-          {availability !== 'unconfigured' && <Button className="login-action" disabled={pending} onClick={() => void start()}>{pending ? 'Opening GitHub…' : 'Sign in with GitHub'}</Button>}
+          {(failed || errorMessage) && <Alert role="alert" tone="danger">{failed ? 'Unable to start GitHub sign-in. Please try again.' : errorMessage}</Alert>}
+          {availability !== 'unconfigured' && <Button className="login-action" disabled={pending} onClick={() => void start()}>Sign in with GitHub</Button>}
           <span className="login-progress" role="status" aria-live="polite">{pending ? 'Opening GitHub sign-in.' : ''}</span>
         </div>
         <p className="login-restriction">Private workspace. Access is restricted to the authorized GitHub account.</p>

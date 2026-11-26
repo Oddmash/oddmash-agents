@@ -7,6 +7,7 @@ import { AgentLoading } from './agent-loading';
 import { parseTheme, resolveTheme, type ThemePreference } from './console-preferences';
 import { Dashboard } from './dashboard';
 import { SignInScreen } from './sign-in-screen';
+import { clearSignInError, signInErrorMessage } from './sign-in-feedback';
 import '@oddmash/ui/styles.css';
 import './globals.css';
 
@@ -54,11 +55,18 @@ const Console = () => {
   const themeControl = <div className="language-control"><span>{t('Theme')}</span><Select aria-label={t('Theme')} value={theme} options={[{ value: 'light', label: t('Light') }, { value: 'dark', label: t('Dark') }, { value: 'system', label: t('System') }]} onValueChange={value => { const preference = parseTheme(value); applyTheme(preference); setTheme(preference); }}/></div>;
   const { status, data } = useSession();
   const authenticated = status === 'authenticated' && Boolean(data?.user?.id);
+  const [loginError, setLoginError] = useState(() => signInErrorMessage(window.location.href));
   useEffect(() => {
     const visibleLanguage = authenticated ? language : 'en';
     document.documentElement.lang = visibleLanguage;
     document.title = 'Oddmash | ' + translate(visibleLanguage, 'Agents Console');
   }, [authenticated, language]);
+  useEffect(() => {
+    if (!authenticated) return;
+    setLoginError(undefined);
+    const url = clearSignInError(window.location.href);
+    if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url);
+  }, [authenticated]);
   const [configured, setConfigured] = useState<'checking' | 'ready' | 'unconfigured' | 'error'>('checking');
   useEffect(() => {
     const abort = new AbortController();
@@ -71,7 +79,7 @@ const Console = () => {
     return () => { clearTimeout(timeout); abort.abort(); };
   }, []);
   if (status === 'loading' || (!authenticated && configured === 'checking')) return <main className="session-loading" lang="en"><AgentLoading label="Checking session…"/></main>;
-  if (!authenticated) return <SignInScreen availability={configured === 'checking' ? 'error' : configured} onSignIn={async () => { await signIn('github', { callbackUrl: localizedCallback(window.location.origin, localizedUrl(window.location.href, language, view).pathname, language) }); }} />;
+  if (!authenticated) return <SignInScreen availability={configured === 'checking' ? 'error' : configured} errorMessage={loginError} onSignIn={async () => { setLoginError(undefined); const url = clearSignInError(window.location.href); if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url); await signIn('github', { callbackUrl: localizedCallback(window.location.origin, localizedUrl(window.location.href, language, view).pathname, language) }); }} />;
   return <Dashboard view={view} navigate={nextView => navigate(language, nextView)} language={language} languageControl={languageControl} themeControl={themeControl} logout={<Button variant="secondary" className="login-button" onClick={() => void signOut({ callbackUrl: localizedCallback(window.location.origin, localizedUrl(window.location.href, language, view).pathname, language) })}>{t("Sign out")}</Button>} />;
 }
 createRoot(document.getElementById('root')!).render(<StrictMode><SessionProvider><Console /></SessionProvider></StrictMode>);
