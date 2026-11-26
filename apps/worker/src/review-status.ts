@@ -7,7 +7,7 @@ const messages: Record<string, [string, string]> = {
   'automatic merge is disabled': ['Automatic merge is disabled in the current configuration.', '현재 설정에서 자동 머지가 비활성화되어 있습니다.'],
   'private repository requires manual merge': ['This repository requires a manual merge under the current policy.', '현재 정책상 이 저장소는 수동 머지가 필요합니다.'],
   'repository is outside the auto-merge allowlist': ['This repository is outside the automatic merge policy.', '이 저장소는 자동 머지 허용 범위에 포함되지 않습니다.'],
-  'PR author is not the authorized maintainer': ['The PR author is not eligible for automatic merge.', 'PR 작성자가 자동 머지 대상이 아닙니다.'],
+  'PR author is not an authorized internal contributor': ['The PR author is not eligible for automatic merge.', 'PR 작성자가 자동 머지 대상이 아닙니다.'],
   'pull request is not open and ready': ['The pull request is closed or a draft. Mark an eligible open PR ready for review before retrying.', 'PR이 닫혔거나 Draft 상태입니다. 열린 PR을 검토 준비 상태로 바꾸고 재시도하세요.'],
   'repository visibility or archive state is ineligible': ['Repository visibility changed or the repository is archived. Confirm the enrolled repository identity and access.', '저장소 공개 상태가 변경되었거나 보관 상태입니다. 등록된 저장소 상태와 접근 권한을 확인하세요.'],
   'base repository identity is ineligible': ['The base repository does not match the enrolled identity. Inspect the target repository before retrying.', '대상 저장소가 등록된 저장소 정보와 다릅니다. PR 대상 저장소를 확인하세요.'],
