@@ -11,6 +11,7 @@ import { modelPolicy } from '../../packages/operator-contract/src/model-settings
 import { handleModelWrite } from './model-request.ts';
 import { verifyModelAvailability } from './model-availability.ts';
 import { handleControlWrite } from './control-request.ts';
+import { readContributorPulls } from './contributor-pulls.ts';
 
 function owner(id: unknown) { return isAuthorizedOwner(id, process.env.CONSOLE_OWNER_GITHUB_ID); }
 const firstPartyMode = () => process.env.CONSOLE_SESSION_MODE === 'first-party';
@@ -43,14 +44,14 @@ consoleApi.use('/api/*', async (c, next) => {
   c.header('Cache-Control', 'private, no-store');
   c.header('X-Content-Type-Options', 'nosniff');
   const authRoute = c.req.path.startsWith('/api/auth/');
-  const readRoute = c.req.method === 'GET' && ['/api/availability', '/api/status', '/api/controls', '/api/models'].includes(c.req.path);
+  const readRoute = c.req.method === 'GET' && ['/api/availability', '/api/status', '/api/controls', '/api/models', '/api/contributors'].includes(c.req.path);
   const sessionRead = firstPartyMode() && c.req.method === 'GET' && c.req.path === '/api/session/status';
   const sessionWrite = firstPartyMode() && c.req.method === 'POST' && ['/api/session/bootstrap', '/api/session/refresh', '/api/session/logout'].includes(c.req.path);
   const controlWrite = c.req.method === 'POST' && ['/api/controls', '/api/models'].includes(c.req.path);
   if (!readRoute && !controlWrite && !sessionRead && !sessionWrite && !(authRoute && ['GET', 'POST'].includes(c.req.method))) return c.json({ error: 'Not found' }, 404);
   if (!authConfigured()) {
     if (c.req.path === '/api/availability' && c.req.method === 'GET') return c.json(firstPartyMode() ? { configured: false, sessionMode: 'first-party' } : { configured: false });
-    return c.json({ error: 'Unauthorized or unavailable' }, ['/api/status', '/api/controls', '/api/models'].includes(c.req.path) ? 401 : 503);
+    return c.json({ error: 'Unauthorized or unavailable' }, ['/api/status', '/api/controls', '/api/models', '/api/contributors'].includes(c.req.path) ? 401 : 503);
   }
   if ((controlWrite || sessionWrite) && (c.req.header('origin') !== new URL(process.env.AUTH_URL!).origin || new URL(c.req.url).origin !== new URL(process.env.AUTH_URL!).origin || c.req.header('content-type')?.split(';')[0] !== 'application/json')) return c.json({ error: 'Invalid console origin or content type' }, 403);
   if (c.req.path.startsWith('/api/auth/') && new URL(c.req.url).origin !== new URL(process.env.AUTH_URL!).origin) return c.json({ error: 'Invalid console origin' }, 400);
@@ -90,6 +91,11 @@ consoleApi.post('/api/session/bootstrap', verifyAuth(), async c => {
 });
 consoleApi.post('/api/session/refresh', async c => sessionHttp(true).refresh(c.req.raw));
 consoleApi.post('/api/session/logout', async c => sessionHttp(true).logout(c.req.raw));
+consoleApi.get('/api/contributors', dataAuth, async c => {
+  if (!firstPartyMode() && !owner(c.get('authUser').token?.operatorId)) return c.json({ error: 'Unauthorized' }, 401);
+  try { return c.json(await readContributorPulls(process.env.CONSOLE_OWNER_GITHUB_ID!)); }
+  catch { return c.json({ error: 'Contributor PR source unavailable' }, 503); }
+});
 consoleApi.get('/api/status', dataAuth, async c => {
   if (!firstPartyMode() && !owner(c.get('authUser').token?.operatorId)) return c.json({ error: 'Unauthorized' }, 401);
   try {

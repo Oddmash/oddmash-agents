@@ -1,4 +1,13 @@
 export const korean = {
+  "Contributor PRs": "외부 기여 PR",
+  "Open public pull requests from external contributors. Agent states show retained observations, not current GitHub approval.": "외부 기여자의 공개 PR입니다. 에이전트 상태는 보관된 관측 기록이며 현재 GitHub 승인 상태가 아닙니다.",
+  "Contributor pull requests unavailable. Try again later.": "기여 PR을 불러오지 못했습니다. 잠시 후 다시 시도하세요.",
+  "Results may be incomplete.": "일부 결과가 누락되었을 수 있습니다.",
+  "No matching open contributor pull requests.": "열려 있는 외부 기여 PR이 없습니다.",
+  "Draft pull request": "초안 PR",
+  "Open pull request": "열린 PR",
+  "No retained agent activity for this pull request.": "이 PR의 보관된 에이전트 활동이 없습니다.",
+  "View GitHub checks": "GitHub 검사 보기",
   "Skipped": "검토 건너뜀",
   "Publication confirmed": "게시 확인",
   "Choose a repository": "저장소 선택",
@@ -189,7 +198,7 @@ export const chooseLanguage = (value: string | null | undefined): Language => va
 export const executionCount = (language: Language, visible: number, total: number): string => language === 'ko' ? `전체 ${total.toLocaleString(language)}건 중 ${visible.toLocaleString(language)}건` : `${visible.toLocaleString(language)} of ${total.toLocaleString(language)} executions`;
 export const missingCalls = (language: Language, count: number): string => language === 'ko' ? `${count.toLocaleString(language)}건 미측정` : `missing in ${count.toLocaleString(language)} calls`;
 
-export const consoleViews = ['overview', 'activity', 'usage', 'settings'] as const;
+export const consoleViews = ['overview', 'activity', 'contributors', 'usage', 'settings'] as const;
 export type ConsoleView = typeof consoleViews[number];
 export function consoleRoute(href: string): { language?: Language; view: ConsoleView } {
   const url = new URL(href, 'https://console.invalid');
@@ -211,6 +220,6 @@ export const localizedUrl = (href: string, language: Language, view = consoleRou
 };
 export const localizedCallback = (origin: string, route: string, language: Language): string => {
   const url = new URL(origin);
-  const safeView = route.startsWith('#') || /^\/(?:en|ko)(?:\/(?:overview|activity|usage|settings))?\/?$/.test(route) ? consoleRoute(route).view : 'overview';
+  const safeView = route.startsWith('#') || /^\/(?:en|ko)(?:\/(?:overview|activity|contributors|usage|settings))?\/?$/.test(route) ? consoleRoute(route).view : 'overview';
   return localizedUrl(url.href, language, safeView).href;
 };
