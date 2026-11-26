@@ -69,3 +69,15 @@ test('expiration stops automatic polling and disposal clears timers', async () =
   await f.complete(1);
   assert.equal(f.timers.size, 0);
 });
+
+test('a fresh session snapshot defers the first poll and manual refresh cancels that delay', async () => {
+  const f = fixture();
+  f.polling.start(4000);
+  assert.equal(f.requests.length, 0);
+  assert.deepEqual([...f.timers.values()].map(timer => timer.delay), [4000]);
+  void f.polling.refresh();
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual([...f.timers.values()].map(timer => timer.delay), [15000]);
+  await f.complete(0);
+  assert.deepEqual([...f.timers.values()].map(timer => timer.delay), [10000]);
+});
