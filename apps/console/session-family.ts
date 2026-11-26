@@ -68,6 +68,8 @@ export function revokeSession(state: SessionState, credential: string, expectedO
   const current = prune(state, now);
   const id = tokenId(credential);
   const family = id && current.families.find(entry => entry.id === id);
-  if (!family || !key || family.ownerId !== expectedOwner || !(matches(family.accessDigest, digest(key, 'access', credential)) || matches(family.refreshDigest, digest(key, 'refresh', credential)))) return denied(current);
+  if (!family || !key || family.ownerId !== expectedOwner) return denied(current);
+  const refreshDigest = digest(key, 'refresh', credential);
+  if (!(matches(family.accessDigest, digest(key, 'access', credential)) || matches(family.refreshDigest, refreshDigest) || family.spent.some(entry => matches(entry.digest, refreshDigest)))) return denied(current);
   return { state: replace(current, { ...family, revoked: true }), outcome: 'revoked' };
 }

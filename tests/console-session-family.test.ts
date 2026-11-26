@@ -50,6 +50,26 @@ test('logout revokes the family and cannot restore bootstrap eligibility', () =>
   assert.equal(issueSession(revoked.state, owner, owner, bootstrap, now, now, key).outcome, 'denied');
 });
 
+test('logout racing a successful refresh still revokes the same family', () => {
+  const issued = issue();
+  const rotated = rotateSession(issued.state, issued.credentials.refresh, owner, now + ACCESS_LIFETIME_MS, key);
+  if (rotated.outcome !== 'rotated') throw new Error('fixture failed');
+  const revoked = revokeSession(rotated.state, issued.credentials.refresh, owner, now + ACCESS_LIFETIME_MS + 1, key);
+  assert.equal(revoked.outcome, 'revoked');
+  assert.equal(authorizeSession(revoked.state, rotated.credentials.access, owner, now + ACCESS_LIFETIME_MS + 1, key), false);
+});
+
+test('active family capacity refuses new sessions without evicting existing families', () => {
+  let state = empty;
+  for (let i = 0; i < 8; i++) {
+    const result = issueSession(state, owner, owner, String(i).repeat(43), now, now, key);
+    assert.equal(result.outcome, 'issued');
+    state = result.state;
+  }
+  assert.equal(issueSession(state, owner, owner, 'z'.repeat(43), now, now, key).outcome, 'capacity');
+  assert.equal(state.families.length, 8);
+});
+
 test('atomic transaction retries produce exactly one issued and one rotated credential pair', async () => {
   let raw: string | null = null;
   const store: SessionStore = { async read() { return raw; }, async compareAndSet(expected, next) { if (raw !== expected) return false; raw = next; return true; } };
