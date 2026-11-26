@@ -1,4 +1,4 @@
-import { checksPassed, isInternalReviewAuthor, type ReviewDecision } from './core.ts';
+import { checksPassed, isOwner, type ReviewDecision } from './core.ts';
 import { progressCheckName } from './review-progress.ts';
 import { githubRequest } from './github-request.ts';
 export type Check = { id?: number; name: string; status: string; conclusion: string | null; app?: { id: number }; check_suite?: { id: number } };
@@ -270,7 +270,7 @@ export function finalReviewEvent(assessment: ReviewDecision, evidence: CheckEvid
   if (!reviewChecksReady(evidence, repository)) return null;
   if (assessment === 'REQUEST_CHANGES') return 'COMMENT';
   if (!reviewChecksSuccessful(evidence, repository)) return null;
-  return assessment === 'APPROVE' && !isInternalReviewAuthor(author) ? 'COMMENT' : assessment;
+  return assessment === 'APPROVE' && !isOwner(author) ? 'COMMENT' : assessment;
 }
 
 export async function loadCheckEvidence(head: string, merge: string | null | undefined, read: (sha: string) => Promise<CheckEvidence | null>, reviewerAppId = Number(process.env.REVIEWER_APP_ID)): Promise<CheckEvidence> {

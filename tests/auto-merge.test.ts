@@ -26,7 +26,7 @@ test('merge retry proof binds approval to the exact PR, head, base, merge commit
 test('only authorized internal same-repository eligible main PRs are candidates', () => {
   assert.equal(eligiblePull(pr, target), true);
   const ai = { id: 264418006, login: 'arvynoo' };
-  assert.equal(eligiblePull({ ...pr, user: ai }, target), true);
+  assert.equal(eligiblePull({ ...pr, user: ai }, target), false);
   assert.equal(eligiblePull({ ...pr, user: { ...ai, id: 99 } }, target), false);
   assert.equal(eligiblePull({ ...pr, user: { ...ai, login: 'external' } }, target), false);
   assert.equal(acceptanceForPull(issue, { ...pr, user: ai })?.issue, issue.number);

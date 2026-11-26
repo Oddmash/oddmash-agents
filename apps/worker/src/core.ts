@@ -13,13 +13,9 @@ export function isOwner(author?: { id: number; login: string }): boolean {
   return author?.id === 135234546 && author.login === 'qtaghdi';
 }
 
-export function isInternalReviewAuthor(author?: { id: number; login: string }): boolean {
-  return isOwner(author) || (author?.id === 264418006 && author.login === 'arvynoo');
-}
-
 export function publicationFollowUp(followUp: ReviewFollowUp, assessment: ReviewDecision, author?: { id: number; login: string }): ReviewFollowUp {
   if (assessment === 'REQUEST_CHANGES') return { ...followUp, maintainerFindings: true };
-  if (assessment === 'APPROVE' && !isInternalReviewAuthor(author)) return { ...followUp, externalApprovalRequired: true };
+  if (assessment === 'APPROVE' && !isOwner(author)) return { ...followUp, externalApprovalRequired: true };
   return followUp;
 }
 
@@ -312,7 +308,7 @@ export function formatReport(context: ReviewContext, findings: Finding[], modelV
 }
 
 export function formatReviewBody(event: ReviewDecision, marker: string, report: string, author?: { id: number; login: string }, followUp?: ReviewFollowUp): string {
-  if (event === 'APPROVE') return isInternalReviewAuthor(author) ? `${marker}\nApproved.` : `${marker}\nThanks for contributing! @qtaghdi, this PR is ready for your review.`;
+  if (event === 'APPROVE') return isOwner(author) ? `${marker}\nApproved.` : `${marker}\nThanks for contributing! @qtaghdi, this PR is ready for your review.`;
   if (event === 'COMMENT' && followUp?.externalApprovalRequired) return `${marker}\nAutomated review is complete. @qtaghdi, please review this revision and provide the final approval before merging.`;
   if (event === 'REQUEST_CHANGES') return `${marker}\nPlease address the findings before approval.\n\n${report}`;
   if (followUp?.confirmedEmpty && !followUp.incompleteCoverage && !followUp.invalidEvidence && !followUp.advisory && !followUp.maintainerFindings) return `${marker}\nNo changed files (neutral review).\n\n${report}`;

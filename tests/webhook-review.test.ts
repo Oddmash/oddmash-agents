@@ -277,7 +277,7 @@ test('coordinated reviews publish only after all selected specialists finish', a
   const files = ['src/example.ts', 'docs/guide.md'].map(filename => ({
     filename, status: 'modified', changes: 4, additions: 2, deletions: 2, patch: '@@ -1,2 +1,2 @@\n-old\n-before\n+new\n+after'
   }));
-  const pr = { number: 1, state: 'open', draft: false, user: { login: 'arvynoo', id: 264418006 }, head: { sha: head },
+  const pr = { number: 1, state: 'open', draft: false, user: { login: 'qtaghdi', id: 135234546 }, head: { sha: head },
     base: { sha: base, repo: repository }, changed_files: files.length, title: 'Fixture', labels: [] };
   const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
   const specialists = [{ role: 'qa', appId: 43, file: files[0] }, { role: 'docs', appId: 44, file: files[1] }];

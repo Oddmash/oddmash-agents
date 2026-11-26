@@ -145,7 +145,8 @@ test('Boundra requires every trusted matrix job and the aggregate verify gate', 
   const jobs = names.map((name, index) => ({ name: index % 2 ? `Boundra / ${name}` : name, status: 'completed', conclusion: 'success', app: { id: 15368 } }));
   const full = { total_count: jobs.length, check_runs: jobs };
   assert.equal(reviewChecksSuccessful(full, repository), true);
-  assert.equal(finalReviewEvent('APPROVE', full, repository, { id: 264418006, login: 'arvynoo' }), 'APPROVE');
+  assert.equal(finalReviewEvent('APPROVE', full, repository, { id: 135234546, login: 'qtaghdi' }), 'APPROVE');
+  assert.equal(finalReviewEvent('APPROVE', full, repository, { id: 264418006, login: 'arvynoo' }), 'COMMENT');
   const profileOnly = { total_count: jobs.length - 1, check_runs: jobs.slice(0, -1) };
   assert.equal(reviewChecksReady(profileOnly, repository), false);
   assert.equal(reviewChecksSuccessful(profileOnly, repository), false);
@@ -207,7 +208,7 @@ test('actionable findings remain neutral for all authors while approval rules st
   assert.equal(finalReviewEvent('REQUEST_CHANGES', passed), 'COMMENT');
   assert.equal(finalReviewEvent('APPROVE', passed, undefined, owner), 'APPROVE');
   const ai = { id: 264418006, login: 'arvynoo' };
-  assert.equal(finalReviewEvent('APPROVE', passed, undefined, ai), 'APPROVE');
+  assert.equal(finalReviewEvent('APPROVE', passed, undefined, ai), 'COMMENT');
   assert.equal(finalReviewEvent('REQUEST_CHANGES', passed, undefined, ai), 'COMMENT');
   assert.equal(finalReviewEvent('APPROVE', passed, undefined, { ...ai, id: 1 }), 'COMMENT');
   assert.equal(finalReviewEvent('APPROVE', passed, undefined, { ...ai, login: 'external' }), 'COMMENT');
