@@ -77,3 +77,10 @@ test('live console retains bounded longer npm history but the displayed total re
   assert.equal(metric.history?.length,3);
   assert.throws(()=>parseNpmHistory({package:'boundra',downloads:[{day:'2024-01-01',downloads:1},{day:'2026-01-01',downloads:2}]},'boundra',366));
 });
+
+test('stale annual observations remain history without masquerading as recent downloads', async () => {
+  const request: typeof fetch = async () => Response.json({package:'boundra',downloads:[{day:'2025-10-01',downloads:2},{day:'2025-10-31',downloads:5}]});
+  const [metric] = await collectAdoptionMetrics(request,new Date('2026-01-31'),['boundra'],true);
+  assert.equal(metric.count,null);
+  assert.equal(metric.history?.length,2);
+});
