@@ -177,6 +177,9 @@ try {
         const tooltip=chart.locator('.download-hover-tooltip');
         await tooltip.waitFor({state:'visible'});
         assert.match(await tooltip.innerText(),/23/,label+' exact focused count');
+        await chart.locator('.download-bar').nth(1).hover();
+        await page.locator('.adoption-section h2').hover();
+        assert.match(await tooltip.innerText(),/23/,label+' pointer leave restores keyboard focus');
         await chart.locator('[data-zero="true"]').hover();
         assert.equal(await tooltip.locator('strong').innerText(),'0',label+' exact hover zero');
         await chart.locator('[data-missing="true"]').hover();
