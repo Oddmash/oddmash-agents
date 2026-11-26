@@ -257,6 +257,9 @@ export async function mergeAuthorized(api: Api, target: Target, candidate: Candi
   try {
     if (current.pull.mergeable_state === 'blocked' || final.mergeable_state === 'blocked') {
       const authorized = await writer<MergePull>(root + '/pulls/' + number);
+      if (authorized.mergeable === null || authorized.mergeable_state === 'unknown') {
+        throw new Error('Mergeability evidence pending');
+      }
       if (!matchesMergeRevision(authorized, current, target) ||
           authorized.mergeable !== true || authorized.mergeable_state !== 'clean') {
         return deny('candidate is not clean');

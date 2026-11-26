@@ -298,9 +298,11 @@ test('mint write token only after exact-head approval and protected current CI',
 
   assert.equal(await checkBlocked(reportedBlocked), false);
   assert.equal(await checkBlocked({ ...mobilePull, head: { ...mobilePull.head, sha: base } }), false);
+  await assert.rejects(checkBlocked({ ...mobilePull, mergeable: null }), /Mergeability evidence pending/);
+  await assert.rejects(checkBlocked({ ...mobilePull, mergeable_state: 'unknown' }), /Mergeability evidence pending/);
   assert.equal(writes, 5);
   assert.equal(await checkBlocked(mobilePull), true);
-  assert.equal(mints, 8);
+  assert.equal(mints, 10);
   assert.equal(writes, 6);
 
 });
