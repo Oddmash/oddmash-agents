@@ -56,7 +56,11 @@ export function createStatusPolling(options: Options) {
   }
 
   return {
-    start(delayMs = 0) { if (delayMs > 0) scheduleRefresh(delayMs); else void refresh(); },
+    start(delayMs = 0) {
+      if (!canPoll()) return;
+      if (delayMs > 0) scheduleRefresh(delayMs);
+      else void refresh();
+    },
     refresh: () => { expired = false; return refresh(); },
     setPaused(value: boolean) {
       paused = value;
