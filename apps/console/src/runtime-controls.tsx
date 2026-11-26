@@ -7,7 +7,7 @@ import { translate, type Language, type Message } from './i18n';
 
 const roleNames: Record<OptionalRole, string> = { impact: 'Impact', qa: 'QA', release: 'Release', docs: 'Docs', architect: 'Architect' };
 
-export const RuntimeControls = ({ language, defaults }: { language: Language; defaults: { maxRequests?: number; maxMs?: number } }) => {
+export const RuntimeControls = ({ language, defaults, onDirtyChange }: { language: Language; defaults: { maxRequests?: number; maxMs?: number }; onDirtyChange?: (dirty: boolean) => void }) => {
   const t = (key: Message) => translate(language, key);
   const [saved, setSaved] = useState<ControlsRecord>();
   const [draft, setDraft] = useState<OperatorControls>();
@@ -28,6 +28,8 @@ export const RuntimeControls = ({ language, defaults }: { language: Language; de
     return () => controller.abort();
   }, [retry]);
   const dirty = Boolean(saved && draft && controlsDirty(saved.controls, draft));
+  useEffect(() => { onDirtyChange?.(dirty || busy); }, [dirty, busy, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   const valid = draft ? validControlLimits(draft, defaults) : false;
   const save = async () => {
     if (!saved || !draft || busy || !dirty || !valid || conflict || needsReview) return;
@@ -60,6 +62,7 @@ export const RuntimeControls = ({ language, defaults }: { language: Language; de
     <p className="muted">{t("Restrict optional coordinated reviews. Deployment permissions, configured agents and approval gates remain unchanged.")}</p>
     {failed ? <><Alert tone="danger">{t(failed === 'unauthorized' ? "Session expired. Sign in again." : "Runtime controls unavailable.")}</Alert><Button variant="secondary" onClick={() => setRetry(value => value + 1)}>{t("Refresh")}</Button></> : !draft ? <ConsoleSkeleton view="controls" language={language}/> :
       <form onSubmit={event => event.preventDefault()}>
+        <div className="control-actions"><Button type="button" onClick={() => void save()} disabled={!dirty || !valid || busy || conflict || needsReview}>{t(busy ? "Saving…" : "Save changes")}</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => { setEmptyLimit(null); setDraft(defaultControls()); setNotice(saved && controlsDirty(saved.controls, defaultControls()) ? "Defaults staged. Save to apply." : ""); }}>{t("Restore defaults")}</Button><Button type="button" variant="secondary" disabled={busy || dirty} onClick={() => setRetry(value => value + 1)}>{t("Reload saved settings")}</Button>{dirty && !conflict && <Button type="button" variant="secondary" disabled={busy} onClick={() => { setEmptyLimit(null); if (saved) setDraft(saved.controls); setNeedsReview(false); setNotice(""); }}>{t("Discard changes")}</Button>}{conflict && <Button type="button" variant="secondary" disabled={busy} onClick={() => void reloadRevision()}>{t("Keep draft and reload revision")}</Button>}</div>
         <fieldset disabled={busy}><legend>{t("Participation")}</legend>
           <label className="control-check"><input type="checkbox" checked={draft.paused} onChange={event => setDraft({ ...draft, paused: event.target.checked })}/>{t("Pause coordinated specialists")}</label>
           <div className="role-checks">{optionalRoles.map(role => <label key={role} className="control-check"><input type="checkbox" checked={!draft.excludedRoles.includes(role)} disabled={draft.paused} onChange={event => setDraft({ ...draft, excludedRoles: optionalRoles.filter(item => item === role ? !event.target.checked : draft.excludedRoles.includes(item)) })}/>{roleNames[role]}</label>)}</div>
@@ -72,7 +75,7 @@ export const RuntimeControls = ({ language, defaults }: { language: Language; de
         {!valid && <Alert tone="danger">{t("Enter valid limits within the deployment defaults.")}</Alert>}
         {dirty && <p role="status" className="muted">{t("Unsaved changes. Save to apply.")}</p>}
         {needsReview && saved && <div className="conflict-review"><h3>{t("Latest saved settings")}</h3><p>{t("Pause coordinated specialists")}: {t(saved.controls.paused ? "Enabled" : "Disabled")}</p><p>{t("Participation")}: {optionalRoles.filter(role => !saved.controls.excludedRoles.includes(role)).map(role => roleNames[role]).join(', ') || t("Disabled")}</p><p>{t("Review limits")}: {saved.controls.maxRequests ?? t("Deployment default")} / {saved.controls.maxMs === null ? t("Deployment default") : saved.controls.maxMs / 1000 + 's'}</p><Button type="button" variant="secondary" disabled={busy} onClick={() => { setNeedsReview(false); setNotice('Draft confirmed. Save to apply your changes.'); }}>{t("Use my draft")}</Button></div>}
-        <div className="control-actions"><Button type="button" onClick={() => void save()} disabled={!dirty || !valid || busy || conflict || needsReview}>{t(busy ? "Saving…" : "Save changes")}</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => { setEmptyLimit(null); setDraft(defaultControls()); setNotice(saved && controlsDirty(saved.controls, defaultControls()) ? "Defaults staged. Save to apply." : ""); }}>{t("Restore defaults")}</Button><Button type="button" variant="secondary" disabled={busy || dirty} onClick={() => setRetry(value => value + 1)}>{t("Reload saved settings")}</Button>{dirty && !conflict && <Button type="button" variant="secondary" disabled={busy} onClick={() => { setEmptyLimit(null); if (saved) setDraft(saved.controls); setNeedsReview(false); setNotice(""); }}>{t("Discard changes")}</Button>}{conflict && <Button type="button" variant="secondary" disabled={busy} onClick={() => void reloadRevision()}>{t("Keep draft and reload revision")}</Button>}</div>
+
         {notice && <p role="status" className="control-notice">{t(notice)}</p>}
         {saved?.updatedAt && <small className="muted">{t("Updated")}: {new Date(saved.updatedAt).toLocaleString(language)}</small>}
       </form>}
