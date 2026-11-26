@@ -49,7 +49,7 @@
 .download-summary > div:first-child > strong { font-size:var(--console-length-28); line-height:var(--console-line-height-compact); font-variant-numeric:tabular-nums; }
 .download-tooltip { display:grid; text-align:end; gap:var(--om-semantic-space-xs); color:var(--muted); }
 .download-tooltip strong { color:var(--text); font-variant-numeric:tabular-nums; }
-.download-plot { display:grid; grid-template-columns:auto minmax(0,1fr); gap:var(--om-semantic-space-sm); overflow:auto; min-inline-size:0; }
+.download-plot { display:grid; grid-template-columns:auto minmax(0,1fr); gap:var(--om-semantic-space-sm); overflow:visible; min-inline-size:0; }
 .download-axis { display:flex; flex-direction:column; justify-content:space-between; block-size:var(--console-length-140); padding-block:var(--om-semantic-space-xs); font-size:var(--console-length-12); text-align:end; color:var(--muted); }
 .download-bars { position:relative; isolation:isolate; display:grid; grid-template-columns:repeat(var(--bar-count),minmax(0,1fr)); gap:var(--om-semantic-space-xs); min-inline-size:0; }
 .download-plot[data-period="30"] .download-bars { min-inline-size:0; gap:var(--console-length-2); }
@@ -105,5 +105,5 @@
 
 .history-scope-actions { display:flex; flex-wrap:wrap; gap:var(--om-semantic-space-xs); }
 
-.download-hover-tooltip { position:absolute; z-index:3; inset-block-start:var(--om-semantic-space-xs); inset-inline-start:clamp(0px,calc(var(--tooltip-position) - var(--console-length-140)/2),calc(100% - var(--console-length-140))); inline-size:min(100%,var(--console-length-140)); display:grid; gap:var(--om-semantic-space-xs); padding:var(--om-semantic-space-sm); background:var(--panel); border:var(--om-semantic-border-width) solid var(--border); border-radius:var(--om-semantic-radius-md); color:var(--text); font-size:var(--console-length-12); pointer-events:auto; }
+.download-hover-tooltip { position:absolute; z-index:3; inset-block-end:100%; inset-inline-start:clamp(0px,calc(var(--tooltip-position) - var(--console-length-140)/2),calc(100% - var(--console-length-140))); inline-size:min(100%,var(--console-length-140)); display:grid; gap:var(--om-semantic-space-xs); padding:var(--om-semantic-space-sm); background:var(--panel); border:var(--om-semantic-border-width) solid var(--border); border-radius:var(--om-semantic-radius-md); color:var(--text); font-size:var(--console-length-12); pointer-events:auto; }
 .download-hover-tooltip strong { font-size:var(--console-length-16); font-variant-numeric:tabular-nums; }

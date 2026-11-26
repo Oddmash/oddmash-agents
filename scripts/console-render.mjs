@@ -201,8 +201,12 @@ try {
         assert(await chart.locator('.download-plot').evaluate(el=>el.scrollWidth<=el.clientWidth+1),label+' complete monthly chart visible');
         await chart.locator('.download-bar').nth(15).hover({position:{x:2,y:100}});
         const hoveredValue=await tooltip.innerText();
+        assert(await tooltip.evaluate(el=>el.getBoundingClientRect().bottom<=el.parentElement.getBoundingClientRect().top+1),label+' tooltip outside bar hit area');
         await tooltip.hover();
         assert.equal(await tooltip.innerText(),hoveredValue,label+' tooltip hover preserves value');
+        await chart.locator('.download-bar').nth(16).hover({position:{x:2,y:10}});
+        assert.notEqual(await tooltip.innerText(),hoveredValue,label+' neighboring bar remains reachable');
+        await chart.locator('.download-bar').nth(16).click({position:{x:2,y:10}});
         await page.screenshot({path:dir+'/'+label+'-downloads-month.png',fullPage:true,animations:'disabled'});
         assert.deepEqual(errors,[],label);
         await context.close();
