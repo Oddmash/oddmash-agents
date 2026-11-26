@@ -63,7 +63,8 @@
     "line-height-body": "1.55",
     "line-height-compact": "1.3",
     "activity-type-scale": ".875em",
-    "activity-spinner-size": ".75em"
+    "activity-spinner-size": ".75em",
+    "login-glow-opacity": ".07"
   },
   "breakpoints": {
     "controls-stack": "600px",
