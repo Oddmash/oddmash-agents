@@ -1,3 +1,4 @@
+.detail-intro.contributor-toolbar { flex-wrap:nowrap; align-items:center; gap:var(--om-semantic-space-sm); }
 .review-group.contributor-card { display: grid; padding: 0; }
 .contributor-card .review-target-identity { display:grid; min-inline-size:0; overflow-wrap:anywhere; }
 .contributor-card .review-target-row, .contributor-placeholder-header { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,auto); align-items:center; gap:var(--om-semantic-space-sm); padding:var(--om-semantic-space-sm) var(--om-semantic-space-md); }

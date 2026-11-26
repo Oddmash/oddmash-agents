@@ -128,7 +128,7 @@
 }
 
 .shell > aside { padding:var(--om-semantic-space-md); }
-.shell > aside > p.muted { margin-block-end:var(--om-semantic-space-sm); }
+.console-sidebar-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--om-semantic-space-xs); margin-block-end:var(--om-semantic-space-xs); }
 .shell > main { padding-block:var(--om-semantic-space-md); }
 .shell > main > header { margin-block-end:var(--om-semantic-space-md); }
 .shell .detail-view, .workspace-history > section { margin-block-start:var(--om-semantic-space-md); }
@@ -139,6 +139,8 @@
 .status-recovery { display:flex; align-items:center; flex-wrap:wrap; gap:var(--om-semantic-space-sm); }
 .expired-session { align-content:center; gap:var(--om-semantic-space-md); padding:var(--om-semantic-space-md); }
 @media(max-width:760px) {
+  .shell .console-nav ul { grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.3fr); }
+  .shell .console-nav a { gap:var(--om-semantic-space-xs); padding-inline:var(--om-semantic-space-xs); font-size:var(--console-length-13); overflow-wrap:anywhere; }
   .shell .logout { align-items:start; grid-template-columns:minmax(0,1fr) auto; margin-block-start:var(--om-semantic-space-xs); }
   .shell .logout .login-button { grid-column:auto; }
   .console-preferences[open] { grid-column:1/-1; }

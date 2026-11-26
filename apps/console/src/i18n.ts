@@ -51,7 +51,7 @@ export const korean = {
   "Draft pull request": "초안 PR",
   "Open pull request": "열린 PR",
   "No retained agent activity for this pull request.": "이 PR의 보관된 에이전트 활동이 없습니다.",
-  "Open public contributor pull requests. GitHub review evidence and retained executions are shown separately.": "외부 기여자의 공개 PR입니다. GitHub 리뷰와 보관된 실행 기록을 구분합니다.",
+  "Open pull requests from external contributors.": "열려 있는 외부 기여 PR입니다.",
   "GitHub review": "GitHub 리뷰",
   "Approved": "승인",
   "Changes requested": "변경 요청",
