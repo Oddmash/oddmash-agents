@@ -189,10 +189,11 @@ try {
         await chart.locator('[data-missing="true"]').hover();
         assert.match(await tooltip.innerText(),language==='ko'?/사용 불가/:/Unavailable/,label);
         assert(await chart.locator('.download-bars').evaluate(el=>getComputedStyle(el,'::before').borderBottomStyle==='solid'&&getComputedStyle(el,'::before').backgroundImage!=='none'),label+' continuous shared guides');
-        await chart.locator('.download-bar').last().click();
+        await chart.locator('.download-bar').nth(1).click();
         assert(await tooltip.evaluate(el=>{const a=el.getBoundingClientRect(),b=el.parentElement.getBoundingClientRect();return a.left>=b.left-1&&a.right<=b.right+1}),label+' tooltip within plot');
         await page.keyboard.press('Escape');
         assert.equal(await tooltip.count(),0,label+' tooltip dismiss');
+        assert.equal(await chart.locator('.download-bar').nth(1).getAttribute('aria-pressed'),'true',label+' Escape preserves selection');
         const week=page.getByRole('button',{name:language==='ko'?'주간':'Week',exact:true});
         await week.focus();
         await chart.locator('.download-bar').nth(2).hover({position:{x:3,y:100}});
