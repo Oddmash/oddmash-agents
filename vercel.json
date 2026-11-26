@@ -29,7 +29,7 @@
       "destination": "/index.html"
     },
     {
-      "source": "/:locale(en|ko)/:view(overview|activity|usage|settings)",
+      "source": "/:locale(en|ko)/:view(overview|activity|contributors|usage|settings)",
       "destination": "/index.html"
     }
   ]
