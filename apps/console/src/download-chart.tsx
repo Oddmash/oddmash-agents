@@ -20,21 +20,23 @@ export const DownloadChart = ({ history, language, period, name }: { history: re
   },[inspected?.day]);
   const tooltipPosition = inspected ? (points.indexOf(inspected)+0.5)/points.length*100 : 0;
   const fmt = (value: number | null) => value === null ? t('Unavailable') : value.toLocaleString(language);
-  const day = (value: string) => new Intl.DateTimeFormat(language, {month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(value));
+  const day = (value: string) => new Intl.DateTimeFormat(language, period === 'monthly' ? {year:'numeric',month:'short',timeZone:'UTC'} : {month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(value));
+  const pointLabel = (point: typeof points[number]) => day(point.day) + (point.partial ? ' · ' + t('Partial month') : '');
+  const rangeLabel = (value: string | undefined) => value && (period === 'monthly' ? value.slice(0, 7) : value);
   if (!points.length) return <p className="muted">{t('Unavailable')}</p>;
   return <div className="download-chart">
-    <div className="download-summary"><div><small className="muted">{t('Downloads in selected period')}</small><strong>{fmt(total)}</strong><small className="muted">{points[0].day} ~ {points.at(-1)?.day}</small></div><div className="download-tooltip" aria-live="polite">{active && <><span>{day(active.day)}</span><strong>{fmt(active.downloads)}</strong></>}</div></div>
+    <div className="download-summary"><div><small className="muted">{t('Downloads in selected period')}</small><strong>{fmt(total)}</strong><small className="muted">{rangeLabel(points[0].day)} ~ {rangeLabel(points.at(-1)?.day)}</small></div><div className="download-tooltip" aria-live="polite">{active && <><span>{pointLabel(active)}</span><strong>{fmt(active.downloads)}</strong></>}</div></div>
     {missing > 0 && <small className="muted">{t('Missing days')}: {missing} · {t('Observed total only')}</small>}
+    {period === 'monthly' && points.some(point => point.partial) && <small className="muted">{t('Partial months contain observed days only.')}</small>}
     <div className="download-plot" data-period={period} aria-label={name + ' · ' + t('Download history')}>
       <div className="download-axis" aria-hidden="true"><span>{max.toLocaleString(language)}</span><span>0</span></div>
       <div className="download-bars" style={{'--bar-count':points.length} as CSSProperties}>
-        {points.map((point,index) => <button type="button" key={point.day} className="download-bar" data-missing={point.downloads === null} data-zero={point.downloads === 0} data-selected={point.day === active?.day} aria-label={point.day + ': ' + fmt(point.downloads)} aria-pressed={point.day === selected} onMouseEnter={()=>{setDismissed(false);setHovered(point.day);}} onMouseMove={()=>{setDismissed(false);setHovered(point.day);}} onMouseLeave={event=>{if(!(event.relatedTarget instanceof Element&&event.relatedTarget.closest('.download-hover-tooltip')))setHovered(undefined);}} onFocus={()=>{setDismissed(false);setHovered(undefined);setFocused(point.day);}} onBlur={()=>setFocused(undefined)} onClick={()=>{setDismissed(false);setSelected(point.day);}}>
+        {points.map((point,index) => <button type="button" key={point.day} className="download-bar" data-missing={point.downloads === null} data-zero={point.downloads === 0} data-selected={point.day === active?.day} aria-label={pointLabel(point) + ': ' + fmt(point.downloads)} data-partial={point.partial || undefined} aria-pressed={point.day === selected} onMouseEnter={()=>{setDismissed(false);setHovered(point.day);}} onMouseMove={()=>{setDismissed(false);setHovered(point.day);}} onMouseLeave={event=>{if(!(event.relatedTarget instanceof Element&&event.relatedTarget.closest('.download-hover-tooltip')))setHovered(undefined);}} onFocus={()=>{setDismissed(false);setHovered(undefined);setFocused(point.day);}} onBlur={()=>setFocused(undefined)} onClick={()=>{setDismissed(false);setSelected(point.day);}}>
           <span className="download-bar-track"><span className="download-bar-fill" style={{height:(point.downloads === null ? 0 : point.downloads/max*100)+'%'}}/></span>
-          <span className="download-bar-date" aria-hidden="true">{period === 7 || index===0 || index===points.length-1 || (index%7===0 && index<points.length-3) ? point.day.slice(5).replace('-','/') : ''}</span>
+          <span className="download-bar-date" aria-hidden="true">{period === 'monthly' ? point.day.slice(5,7) : period === 7 || index===0 || index===points.length-1 || (index%7===0 && index<points.length-3) ? point.day.slice(5).replace('-','/') : ''}</span>
         </button>)}
-        {inspected && <div className="download-hover-tooltip" aria-hidden="true" onMouseLeave={event=>{if(!(event.relatedTarget instanceof Element&&event.relatedTarget.closest('.download-bar')))setHovered(undefined);}} style={{'--tooltip-position':tooltipPosition+'%'} as CSSProperties}><span>{day(inspected.day)}</span><strong>{fmt(inspected.downloads)}</strong></div>}
+        {inspected && <div className="download-hover-tooltip" aria-hidden="true" onMouseLeave={event=>{if(!(event.relatedTarget instanceof Element&&event.relatedTarget.closest('.download-bar')))setHovered(undefined);}} style={{'--tooltip-position':tooltipPosition+'%'} as CSSProperties}><span>{pointLabel(inspected)}</span><strong>{fmt(inspected.downloads)}</strong></div>}
       </div>
     </div>
-    <details className="download-values"><summary>{t('View daily values')}</summary><ul>{points.map(point=><li key={point.day}><time dateTime={point.day}>{point.day}</time><strong>{fmt(point.downloads)}</strong></li>)}</ul></details>
   </div>;
 };
