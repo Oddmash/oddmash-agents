@@ -1,4 +1,5 @@
 export const korean = {
+  "Last successful data; latest refresh unavailable.": "마지막 정상 집계입니다. 최신 집계를 불러오지 못했습니다.",
   "Refreshing…": "새로 고치는 중…",
   "Discard and leave": "변경 사항 버리고 나가기",
   "Stay": "계속 편집",
