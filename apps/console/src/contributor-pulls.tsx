@@ -79,7 +79,7 @@ export const ContributorPulls = ({ active, language, jobs, renderAgent, onAccess
     jobsByPull.set(key, byRole);
   }
   return <section className="detail-view">
-    <div className="detail-intro"><p className="muted view-description">{t('Open public contributor pull requests. GitHub review evidence and retained executions are shown separately.')}</p><Button variant="secondary" aria-disabled={loading} onClick={() => { if (!loading) refresh(); }}>{t('Refresh')}</Button></div>
+    <div className="detail-intro contributor-toolbar"><p className="muted view-description">{t('Open pull requests from external contributors.')}</p><Button variant="secondary" aria-disabled={loading} onClick={() => { if (!loading) refresh(); }}>{t('Refresh')}</Button></div>
     {loading && !data && <ContributorSkeleton language={language}/>}
     {loading && data && <small role="status" className="muted">{t('Refreshing…')}</small>}
     {failed && <Alert tone="danger" role="alert">{t('Contributor pull requests unavailable. Try again later.')}{data && t(' Showing the last successful snapshot.')}</Alert>}
