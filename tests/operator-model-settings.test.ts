@@ -139,9 +139,14 @@ test('shared webhook and queue execution entry honors the dedicated and coordina
   const root = '/repos/Oddmash/example';
   const requests: string[] = [];
   let reads = 0;
+  let pausedPrimaryRoles: string[] = ['reviewer'];
   t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     if (url.origin === 'https://fixture.upstash.io') {
+      const [[, key]] = JSON.parse(String(init?.body));
+      if (String(key).includes(':controls:')) return Response.json([{ result: JSON.stringify({
+        revision, updatedAt, pausedPrimaryRoles, controls: { paused: false, excludedRoles: [], maxRequests: null, maxMs: null }
+      }) }]);
       reads++;
       return Response.json([{ result: JSON.stringify({ revision, updatedAt, overrides: { triage: 'gpt-approved-triage' } }) }]);
     }
@@ -174,6 +179,14 @@ test('shared webhook and queue execution entry honors the dedicated and coordina
   await reviewWebhook(target, { appId: '42', key, slug: 'oddmash-lead', openaiKey: 'fixture-shared', model: 'gpt-default' });
   assert.deepEqual(requests, ['gpt-approved-triage', 'gpt-approved-triage']);
   assert.equal(reads, 2);
+  const lead = { appId: '42', key, slug: 'oddmash-lead', openaiKey: 'fixture-shared', model: 'gpt-default' };
+  const { advisory, requestComment, ...leadTarget } = target;
+  await reviewWebhook(leadTarget, lead);
+  pausedPrimaryRoles = ['triage'];
+  await reviewWebhook({ ...target, advisoryIdentity: 'triage' }, dedicated);
+  await reviewWebhook(target, lead);
+  assert.equal(reads, 2, 'paused roles perform no model lookup');
+  assert.equal(requests.length, 2, 'paused roles make no model call');
 });
 
 test('model conflict recovery keeps local choices until explicit discard succeeds', async () => {

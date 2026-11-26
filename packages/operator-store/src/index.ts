@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { defaultControls, parseControlsRecord, parseOperatorControls, type ControlsRecord, type OperatorControls } from '../../operator-contract/src/controls.ts';
+import { defaultControls, optionalRoles, primaryRoles, parseControlsRecord, parseOperatorControls, type ControlsRecord, type OperatorControls } from '../../operator-contract/src/controls.ts';
 import { parseModelOverrides, parseOperatorModelsRecord, type ModelOverrides, type OperatorModelsRecord } from '../../operator-contract/src/model-settings.ts';
 import { parseExecutionEvent, parseWorkerSettings, projectJobs, projectModelUsage, type ExecutionEvent, type WorkerSettings, type Job } from '../../operator-contract/src/index.ts';
 
@@ -79,8 +79,11 @@ export async function saveOperatorControls(config: StoreConfig, expectedRevision
   const safe = parseOperatorControls(controls);
   if (!safe || !/^[1-9]\d*$/.test(ownerId) || expectedRevision !== null && !/^[a-f0-9-]{36}$/.test(expectedRevision)) throw new Error('Invalid controls');
   const record = { revision: randomUUID(), controls: safe, updatedAt: new Date().toISOString() };
-  const audit = { ...record, ownerId };
-  const [result] = await pipeline(config, [['EVAL', saveControlsScript, 2, controlsKey, auditKey, expectedRevision ?? '', JSON.stringify(record), JSON.stringify(audit)]], request);
+  // Keep the v1 controls payload readable by older deploys during rollback.
+  const pausedPrimaryRoles = primaryRoles.filter(role => safe.excludedRoles.includes(role));
+  const persisted = { ...record, controls: { ...safe, excludedRoles: optionalRoles.filter(role => safe.excludedRoles.includes(role)) }, ...(pausedPrimaryRoles.length ? { pausedPrimaryRoles } : {}) };
+  const audit = { ...persisted, ownerId };
+  const [result] = await pipeline(config, [['EVAL', saveControlsScript, 2, controlsKey, auditKey, expectedRevision ?? '', JSON.stringify(persisted), JSON.stringify(audit)]], request);
   if (result === 0) return null;
   if (result !== 1) throw new Error('Operator controls unavailable');
   return record;
