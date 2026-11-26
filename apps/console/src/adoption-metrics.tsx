@@ -29,9 +29,8 @@ export const AdoptionMetrics = ({ language, active = true }: { language: Languag
         .then(async response => {if (!response.ok) throw new Error('Unavailable'); return await response.json() as {metrics: AdoptionMetric[]};})
         .then(data => {
           if (abort.signal.aborted) return;
-          const ttl = data.metrics.some(metric => metric.count === null) ? 60_000 : 3_600_000;
-          const observed = Math.min(...data.metrics.map(metric => Date.parse(metric.observedAt)).filter(Number.isFinite), Date.now());
-          expires.current = Math.max(Date.now()+1000, observed+ttl);
+          const freshness = data.metrics.map(metric => Date.parse(metric.observedAt) + (metric.count === null ? 60_000 : 3_600_000)).filter(Number.isFinite);
+          expires.current = Math.max(Date.now()+1000, Math.min(...freshness, Date.now()+3_600_000));
           setMetrics(data.metrics);
         })
         .catch(() => {if (!abort.signal.aborted) { expires.current = Date.now()+60_000; setFailed(true); }})
