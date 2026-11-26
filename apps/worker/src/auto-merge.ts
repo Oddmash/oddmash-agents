@@ -60,6 +60,7 @@ const sourceRoots: Record<string, RegExp> = {
   'Oddmash/interaction-inspector': /^(?:src|demo)\//,
   'Oddmash/Vertactics': /^apps\/(?:editor\/src|landing\/app)\//,
   'Oddmash/boundra': /^packages\/(?:runtime|ui)\/src\//,
+  'Oddmash/oddmash-mobile': /^(?:src|demo)\//,
   'Oddmash/oddmash-website': /^dist\/(?:[^/]+)$/,
 };
 const testRoots: Record<string, RegExp> = {
@@ -68,6 +69,7 @@ const testRoots: Record<string, RegExp> = {
   'Oddmash/interaction-inspector': /^tests\//,
   'Oddmash/Vertactics': /^apps\/editor\/tests\//,
   'Oddmash/boundra': /^packages\/(?:runtime|ui)\/tests\//,
+  'Oddmash/oddmash-mobile': /^tests\//,
 };
 
 export function lowRiskReason(files: ChangedFile[], count: number, repository = '', optIn?: 'documentation'): string | undefined {
