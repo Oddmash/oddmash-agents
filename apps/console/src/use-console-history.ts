@@ -6,7 +6,7 @@ const historyKey = 'oddmashConsoleIndex';
 
 export const useConsoleHistory = (route: Route, setRoute: (route: Route) => void, unsaved: boolean, guard: (action: () => void) => void) => {
   const index = useRef<number>(Number.isInteger(window.history.state?.[historyKey]) ? window.history.state[historyKey] : 0);
-  const restoring = useRef<number>();
+  const restoring = useRef<number|undefined>(undefined);
   const replay = useRef(false);
   useEffect(() => {
     window.history.replaceState({ ...window.history.state, [historyKey]: index.current }, '', window.location.href);
