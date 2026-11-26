@@ -184,6 +184,8 @@ try {
         await chart.locator('.download-bar').nth(2).hover();
         await page.keyboard.press('Tab');
         assert.equal(await tooltip.locator('strong').innerText(),'0',label+' latest keyboard focus overrides parked pointer');
+        await chart.locator('.download-bar').nth(2).hover({position:{x:2,y:80}});
+        assert.match(await tooltip.innerText(),/25/,label+' pointer motion restores hovered count');
         await chart.locator('[data-zero="true"]').hover();
         assert.equal(await tooltip.locator('strong').innerText(),'0',label+' exact hover zero');
         await chart.locator('[data-missing="true"]').hover();
