@@ -235,7 +235,7 @@ test('posts a suggested change on the exact right-side line and skips repeat fin
   assert.equal(payload.comments[0].side, 'RIGHT');
   assert.equal(payload.commit_id, pr.head.sha);
   assert.match(payload.comments[0].body, /```suggestion\nconst label = "Open";\n```/);
-  assert.match(payload.comments[0].body, /<summary>한국어 \(Korean\)<\/summary>/);
+  assert.doesNotMatch(payload.comments[0].body, /<summary>한국어 \(Korean\)<\/summary>/);
   const second = await runReview({ ...config, post: true }, request);
   assert.equal(second.posted, false);
   assert.equal(calls.filter(x => x.method === 'POST' && x.url.includes('api.github.com')).length, 1);

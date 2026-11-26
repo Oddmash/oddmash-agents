@@ -331,7 +331,7 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
       await clearReceipt(api, target.repository, reaction, eyes);
     }
     if (await matchesSnapshot()) {
-      const resolved = verdict === 'fixed' && !conversation ? status + 'Review thread resolved. 리뷰 스레드를 닫았습니다.' : '';
+      const resolved = verdict === 'fixed' && !conversation ? status + 'Review thread resolved.' : '';
       await markAcknowledged(api, target, reaction.kind, id, clean + resolved);
     }
   };
@@ -390,8 +390,8 @@ export async function replyToReview(api: Api, target: Target, config: { slug: st
       const reference = conversation ? `\n${rootMarker}\nIn response to [the original finding](https://github.com/${target.repository}/pull/${target.number}#${target.reply.rootKind === 'review' ? 'pullrequestreview' : 'issuecomment'}-${root}).\n` : '';
       const verdict = parsed.verdict === 'fixed' || parsed.verdict === 'agree' ? parsed.verdict : undefined;
       const completion = verdict ? `\n${completionMarker(verdict)}${verdict === 'fixed' ? '\n' + fixMarker : ''}` : '';
-      const resolutionPending = verdict === 'fixed' && !conversation ? status + 'Thread resolution pending. 스레드를 닫는 중입니다.' : '';
-      const body = `${marker}${completion}${reference}\n${plain(parsed.english)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(parsed.korean)}\n\n</details>${resolutionPending}`;
+      const resolutionPending = verdict === 'fixed' && !conversation ? status + 'Thread resolution pending.' : '';
+      const body = `${marker}${completion}${reference}\n${plain(parsed.english)}${resolutionPending}`;
       if (Buffer.byteLength(body, 'utf8') > 12_000) return;
       const posted = !conversation && pendingId !== undefined
         ? await publishPendingThreadReply(api, target, original, bot, pr, pendingId, body, matchesSnapshot)

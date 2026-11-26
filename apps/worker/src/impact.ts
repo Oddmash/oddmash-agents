@@ -32,14 +32,13 @@ export function validImpact(value: unknown): value is Assessment {
 const plain = (value: string) => value.replace(/[@]/g, '＠').replace(/[\\`*_\[\]()#!|~]/g, '\\$&').replace(/https?:\/\//gi, 'https[:]\/\/');
 const safeInput = (value: string | null, max: number) => value && !privateSensitiveText(value) ? safeText(value).slice(0, max) : '';
 const label = (value: Assessment['recommendation']) => ({ recommend: 'Recommend', defer: 'Defer', reconsider: 'Reconsider', 'insufficient-evidence': 'Insufficient evidence' })[value];
-const koreanLabel = (value: Assessment['recommendation']) => ({ recommend: '반영 권장', defer: '보류', reconsider: '재검토', 'insufficient-evidence': '근거 부족' })[value];
 
 export function impactBody(result: Assessment, head: string, base: string, omitted: number, inline = false) {
   const partial = omitted > 0;
   const recommendation = partial ? 'insufficient-evidence' : result.recommendation;
   const certainty = partial ? 'low' : result.confidence;
   const render = (lang: Language, labels: string[]) => fields.map((key, index) => `- **${labels[index]}:** ${plain(lang[key])}`).join('\n');
-  return `${marker}\n<!-- oddmash-impact-revision:${head}:${base}${inline ? ':inline-v1' : ''} -->\n## Oddmash Impact\n\n**Recommendation:** ${label(recommendation)} (${certainty} confidence)\n\n${render(result.en, ['User benefit', 'Product fit', 'Maintenance cost', 'Trade-offs and risks', 'Evidence and next steps'])}\n\n${partial ? `Partial evidence: ${omitted} changed file(s) excluded. No definitive recommendation.\n\n` : ''}Advisory only. This is not code approval, a CI result, or permission to merge.\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n**추천:** ${koreanLabel(recommendation)} (${certainty})\n\n${render(result.ko, ['사용자 가치', '제품 적합성', '유지보수 비용', '트레이드오프 및 위험', '근거 및 다음 단계'])}\n\n${partial ? `검토에서 제외된 변경 파일 ${omitted}개로 판단 근거가 부족합니다.\n\n` : ''}자문 의견이며 코드 승인, CI 통과 또는 머지 권한이 아닙니다.\n\n</details>`;
+  return `${marker}\n<!-- oddmash-impact-revision:${head}:${base}${inline ? ':inline-v1' : ''} -->\n## Oddmash Impact\n\n**Recommendation:** ${label(recommendation)} (${certainty} confidence)\n\n${render(result.en, ['User benefit', 'Product fit', 'Maintenance cost', 'Trade-offs and risks', 'Evidence and next steps'])}\n\n${partial ? `Partial evidence: ${omitted} changed file(s) excluded. No definitive recommendation.\n\n` : ''}Advisory only. This is not code approval, a CI result, or permission to merge.`;
 }
 
 export async function runImpact(api: Api, target: Target, config: { bot: string; model: string; openaiKey: string; automatic?: boolean; incrementalFiles?: string[]; collectSummary?: (section: string, publishFindings?: (publicationApi: Api) => Promise<void>) => void }, request: typeof fetch = fetch) {
@@ -92,7 +91,7 @@ export async function runImpact(api: Api, target: Target, config: { bot: string;
     const latest = config.collectSummary ? undefined : await findExisting();
     if (latest?.body.includes(revision + '\n##')) { if (target.requestComment) await completeCommentReaction(api, target.repository, target.requestComment, eyes, true); return; }
     if (config.collectSummary) {
-      config.collectSummary(`- **Impact:** ${plain(result.en.evidence)} / ${plain(result.ko.evidence)}`, inline ? publicationApi => publishSpecialistFindings(
+      config.collectSummary(`- **Impact:** ${plain(result.en.evidence)}`, inline ? publicationApi => publishSpecialistFindings(
         publicationApi, target, config.bot, pr.head.sha, result, selected.files, () => current(publicationApi), id => recordPublication('inline-comment', id)
       ) : undefined);
       return;

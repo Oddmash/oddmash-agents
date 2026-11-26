@@ -247,7 +247,8 @@ test('each dedicated PR advisor publishes once with its own identity and bounded
     assert.equal(publications.length, 1);
     await publications[0](api);
     assert.equal(inline.length, 1);
-    assert.match(summaries[0], /Four \/ 넷/);
+    assert.match(summaries[0], /Four/);
+    assert.doesNotMatch(summaries[0], /넷/);
     await runAdvisory(api, automaticTarget, { bot, model: 'fixture', openaiKey: 'fixture', automatic: true, collectSummary: text => { summaries.push(text); } }, async (input, init) => {
       currentHead = 'c'.repeat(40);
       return request(input, init);

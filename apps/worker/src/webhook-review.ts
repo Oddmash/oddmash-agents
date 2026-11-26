@@ -40,12 +40,12 @@ export async function acknowledgePendingChecks(api: Api, repository: string, num
   const existing = await api<{ body: string; user: { login: string } }[]>(`${path}?per_page=100`);
   if (existing.length >= 100 || existing.some(item => item.user.login === bot && item.body.includes(marker))) return;
   if (comment.kind === 'inline' && !comment.root) return;
-  const [english, korean] = {
+  const [english] = {
     waiting: ['Review requested. It will start when the required checks pass for this commit.', '리뷰 요청을 확인했습니다. 현재 커밋의 필수 검사가 통과하면 시작합니다.'],
     failed: ['Review requested. The required checks did not pass for this commit. Review can start after a successful rerun.', '리뷰 요청을 확인했습니다. 현재 커밋의 필수 검사가 통과하지 못했습니다. CI를 다시 실행해 통과하면 리뷰를 시작할 수 있습니다.'],
     quota: ['Review requested. GitHub Actions billing or quota is blocking CI for this commit.', '리뷰 요청을 확인했습니다. GitHub Actions 결제 또는 사용량 한도로 현재 커밋의 CI가 차단됐습니다.']
   }[state];
-  const body = `${marker}\n<!-- oddmash-deferred:${head}:${comment.kind}:${comment.id}:${comment.root ?? 0}${comment.slash ? ':slash' : ''} -->\n${english}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${korean}\n\n</details>`;
+  const body = `${marker}\n<!-- oddmash-deferred:${head}:${comment.kind}:${comment.id}:${comment.root ?? 0}${comment.slash ? ':slash' : ''} -->\n${english}`;
   await api(comment.kind === 'inline' ? `${path}/${comment.root}/replies` : path, { method: 'POST', body: JSON.stringify({ body }) });
 }
 
@@ -243,11 +243,13 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         await reconcileReviewThreads(api, { ...target, number: pr.number }, effectiveConfig, pr.head.sha, pr.base.sha, fetch, exclusions, () => reconciliationChecksCurrent(pr), threadReconciliationScope(review.body));
       }
     };
-    if (!target.recheck && hasOfficialReview(reviews, bot, pr.head.sha)) {
+    if (!target.recheck && hasOfficialReview(reviews, bot)) {
       const completed = reviews.filter(review => review.user.login === bot && review.commit_id === pr.head.sha && ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state) && review.body?.includes('<!-- oddmash-app-review:')).at(-1);
       await reconcileCompletedProgress(completed);
-      await retryThreadReconciliation(completed);
-      await retryExistingApproval();
+      if (completed) {
+        await retryThreadReconciliation(completed);
+        await retryExistingApproval();
+      }
       return;
     }
     const requestTag = target.recheck ? `<!-- oddmash-recheck:${createHash('sha256').update(target.recheck).digest('hex').slice(0, 24)} -->` : undefined;
@@ -276,7 +278,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         const current = await api<Pull>(path);
         if (current.head.sha !== pr.head.sha || current.state !== 'open' || current.draft || !eligibleBase(current)) return false;
         const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
-        if (!ownsPendingReview(latest, bot, pr.head.sha, lock) || (!target.recheck && hasOfficialReview(latest, bot, pr.head.sha)) || (requestTag && latest.some(review => review.user.login === bot && review.body?.includes(requestTag)))) return false;
+        if (latest.length >= 100 || !ownsPendingReview(latest, bot, pr.head.sha, lock) || (!target.recheck && hasOfficialReview(latest, bot)) || (requestTag && latest.some(review => review.user.login === bot && review.body?.includes(requestTag)))) return false;
         const progress = await progressFor(true, Boolean(blocked), summary);
         if (blocked) await progress?.finish('neutral', blocked, summary ?? 'Required CI did not pass. A successful rerun can start a new review.');
       } catch { console.warn('Waiting review progress unavailable'); }
@@ -327,8 +329,8 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
     let progressResult: { conclusion: 'success' | 'failure' | 'neutral' | 'cancelled'; title: string } = { conclusion: 'cancelled', title: 'Review not submitted' };
     try {
       const acquired = await api<Review[]>(`${path}/reviews?per_page=100`);
-      if (!ownsPendingReview(acquired, bot, pr.head.sha, pendingId)) return;
-      if ((!target.recheck && hasOfficialReview(acquired, bot, pr.head.sha)) || (requestTag && acquired.some(review => review.user.login === bot && review.body?.includes(requestTag)))) return;
+      if (acquired.length >= 100 || !ownsPendingReview(acquired, bot, pr.head.sha, pendingId)) return;
+      if ((!target.recheck && hasOfficialReview(acquired, bot)) || (requestTag && acquired.some(review => review.user.login === bot && review.body?.includes(requestTag)))) return;
       eyesId = target.requestComment ? await reactToComment(api, repository, target.requestComment, 'eyes') : undefined;
       progress = await progressFor();
       recordReviewPhase('Collecting changes');
@@ -420,13 +422,13 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       }
       const specialistNotes = [...summaries.values()].map(result => result.section);
       const missingRoles = selectedRoles.filter(role => !summaries.has(role));
-      if (missingRoles.length) specialistNotes.push(`- No result for / 검토 결과 없음: ${missingRoles.join(', ')}.`);
-      const specialistHeading = '\n\n### Specialist follow-up / 전문 검토 후속 확인\n\n';
+      if (missingRoles.length) specialistNotes.push(`- No result for: ${missingRoles.join(', ')}.`);
+      const specialistHeading = '\n\n### Specialist follow-up\n\n';
       const specialistSummary = specialistNotes.length
         ? specialistHeading + specialistNotes.join('\n')
         : '';
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
-      if (!ownsPendingReview(latest, bot, current.head.sha, pendingId) || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state) && (!approved || review.id > approved.id))))) return;
+      if (latest.length >= 100 || (!target.recheck && hasOfficialReview(latest, bot)) || !ownsPendingReview(latest, bot, current.head.sha, pendingId) || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state) && (!approved || review.id > approved.id))))) return;
       const finalChecks = await readChecks(current);
       const event = finalReviewEvent(incrementalFiles !== undefined && result.assessment === 'APPROVE' ? 'COMMENT' : result.assessment, finalChecks, repository, current.user);
       const followUp = publicationFollowUp(result.followUp, result.assessment, current.user);
@@ -447,7 +449,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       });
       const reconciliation = reconcileThreads ? threadReconciliationMarker(result.comments.map(comment => comment.path)) : '';
       const reconciliationScope = reconciliation && incrementalFiles !== undefined ? threadReconciliationScopeMarker(incrementalFiles) : '';
-      const scopeNote = `\n\n${reviewBaseMarker(current.base.sha)}` + (reconciliation ? `\n${reconciliation}` : '') + (reconciliationScope ? `\n${reconciliationScope}` : '') + (incrementalFiles !== undefined ? '\n\nIncremental follow-up only. Earlier files were not re-reviewed; request a full review before approval or merge.\n\n증분 검토입니다. 이전 파일은 다시 검토하지 않았으며 승인 또는 머지 전 전체 리뷰가 필요합니다.' : '');
+      const scopeNote = `\n\n${reviewBaseMarker(current.base.sha)}` + (reconciliation ? `\n${reconciliation}` : '') + (reconciliationScope ? `\n${reconciliationScope}` : '') + (incrementalFiles !== undefined ? '\n\nIncremental follow-up only. Earlier files were not re-reviewed; request a full review before approval or merge.' : '');
       let body = formatReviewBody(event, finalMarker, result.report, current.user, followUp) + (requestTag ? `\n\n${requestTag}` : '') + proof + scopeNote + scopedAdvisoryNote(finalChecks, repository) + specialistSummary;
       const attemptMerge = async (reviewId: number) => {
         if (!candidate) { await mergeStatus(mergeReason); return; }
@@ -464,7 +466,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         }
       };
       const publication = await api<Review[]>(`${path}/reviews?per_page=100`);
-      if (!ownsPendingReview(publication, bot, current.head.sha, pendingId) || publication.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(finalMarker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))))) return;
+      if (publication.length >= 100 || (!target.recheck && hasOfficialReview(publication, bot)) || !ownsPendingReview(publication, bot, current.head.sha, pendingId) || publication.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(finalMarker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))))) return;
       if (approved) {
         if (event === 'APPROVE') {
           await api(`${path}/reviews/${approved.id}`, { method: 'PUT', body: JSON.stringify({ body }) });
@@ -493,7 +495,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
         const beforeSubmit = await api<Pull>(path);
         if (beforeSubmit.head.sha !== result.head || beforeSubmit.base.sha !== current.base.sha || beforeSubmit.merge_commit_sha !== current.merge_commit_sha || beforeSubmit.state !== 'open' || beforeSubmit.draft || !eligibleBase(beforeSubmit)) return;
         const beforePublish = await api<Review[]>(`${path}/reviews?per_page=100`);
-        if (!ownsPendingReview(beforePublish, bot, current.head.sha, pendingId) || beforePublish.some(review => review.user.login === bot && review.commit_id === current.head.sha && (review.body?.includes(finalMarker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))))) return;
+        if (beforePublish.length >= 100 || (!target.recheck && hasOfficialReview(beforePublish, bot)) || !ownsPendingReview(beforePublish, bot, current.head.sha, pendingId) || beforePublish.some(review => review.user.login === bot && review.commit_id === current.head.sha && (review.body?.includes(finalMarker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))))) return;
         const priorDecision = beforePublish.filter(review => review.user.login === bot && review.commit_id === current.head.sha &&
           ['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(review.state)).at(-1);
         if (event === 'APPROVE' && target.recheck && priorDecision?.state === 'APPROVED' &&

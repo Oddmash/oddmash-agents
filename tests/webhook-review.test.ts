@@ -9,7 +9,7 @@ const path = '/repos/Oddmash/example/pulls/1';
 const bot = 'oddmash-reviewer[bot]';
 const head = 'a'.repeat(40);
 
-for (const scenario of ['bare command after CI', 'mention after CI', 'CI completes during acknowledgment', 'CI completes after acknowledgment', 'failed current CI', 'stale requested head']) {
+for (const scenario of ['bare command after CI', 'mention after CI', 'CI completes during acknowledgment', 'CI completes after acknowledgment', 'failed current CI', 'stale requested head', 'one automatic review per PR']) {
   test(`explicit public review: ${scenario}`, async t => {
     t.mock.method(console, 'warn', () => {});
     const repo = { id: 7, full_name: 'Oddmash/example', private: false, visibility: 'public', owner: { login: 'Oddmash' } };
@@ -43,14 +43,14 @@ for (const scenario of ['bare command after CI', 'mention after CI', 'CI complet
       if (endpoint === `${path}/files`) { ++started; return Response.json([]); }
       if (endpoint.startsWith('/repos/Oddmash/.github/contents/')) return Response.json(githubContentFixture(endpoint.split('/contents/')[1], 'Organization policy.'));
     if (endpoint.includes('/contents/')) return new Response(null, { status: 404 });
-      if (endpoint === `${root}/commits/${head}/check-runs`) {
+      if (endpoint === `${root}/commits/${pr.head.sha}/check-runs`) {
         const verify = { name: 'verify', status: 'completed', app: { id: 15368 } };
         const check_runs = [{ ...verify, id: 1, conclusion: 'failure', check_suite: { id: 125 } }];
         if (ci !== 'pending') check_runs.push({ ...verify, id: 2, conclusion: ci, check_suite: { id: 126 } });
         return Response.json({ check_runs, total_count: check_runs.length });
       }
       if (endpoint === `${root}/actions/runs`) {
-        const run = { head_sha: head, event: 'pull_request', workflow_id: 1, pull_requests: [{ number: 1 }] };
+        const run = { head_sha: pr.head.sha, event: 'pull_request', workflow_id: 1, pull_requests: [{ number: 1 }] };
         return Response.json({ total_count: 2, workflow_runs: [
           { ...run, check_suite_id: 125, run_number: 125, status: 'completed', conclusion: 'cancelled' },
           { ...run, check_suite_id: 126, run_number: 126, status: ci === 'pending' ? 'queued' : 'completed', conclusion: ci === 'pending' ? null : ci }
@@ -89,6 +89,22 @@ for (const scenario of ['bare command after CI', 'mention after CI', 'CI complet
     });
     const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
     const config = { appId: '42', key, slug, openaiKey: 'fixture', model: 'fixture' };
+    if (scenario === 'one automatic review per PR') {
+      const automatic = { installation: 3, repository: repo.full_name, repositoryId: repo.id, number: 1, expectedHead: head };
+      await reviewWebhook(automatic, config);
+      assert.equal(started, 1);
+      assert.equal(submitted, 1);
+      pr.head.sha = 'd'.repeat(40);
+      await reviewWebhook({ ...automatic, expectedHead: pr.head.sha }, config);
+      await reviewWebhook({ installation: 3, repository: repo.full_name, repositoryId: repo.id, sha: pr.head.sha }, config);
+      assert.equal(started, 1);
+      assert.equal(submitted, 1);
+      await reviewWebhook({ ...routed, expectedHead: pr.head.sha }, config);
+      await reviewWebhook({ ...routed, expectedHead: pr.head.sha }, config);
+      assert.equal(started, 2);
+      assert.equal(submitted, 2);
+      return;
+    }
     await reviewWebhook(target, config);
     if (scenario === 'stale requested head') {
       assert.equal(started, 0);
@@ -238,7 +254,7 @@ for (const confirmedEmpty of [false, true]) {
   const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
   const target = { installation: 3, repository: repository.full_name, repositoryId: repository.id, sha: head };
   const config = { appId: '42', key, slug: 'oddmash-reviewer', openaiKey: 'fixture', model: 'fixture' };
-  await reviewWebhook(target, config);
+  await reviewWebhook({ ...target, recheck: 'fixture-explicit-request' }, config);
   assert.equal(current?.state, 'COMMENTED');
   assert.ok(current?.body.includes(`<!-- oddmash-review-base:${base} -->`));
   assert.equal(current?.body.includes('<!-- oddmash-verified-thread-reconciliation: -->'), !confirmedEmpty);
@@ -401,8 +417,9 @@ test('acquires only its own pending review lock', async () => {
   assert.equal(await acquirePendingReview(api, path, head, bot), 42);
 });
 
-test('a submitted official review deduplicates only the current head', () => {
+test('a submitted official review deduplicates the PR while exact-head lookup remains available', () => {
   const review = { id: 42, state: 'CHANGES_REQUESTED', user: { login: bot }, body: '<!-- oddmash-app-review:fixture -->', commit_id: 'b'.repeat(40) };
+  assert.equal(hasOfficialReview([review], bot), true);
   assert.equal(hasOfficialReview([review], bot, review.commit_id), true);
   assert.equal(hasOfficialReview([review], bot, 'd'.repeat(40)), false);
   assert.equal(hasOfficialReview([{ ...review, state: 'DISMISSED' }], bot), true);

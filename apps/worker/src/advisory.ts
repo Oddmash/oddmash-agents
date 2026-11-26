@@ -116,7 +116,7 @@ export async function runAdvisory(api: Api, target: Target, config: { bot: strin
     if (existing?.body.includes(revision)) { completed = true; return; }
     if (config.collectSummary) {
       const last = report.en.length - 1;
-      config.collectSummary(`- **${profile.name}:** ${render(report.en[last])} / ${render(report.ko[last])}`, inline ? publicationApi => publishSpecialistFindings(
+      config.collectSummary(`- **${profile.name}:** ${render(report.en[last])}`, inline ? publicationApi => publishSpecialistFindings(
         publicationApi, target, config.bot, subject.head!.sha, report, selectedFiles, () => current(publicationApi), id => recordPublication('inline-comment', id)
       ) : undefined);
       completed = true;
@@ -127,7 +127,7 @@ export async function runAdvisory(api: Api, target: Target, config: { bot: strin
       if (!await current()) return;
     }
     const list = (items: string[], headings: readonly string[]) => items.map((item, i) => `- **${headings[i]}:** ${render(item)}`).join('\n');
-    const body = `${marker}\n${revision}\n## Oddmash ${profile.name}\n\n${list(report.en, labels[role][0])}\n\n${partial ? 'Evidence is incomplete. Treat this assessment as provisional.\n\n' : ''}Advisory only. No approval, CI result, release or merge authorization.\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${list(report.ko, labels[role][1])}\n\n${partial ? '검토 근거가 일부 누락되었습니다.\n\n' : ''}자문 의견이며 승인 또는 실행 권한이 아닙니다.\n\n</details>`;
+    const body = `${marker}\n${revision}\n## Oddmash ${profile.name}\n\n${list(report.en, labels[role][0])}\n\n${partial ? 'Evidence is incomplete. Treat this assessment as provisional.\n\n' : ''}Advisory only. No approval, CI result, release or merge authorization.`;
     if (existing) {
       await api(`${root}/issues/comments/${existing.id}`, { method: 'PATCH', body: JSON.stringify({ body }) });
       recordPublication('comment', existing.id);
