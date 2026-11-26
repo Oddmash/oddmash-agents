@@ -106,8 +106,8 @@ section { margin: var(--om-semantic-space-xl) 0 var(--console-length-36); scroll
 .agent-grid { margin-top: var(--console-length-14); grid-template-columns: repeat(auto-fit,minmax(min(100%,var(--console-length-260)),1fr)); }
 .agent-grid .om-card { overflow-wrap: anywhere; }
 .agent-grid p { margin: var(--om-semantic-space-sm) 0; color: var(--muted); }
-.agent-identity { display: flex; align-items: center; gap: var(--om-semantic-space-md); font-size: var(--console-length-18); line-height: var(--console-line-height-compact); }
-.agent-identity .agent-avatar { width: var(--console-length-48); height: var(--console-length-48); border-radius: var(--om-semantic-radius-lg); border: 0; background: transparent; }
+.agent-identity { display: flex; align-items: center; min-width: 0; gap: var(--om-semantic-space-md); font-size: var(--console-length-18); line-height: var(--console-line-height-compact); }
+.agent-identity .agent-avatar { width: var(--console-length-48); height: var(--console-length-48); border-radius: var(--om-semantic-radius-lg); border: 0; background: transparent; flex: 0 0 auto; }
 .agent-identity.compact { gap: var(--om-semantic-space-sm); font-size: var(--console-length-14); font-weight: var(--console-font-weight-600); }
 .agent-identity.compact .agent-avatar { width: var(--console-length-28); height: var(--console-length-28); border-radius: var(--console-length-7); }
 .agent-identity .agent-avatar img { border-radius: inherit; object-fit: contain; }

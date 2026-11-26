@@ -28,3 +28,7 @@ Follow the [Oddmash agent attribution convention](https://github.com/Oddmash/.gi
 - Work in parallel when changes are logically independent, even if they touch different sections of the same file. Sequence or stack PRs only when one needs another's behavior or when the changed logic overlaps; record the dependency explicitly. Reconcile actual conflicts against the current base and re-run the required CI before merging.
 - Batch related actionable review fixes and their regression tests into a focused push where practical. Respond to optional findings with an evidence-based disposition rather than unnecessary commits or repeated review requests. Preserve required exact-head CI, independent review, and normal merge commits.
 - Follow the [production release process and release note format](docs/release-process.md#release-note-format) for every versioned release. Record the actual verification and deployment outcome; never publish or deploy as an advisory agent.
+
+## Console presentation
+
+Follow [the operator console design brief](docs/console-design.md) for user-facing console changes. Record independent rendered acceptance separately from functional CI before substantial presentation changes are considered ready. Preserve authorization and telemetry semantics.
