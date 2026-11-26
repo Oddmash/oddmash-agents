@@ -34,10 +34,16 @@ try {
         const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
         const page = await context.newPage();
         const errors = [];
-        page.on('pageerror', error => { errors.push(error.message); console.error('PAGE ERROR', error.message); });
+        page.on('pageerror', error => { errors.push(error.message); console.error('PAGE ERROR', error.stack ?? error.message); });
         page.on('console', message => { if (message.type() === 'error') console.error('BROWSER', message.text()); });
         page.on('response', response => { if (response.status() >= 400) console.error('HTTP', response.status(), response.url()); });
-        await page.route('**/api/**', route => route.fulfill({ json: snapshot }));
+        await page.route('**/api/**', route => {
+          const path = new URL(route.request().url()).pathname;
+          if (path === '/api/status') return route.fulfill({ json: snapshot });
+          if (path === '/api/models') return route.fulfill({ json: { revision: 'fixture', overrides: {}, policy: Object.fromEntries(['reviewer','impact','triage','qa','release','docs','architect'].map(role => [role, { defaultModel: 'fixture-model', allowed: [] }])) } });
+          if (path === '/api/controls') return route.fulfill({ json: { revision: 'fixture', controls: { paused: false, excludedRoles: [], maxRequests: null, maxMs: null } } });
+          return route.fulfill({ status: 503, json: { error: 'Not part of render fixture' } });
+        });
         await page.goto(base + '/tests/render-fixture.html?theme=' + theme + '&language=' + language);
         const workflow = page.locator('.workflow-view').first();
         try { await workflow.waitFor({ state: 'visible', timeout: 12000 }); } catch (error) {
