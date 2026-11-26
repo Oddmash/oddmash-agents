@@ -34,11 +34,17 @@ try {
         const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
         const page = await context.newPage();
         const errors = [];
-        page.on('pageerror', error => errors.push(error.message));
+        page.on('pageerror', error => { errors.push(error.message); console.error('PAGE ERROR', error.message); });
+        page.on('console', message => { if (message.type() === 'error') console.error('BROWSER', message.text()); });
+        page.on('response', response => { if (response.status() >= 400) console.error('HTTP', response.status(), response.url()); });
         await page.route('**/api/**', route => route.fulfill({ json: snapshot }));
         await page.goto(base + '/tests/render-fixture.html?theme=' + theme + '&language=' + language);
         const workflow = page.locator('.workflow-view').first();
-        await workflow.waitFor({ state: 'visible' });
+        try { await workflow.waitFor({ state: 'visible', timeout: 12000 }); } catch (error) {
+          console.error('FIXTURE BODY', (await page.locator('body').innerText()).slice(0, 2000));
+          await page.screenshot({ path: dir + '/' + label + '-failure.png', fullPage: true });
+          throw error;
+        }
         const nodes = workflow.locator('.workflow-grid').first().locator('.workflow-node');
         assert.equal(await nodes.count(), 5, label);
         assert.match(await nodes.first().innerText(), /Lead/, label);
