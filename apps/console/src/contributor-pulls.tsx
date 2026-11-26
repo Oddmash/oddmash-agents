@@ -28,7 +28,7 @@ export const ContributorPulls = ({ language, jobs, renderAgent }: { language: La
     {loading && <p role="status">{t('Loading status…')}</p>}
     {failed && <Alert tone="danger" role="alert">{t('Contributor pull requests unavailable. Try again later.')}</Alert>}
     {data && <><p className="muted">{t('Last observed:')} <time dateTime={data.observedAt}>{new Date(data.observedAt).toLocaleString(language)}</time></p>
-      {data.partial && <Alert tone="warning">{t('Results may be incomplete.')}</Alert>}
+      {data.partial && <Alert tone="neutral">{t('Results may be incomplete.')}</Alert>}
       {data.pulls.length === 0 && <Card><EmptyState>{t('No matching open contributor pull requests.')}</EmptyState></Card>}
       <div className="review-list">{data.pulls.map(pull => {
         const latest = new Map<AgentRole, Job>();
