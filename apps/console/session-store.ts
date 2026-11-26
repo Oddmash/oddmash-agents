@@ -41,7 +41,7 @@ export function createSessionStore(config: Config, ownerId: string, request = fe
     return result[0].result as unknown;
   };
   return {
-    async read() { const value = await command(['GET', key]); if (value !== null && typeof value !== 'string') throw new Error('Session store unavailable'); return value; },
+    async read() { const value = await command(['GET', key]); if (value === null) return null; if (typeof value === 'string') return value; throw new Error('Session store unavailable'); },
     async compareAndSet(expected, next) {
       const result = await command(['EVAL', compareAndSetScript, 1, key, expected ?? '', next, SESSION_LIFETIME_MS]);
       if (result !== 0 && result !== 1) throw new Error('Session store unavailable');
