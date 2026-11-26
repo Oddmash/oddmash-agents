@@ -145,7 +145,7 @@ export async function publishSpecialistFindings(api: Api, target: Target, bot: s
     if (existing.has(id) || currentFindings.some(item =>
       item.path === finding.path && item.line === finding.line && sameFindingText(item.body, finding.en))) continue;
     if (!await current()) return;
-    const body = `<!-- oddmash-finding:${id} -->\n<!-- oddmash-specialist:${role} -->\n${plain(finding.en)}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${plain(finding.ko)}\n\n</details>`;
+    const body = `<!-- oddmash-finding:${id} -->\n<!-- oddmash-specialist:${role} -->\n${plain(finding.en)}`;
     try {
       const created = await api<{ id?: number }>(path, { method: 'POST', body: JSON.stringify({ body, commit_id: head, path: finding.path, line: finding.line, side: 'RIGHT' }) });
       onPublished?.(created?.id);

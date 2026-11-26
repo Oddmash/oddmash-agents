@@ -67,7 +67,7 @@ test('separates advisory findings, coverage gaps and approval without weakening 
   assert.match(body, /Advisory findings are optional/);
   assert.match(body, /defer to a separate issue/);
   assert.match(body, /repeated review is not required solely/);
-  assert.match(body, /참고 의견 처리/);
+  assert.doesNotMatch(body, /참고 의견 처리/);
   assert.doesNotMatch(body, /Maintainer review required/);
   assert.match(body, /Consider:/);
   const incomplete = reviewFollowUp({ ...context, omitted: ['image'] }, [advisory], true);
@@ -130,14 +130,14 @@ test('manual review identifies omitted public files, reasons, and verification a
   assert.match(report, /`docs\/assets\/demo.png`, `docs\/assets\/demo-dark.jpg`: Image has no text diff/);
   assert.match(report, /compare before\/after captures/);
   assert.match(report, /No validated findings in 1 reviewed file\./);
-  assert.match(report, /검토한 파일 1개에서 확인된 문제는 없습니다\./);
+  assert.doesNotMatch(report, /검토한 파일 1개에서 확인된 문제는 없습니다\./);
   assert.doesNotMatch(report, /proof of correctness|정확성을 보장/);
   assert.match(report, /`src\/renamed.ts`: GitHub did not provide a text diff/);
   assert.match(report, /`src\/incomplete.ts`: GitHub diff is incomplete/);
   assert.match(report, /Confidential path/);
   assert.match(report, /Potentially sensitive content excluded/);
-  assert.match(report, /수동 검토 범위/);
-  assert.match(report, /이전·이후 캡처의 레이아웃/);
+  assert.doesNotMatch(report, /수동 검토 범위/);
+  assert.doesNotMatch(report, /이전·이후 캡처의 레이아웃/);
   assert.doesNotMatch(report, /fixture-secret|fixture-sensitive|synthetic-fixture-value/);
   assert.equal(reviewDecision(context, [], true), 'COMMENT');
   const privateSelection = selectFiles([{ filename: 'docs/assets/private-fixture.png', status: 'modified' }, { ...file, filename: 'config/private-fixture.ts' }], 45_000, true);
@@ -164,16 +164,15 @@ test('manual review summarizes bounded file counts and explains coverage limits'
   assert.match(report, /\(5 unlisted\): Files beyond the fetched page/);
 });
 
-test('renders English first and Korean translation in a collapsed section', () => {
+test('renders English only while preserving validated translation', () => {
   const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: [file], omitted: [], guidance: {}, checks: [] };
   const bilingual = { ...finding, korean: { rule: '접근성', evidence: '레이블이 없습니다.', recommendation: '레이블을 추가하세요.', verification: '접근 가능한 이름을 확인하세요.' } };
   const valid = validateFindings([bilingual], [file])[0];
   assert.deepEqual(valid.korean, bilingual.korean);
   for (const output of [inlineComment(context, valid), formatReport(context, [valid])]) {
-    assert.ok(output.indexOf('Accessibility') < output.indexOf('<details>'));
-    assert.match(output, /<summary>한국어 \(Korean\)<\/summary>/);
-    assert.match(output, /레이블을 추가하세요/);
-    assert.match(output, /<\/details>/);
+    assert.match(output, /Accessibility/);
+    assert.doesNotMatch(output, /<details>|한국어/);
+    assert.doesNotMatch(output, /레이블을 추가하세요/);
     assert.doesNotMatch(output, /<details open/);
   }
   assert.doesNotMatch(formatReviewBody('APPROVE', '<!-- marker -->', formatReport(context, [valid])), /<details>/);
@@ -220,7 +219,7 @@ test('private quality review includes webhook review code and tests while protec
   const context: ReviewContext = { repository: 'Oddmash/example', number: 1, head: 'a'.repeat(40), title: 'Example', files: restricted.files, omitted: restricted.omitted, guidance: {}, checks: [] };
   const report = formatReport(context, [], true, restricted.omissionDetails);
   assert.match(report, /Confidential path[.] Inspect the change locally/);
-  assert.match(report, /민감 경로입니다[.]/);
+  assert.doesNotMatch(report, /민감 경로입니다[.]/);
   assert.doesNotMatch(report, /정책|보안 문제가 확인/);
 });
 
@@ -259,7 +258,7 @@ test('needs human explains the exact reason and directs maintainers to verificat
   assert.match(coverage, /Manual review coverage/);
   assert.match(coverage, /Files changed/);
   assert.match(coverage, /confidential changes locally/);
-  assert.match(coverage, /수동 검토 필요 사유 및 확인 위치/);
+  assert.doesNotMatch(coverage, /수동 검토 필요 사유 및 확인 위치/);
   const invalid = formatReviewBody('COMMENT', 'marker', 'report', undefined, { advisory: false, incompleteCoverage: false, invalidEvidence: true });
   assert.match(invalid, /Review evidence incomplete/);
   assert.match(invalid, /Conversation/);
@@ -291,7 +290,7 @@ test('confirmed full empty review is neutral without coverage or evidence warnin
   const body = formatReviewBody('COMMENT', 'marker', formatReport(context, [], false), undefined, followUp);
   assert.match(body, /No changed files \(neutral review\)/);
   assert.match(body, /GitHub confirms zero changed files/);
-  assert.match(body, /변경 파일이 0개임을 확인/);
+  assert.doesNotMatch(body, /변경 파일이 0개임을 확인/);
   assert.match(body, /no approval or automatic merge authorization/);
   assert.doesNotMatch(body, /Manual review coverage|Maintainer review required|Review evidence incomplete|Approval pending/);
   for (const uncertain of [{ ...context, confirmedEmpty: undefined }, { ...context, omitted: ['Unknown'] }]) {

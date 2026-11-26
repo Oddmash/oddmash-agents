@@ -243,23 +243,15 @@ export function findingMarker(context: ReviewContext, finding: Finding): string 
   return `<!-- oddmash-finding:${id} -->`;
 }
 
-const koreanText = (value: string) => clean(value).replace(/[\[\]`*_!]/g, match => '\\' + match);
 const relatedLocations = (finding: Finding) => (finding.relatedLocations ?? []).map(location => `${clean(location.path)}:${location.line}`).join(', ');
-const koreanDetails = (lines: string[]) => ['<details>', '<summary>한국어 (Korean)</summary>', '', ...lines, '', '</details>'].join('\n');
 
 export function inlineComment(context: ReviewContext, finding: Finding): string {
   const blocking = isBlockingFinding(context, finding);
   const lines = [findingMarker(context, finding), `**${blocking ? 'BLOCKING' : 'ADVISORY'} / ${finding.severity.toUpperCase()}: ${clean(finding.rule)}**`, '', clean(finding.evidence), '', `${blocking ? 'Fix' : 'Consider'}: ${clean(finding.recommendation)}`];
   lines.push('', `Verify: ${clean(finding.verification)}`);
   const related = relatedLocations(finding);
-  if (related) lines.push('', '<!-- oddmash-grouped-finding -->', `Also affects: ${related}. Verify every listed location before resolving.`, `관련 위치: ${related}. 모든 위치를 확인한 뒤 해결 처리하세요.`);
+  if (related) lines.push('', '<!-- oddmash-grouped-finding -->', `Also affects: ${related}. Verify every listed location before resolving.`);
   if (finding.suggestion) lines.push('', '```suggestion', finding.suggestion, '```');
-  if (finding.korean) {
-    const ko = finding.korean;
-    const translated = [koreanText(ko.rule), '', koreanText(ko.evidence), '', `${blocking ? '수정' : '제안'}: ${koreanText(ko.recommendation)}`];
-    translated.push('', `확인: ${koreanText(ko.verification)}`);
-    lines.push('', koreanDetails(translated));
-  }
   return lines.join('\n');
 }
 
@@ -299,8 +291,7 @@ function manualReviewLines(details: OmissionDetail[], language: 0 | 1): string[]
 export function formatReport(context: ReviewContext, findings: Finding[], modelValid = true, omissionDetails: OmissionDetail[] = [], inlineCovered = false): string {
   const lines = [reviewMarker(context)];
   if (isConfirmedEmpty(context, findings) && omissionDetails.length === 0) return [...lines,
-    'GitHub confirms zero changed files in this PR. There is no source diff to review. No model-based review was required, and no approval or automatic merge authorization was issued.', '',
-    koreanDetails(['GitHub에서 이 PR의 변경 파일이 0개임을 확인했습니다. 코드 변경 사항이 없어 모델 기반 리뷰를 수행하지 않았으며 승인하거나 자동 머지를 허용하지 않았습니다.'])].join('\n');
+    'GitHub confirms zero changed files in this PR. There is no source diff to review. No model-based review was required, and no approval or automatic merge authorization was issued.'].join('\n');
   if (!findings.length && context.files.length && modelValid) lines.push(`No validated findings in ${context.files.length} reviewed ${context.files.length === 1 ? 'file' : 'files'}.`);
   const blockingCount = findings.filter(f => isBlockingFinding(context, f)).length;
   if (inlineCovered && findings.length) lines.push(`${blockingCount} blocking, ${findings.length - blockingCount} advisory. See the inline review threads for details.`);
@@ -310,13 +301,6 @@ export function formatReport(context: ReviewContext, findings: Finding[], modelV
   if (context.omitted.length) lines.push('', '**Manual review coverage**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 0) : ['- Some changes require manual review; inspect Files changed for unreviewed entries.']));
   if (!context.files.length) lines.push('Automated review was not performed: 0 eligible files. No conclusion can be drawn. Inspect the complete diff before approval.');
   else if (!modelValid) lines.push('The review response contained findings that could not be validated against the changed lines. Compare the reported findings with the exact diff or request a fresh review.');
-  const translated = (inlineCovered ? [] : findings).filter(f => f.korean).map(f => `- **${isBlockingFinding(context, f) ? '수정 필수' : '참고 의견'} / ${f.severity.toUpperCase()}: ${koreanText(f.korean!.rule)}** (${clean(f.path)}:${f.line}): ${koreanText(f.korean!.evidence)} ${isBlockingFinding(context, f) ? '수정' : '제안'}: ${koreanText(f.korean!.recommendation)} 확인: ${koreanText(f.korean!.verification)}${relatedLocations(f) ? ` 관련 위치: ${relatedLocations(f)}. 모든 위치를 확인하세요.` : ''}`);
-  if (inlineCovered && findings.length) translated.push(`수정 필수 ${blockingCount}건, 참고 의견 ${findings.length - blockingCount}건. 상세 내용은 인라인 리뷰를 확인하세요.`);
-  if (!findings.length && context.files.length && modelValid) translated.push(`검토한 파일 ${context.files.length}개에서 확인된 문제는 없습니다.`);
-  if (context.omitted.length) translated.push('', '**수동 검토 범위**', ...(omissionDetails.length ? manualReviewLines(omissionDetails, 1) : ['- 일부 변경 사항은 수동 검토가 필요합니다. Files changed에서 미검토 항목을 확인하세요.']));
-  if (!context.files.length) translated.push('자동 검토 대상 파일이 0개여서 리뷰를 수행하지 못했습니다. 코드에 대한 결론을 내릴 수 없습니다. 승인 전 전체 diff를 확인하세요.');
-  else if (!modelValid) translated.push('리뷰 응답에 변경된 줄을 기준으로 검증할 수 없는 결과가 포함되었습니다. 결과를 실제 diff와 비교하거나 재리뷰를 요청하세요.');
-  if (translated.length) lines.push('', koreanDetails(translated));
   return lines.join('\n');
 }
 
@@ -332,20 +316,15 @@ export function formatReviewBody(event: ReviewDecision, marker: string, report: 
   if (!reasons.length) reasons.push(followUp ? 'Approval pending complete passing checks.' : 'Review follow-up required; inspect the report below.');
   const manual = reviewOutcome(event, followUp).label === 'review: needs human';
   const actions: string[] = [];
-  const korean: string[] = [];
   if (followUp?.maintainerFindings) {
     actions.push('Inspect the actionable findings in Files changed and the required CI in Checks. Record the disposition before making a manual merge decision.');
-    korean.push('검증된 유지보수 담당자 PR입니다. 변경 요청 대신 수정 권고를 기록하며 승인하지 않습니다. 자동 머지는 제공되지 않습니다. Files changed와 Checks를 확인하고 수동으로 판단하세요.');
   }
   if (manual && (!followUp || followUp.incompleteCoverage)) {
     actions.push('Open the **Files changed** tab and the **Manual review coverage** section below. Verify each omitted change, including any unlisted confidential changes locally. Check the relevant tests and behavior before approving.');
-    korean.push('Files changed 탭과 아래 수동 검토 범위를 확인하세요. 누락된 변경을 각각 검증하고, 비공개 경로는 로컬에서 확인하세요. 승인 전 관련 테스트와 동작을 확인하세요.');
   }
   if (manual && (!followUp || followUp.invalidEvidence)) {
     actions.push('Check the **Conversation** review findings against the current **Files changed** diff. Confirm evidence and expected behavior; inspect the relevant test results in **Checks**.');
-    korean.push('Conversation 탭의 리뷰 의견을 현재 Files changed diff와 비교하세요. 근거와 기대 동작을 검증하고 Checks에서 관련 테스트 결과를 확인하세요.');
   }
-  const advisoryGuidance = followUp?.advisory ? '\n\n<details>\n<summary>참고 의견 처리 (Korean)</summary>\n\n참고 의견은 확인된 머지 차단 결함이 아닙니다. 근거를 확인한 후 반영, 별도 이슈로 연기 또는 사유를 남겨 보류할 수 있습니다. 커밋이 변경되지 않았다면 참고 의견의 처리만을 위해 재리뷰를 반복할 필요는 없습니다. 수동 검토, 필수 CI 및 승인 조건은 그대로 적용됩니다.\n\n</details>' : '';
-  const instructions = manual ? `\n\n**Where to check**\n\n${actions.map(action => `- ${action}`).join('\n')}\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n**수동 검토 필요 사유 및 확인 위치**\n\n${korean.map(action => `- ${action}`).join('\n')}\n\n</details>` : '';
-  return `${marker}\n${manual ? 'Maintainer review required (`review: needs human`).' : followUp?.advisory ? 'Advisory review complete (optional follow-up).' : 'Review follow-up required.'} No approval was issued.\n\n${reasons.map(reason => `- ${reason}`).join('\n')}${instructions}${advisoryGuidance}\n\n${report}`;
+  const instructions = manual ? `\n\n**Where to check**\n\n${actions.map(action => `- ${action}`).join('\n')}` : '';
+  return `${marker}\n${manual ? 'Maintainer review required (`review: needs human`).' : followUp?.advisory ? 'Advisory review complete (optional follow-up).' : 'Review follow-up required.'} No approval was issued.\n\n${reasons.map(reason => `- ${reason}`).join('\n')}${instructions}\n\n${report}`;
 }

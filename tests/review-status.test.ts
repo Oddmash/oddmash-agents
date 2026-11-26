@@ -127,7 +127,7 @@ test('cross-repository auto-merge notice explains the rule and names the current
   });
   await publishAutomationStatus(api, 'Oddmash/oddmash-ui', 63, bot, head, 'merge', 'cross-repository issue reference requires manual merge');
   assert.match(posted, /one issue in this PR’s repository/);
-  assert.match(posted, /CI와 리뷰 통과 후 수동으로 머지/);
-  assert.equal(posted.split('Oddmash/.github#68').length, 3);
+  assert.doesNotMatch(posted, /CI와 리뷰 통과 후 수동으로 머지/);
+  assert.equal(posted.split('Oddmash/.github#68').length, 2);
   assert.doesNotMatch(posted, /Unrelated text/);
 });

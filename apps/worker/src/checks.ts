@@ -107,7 +107,7 @@ export function reviewChecksMayStart(evidence: CheckEvidence, repository?: strin
 
 export const scopedAdvisoryNote = (evidence: CheckEvidence, repository?: string): string =>
   reviewChecksAreScopedAdvisory(evidence, repository)
-    ? '\n\nApplicable CI scope verified against the pinned workflow contract. This is an advisory review only; full-matrix approval and automatic merge remain unavailable.\n\n검증된 적용 대상 CI 범위입니다. 참고 리뷰만 제공하며 전체 매트릭스 승인 및 자동 머지는 적용되지 않습니다.'
+    ? '\n\nApplicable CI scope verified against the pinned workflow contract. This is an advisory review only; full-matrix approval and automatic merge remain unavailable.'
     : '';
 
 

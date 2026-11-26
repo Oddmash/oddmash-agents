@@ -94,7 +94,7 @@ test('answers a verified maintainer thread once and does not change review state
     assert.equal(init?.method, 'POST');
     const { body } = JSON.parse(String(init?.body));
     assert.match(body, /oddmash-discussion:5/);
-    assert.match(body, /한국어/);
+    assert.doesNotMatch(body, /한국어/);
     comments.push({ ...root, id: 6, in_reply_to_id: 4, body });
     return Response.json({ id: 6 });
   });

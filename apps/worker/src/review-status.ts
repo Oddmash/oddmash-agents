@@ -93,14 +93,13 @@ export async function publishAutomationStatus(api: Api, repository: string, numb
     if (completed && !existing) return;
     const current = await api<{ state: string; head: { sha: string }; merged?: boolean; body?: string | null }>(`/repos/${repository}/pulls/${number}`);
     if (current.head.sha !== head || (!completed && current.state !== 'open')) return;
-    const [en, ko] = statusText(kind, reason);
+    const [en] = statusText(kind, reason);
     const reference = kind === 'merge' && reason === 'cross-repository issue reference requires manual merge'
       ? crossRepositoryIssueReference(current.body ?? null) : undefined;
     const referenceEn = reference ? `\n\nLinked issue: \`${reference}\`` : '';
-    const referenceKo = reference ? `\n\n연결 이슈 \`${reference}\`` : '';
     const links = reason === 'Actions billing or quota block' ? `\n\n[Workflow run${workflowRunUrl ? '' : 's'}](${workflowRunUrl ?? `https://github.com/${repository}/actions`}) · ${billingHelpLink(repository)}` : '';
     const title = completed ? 'Completed' : kind === 'merge' ? 'Auto-merge withheld' : 'Review processing failed';
-    const body = `${marker}\n**${title}**\n\n${en}${referenceEn}${links}\n\nCommit: \`${head.slice(0, 12)}\`\n\n<details>\n<summary>한국어 (Korean)</summary>\n\n${ko}${referenceKo}\n\n</details>`;
+    const body = `${marker}\n**${title}**\n\n${en}${referenceEn}${links}\n\nCommit: \`${head.slice(0, 12)}\``;
     if (existing?.body === body) return;
     if (existing) await api(`/repos/${repository}/issues/comments/${existing.id}`, { method: 'PATCH', body: JSON.stringify({ body }) });
     else {
