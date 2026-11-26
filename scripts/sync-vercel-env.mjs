@@ -1,3 +1,5 @@
+import { operatorModelAllowlistEntries } from './operator-model-allowlists.mjs';
+
 const required = ['OPENAI_API_KEY', 'REVIEWER_APP_PRIVATE_KEY', 'REVIEWER_APP_ID', 'REVIEWER_APP_SLUG'];
 const missing = required.filter(key => !process.env[key]?.trim());
 if (missing.length) throw new Error('Missing configuration: ' + missing.join(', '));
@@ -20,7 +22,8 @@ const entries = [
   { key: 'REVIEWER_UI_THREAD_RESOLVE_ENABLED', value: process.env.REVIEWER_UI_THREAD_RESOLVE_ENABLED === 'true' ? 'true' : 'false', type: 'plain' },
   { key: 'REVIEWER_SKILLS_THREAD_RESOLVE_ENABLED', value: process.env.REVIEWER_SKILLS_THREAD_RESOLVE_ENABLED === 'true' ? 'true' : 'false', type: 'plain' },
   { key: 'REVIEWER_AUTO_MERGE_ENABLED', value: process.env.REVIEWER_AUTO_MERGE_ENABLED === 'true' ? 'true' : 'false', type: 'plain' },
-  { key: 'REVIEWER_APP_ENABLED', value: webhook && process.env.REVIEWER_APP_ENABLED === 'true' ? 'true' : 'false', type: 'plain' }
+  { key: 'REVIEWER_APP_ENABLED', value: webhook && process.env.REVIEWER_APP_ENABLED === 'true' ? 'true' : 'false', type: 'plain' },
+  ...operatorModelAllowlistEntries(process.env)
 ];
 for (const entry of entries) {
   const url = new URL('https://api.vercel.com/v10/projects/' + project + '/env');
