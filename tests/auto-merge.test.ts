@@ -285,6 +285,24 @@ test('mint write token only after exact-head approval and protected current CI',
   assert.equal(await mergeMobile(makeApi(true, mobilePull)), true);
   assert.equal(mints, 5);
   assert.equal(writes, 5);
+
+  const reportedBlocked = { ...mobilePull, mergeable_state: 'blocked' };
+  const checkBlocked = (writerPull: MergePull, passing = true, readPull = reportedBlocked) =>
+    mergeAuthorized(makeApi(passing, readPull), mobileTarget, mobileCandidate, 'oddmash-reviewer[bot]', 5, true, async () => {
+      mints++;
+      return makeApi(true, writerPull);
+    });
+  assert.equal(await checkBlocked(mobilePull, false), false);
+  assert.equal(await checkBlocked(mobilePull, true, { ...reportedBlocked, mergeable: false }), false);
+  assert.equal(mints, 5);
+
+  assert.equal(await checkBlocked(reportedBlocked), false);
+  assert.equal(await checkBlocked({ ...mobilePull, head: { ...mobilePull.head, sha: base } }), false);
+  assert.equal(writes, 5);
+  assert.equal(await checkBlocked(mobilePull), true);
+  assert.equal(mints, 8);
+  assert.equal(writes, 6);
+
 });
 
 

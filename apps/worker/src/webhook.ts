@@ -266,7 +266,14 @@ export async function authorizeMerge(target: Target, appId: string, key: string,
   const jwtApi = githubAppApi(appId, key, request);
   const installation = await jwtApi<{ account: { login: string }; suspended_at: string | null }>('/app/installations/' + target.installation);
   if (installation.account.login.toLowerCase() !== 'oddmash' || installation.suspended_at) throw new Error('Installation not eligible');
-  const result = await jwtApi<{ token: string; permissions: { contents?: string } }>('/app/installations/' + target.installation + '/access_tokens', { method: 'POST', body: JSON.stringify({ repository_ids: [target.repositoryId], permissions: { contents: 'write' } }) });
-  if (result.permissions.contents !== 'write') throw new Error('Merge permission missing');
+  const pullRequestsRead = target.repository === 'Oddmash/oddmash-mobile';
+  const permissions = { contents: 'write', ...(pullRequestsRead ? { pull_requests: 'read' } : {}) };
+  const result = await jwtApi<{ token: string; permissions: { contents?: string; pull_requests?: string } }>(
+    '/app/installations/' + target.installation + '/access_tokens',
+    { method: 'POST', body: JSON.stringify({ repository_ids: [target.repositoryId], permissions }) },
+  );
+  if (result.permissions.contents !== 'write' || (pullRequestsRead && result.permissions.pull_requests !== 'read')) {
+    throw new Error('Merge permission missing');
+  }
   return githubApi(result.token, request);
 }
