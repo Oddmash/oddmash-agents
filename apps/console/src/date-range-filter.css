@@ -1,5 +1,5 @@
 .date-range-control { min-inline-size: 0; }
 .date-range-control button { justify-content: flex-start; min-block-size: var(--console-length-44); min-inline-size: 0; max-inline-size: 100%; white-space: normal; overflow-wrap: anywhere; text-align: start; }
-.date-range-dialog { max-block-size: 85dvh; overflow: auto; }
+.om-dialog-content.date-range-dialog { width: min(var(--console-length-710), calc(100vw - var(--om-semantic-space-xl) * 2)); max-block-size: 85dvh; overflow: auto; }
 .date-range-fields { display: grid; gap: var(--om-semantic-space-lg); margin-block: var(--om-semantic-space-lg); }
 .date-range-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--om-semantic-space-sm); }
