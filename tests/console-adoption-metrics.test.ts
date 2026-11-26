@@ -49,7 +49,7 @@ test('only expired provider observations are retried; successful values remain c
   const read = createAdoptionReader(()=>now);
   const request: typeof fetch = async input => {
     const url = new URL(String(input));
-    const id = url.hostname === 'marketplace.visualstudio.com' ? 'marketplace' : url.pathname.split('/last-month/')[1];
+    const id = url.hostname === 'marketplace.visualstudio.com' ? 'marketplace' : url.pathname.split('/last-year/')[1];
     calls.push(id);
     if(id==='@oddmash/juliya') return new Response('',{status:404});
     if(id==='marketplace') return Response.json({results:[{extensions:[{publisher:{publisherName:'oddmash'},extensionName:'boundra-vscode',statistics:[{statisticName:'install',value:9}]}]}]});
@@ -64,4 +64,16 @@ test('only expired provider observations are retried; successful values remain c
   now+=3_540_000;
   await read(request);
   assert.equal(calls.length,9);
+});
+
+test('live console retains bounded longer npm history but the displayed total remains the recent 30 days', async () => {
+  const request: typeof fetch = async input => {
+    const url = new URL(String(input));
+    assert.match(url.pathname,/last-year/);
+    return Response.json({package:'boundra',downloads:[{day:'2025-12-01',downloads:10},{day:'2026-01-01',downloads:2},{day:'2026-01-30',downloads:3}]});
+  };
+  const [metric] = await collectAdoptionMetrics(request,new Date('2026-01-31'),['boundra'],true);
+  assert.equal(metric.count,5);
+  assert.equal(metric.history?.length,3);
+  assert.throws(()=>parseNpmHistory({package:'boundra',downloads:[{day:'2024-01-01',downloads:1},{day:'2026-01-01',downloads:2}]},'boundra',366));
 });
