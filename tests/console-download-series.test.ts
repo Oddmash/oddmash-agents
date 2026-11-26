@@ -39,3 +39,8 @@ test('monthly UTC buckets handle leap years and a fully missing month', () => {
   assert.equal(result.points[2].downloads,0);
   assert.equal(result.missing,89);
 });
+
+test('monthly eligibility is a date span rather than a number of daily observations', () => {
+  assert.equal(hasMonthlyHistory([{day:'2025-10-01',downloads:1},{day:'2025-10-31',downloads:0}]),true);
+  assert.equal(hasMonthlyHistory([{day:'2025-10-01',downloads:1},{day:'2025-10-30',downloads:0}]),false);
+});
