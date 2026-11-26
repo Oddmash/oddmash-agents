@@ -120,3 +120,10 @@
 .console-discard-dialog .control-actions { justify-content:flex-end; margin-block-start:var(--om-semantic-space-md); }
 .adoption-skeleton-chart { display:block; min-block-size:var(--console-length-140); width:100%; }
 .settings-workspace .control-actions { position:sticky; inset-block-start:0; background:var(--panel); z-index:2; padding-block:var(--om-semantic-space-xs); }
+
+.settings-summary .status-value { flex:none; white-space:nowrap; }
+@media(max-width:680px) {
+  .settings-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .settings-tabs > button { white-space:normal; min-block-size:44px; min-inline-size:0; padding-inline:var(--om-semantic-space-xs); }
+  .theme-options { flex-wrap:nowrap; }
+}
