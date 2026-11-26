@@ -1,5 +1,4 @@
 export const korean = {
-  "Attempt": "시도",
   "Failed jobs and steps": "실패한 작업 및 단계",
   "Failure details unavailable. Open the workflow run.": "실패 상세를 확인할 수 없습니다. 워크플로우를 열어주세요.",
   "Waiting on current checks": "현재 검사 완료 대기",
