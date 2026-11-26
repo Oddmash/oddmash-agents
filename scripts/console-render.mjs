@@ -72,12 +72,23 @@ try {
           return { overflow, misaligned, documentOverflow: document.documentElement.scrollWidth > innerWidth + 1 };
         });
         assert.deepEqual(geometry, { overflow: false, misaligned: false, documentOverflow: false }, label);
+        const active = nodes.nth(1);
+        assert.equal(await active.evaluate(element => getComputedStyle(element).animationName), 'none', label + ' reduced motion');
+        await page.emulateMedia({ reducedMotion: 'no-preference' });
+        assert.equal(await active.evaluate(element => getComputedStyle(element).animationName), 'workflow-active', label + ' active animation');
+        await page.emulateMedia({ reducedMotion: 'reduce' });
         await page.screenshot({ path: dir + '/' + label + '.png', fullPage: true, animations: 'disabled' });
         const lead = nodes.first();
         await lead.focus();
         await page.keyboard.press('Enter');
         const dialog = page.getByRole('dialog');
         await dialog.waitFor({ state: 'visible' });
+        const actionVisible = await dialog.evaluate(element => {
+          const footer = element.querySelector('.workflow-dialog-footer').getBoundingClientRect();
+          const bounds = element.getBoundingClientRect();
+          return footer.top >= bounds.top && footer.bottom <= bounds.bottom + 1 && footer.bottom <= innerHeight;
+        });
+        assert(actionVisible, label + ' dialog actions visible');
         assert.equal(await dialog.locator('.workflow-timeline li').count(), 2, label);
         assert.match(await dialog.locator('.workflow-failure-phase').innerText(), language === 'ko' ? /실패/ : /failure/i, label);
         await page.screenshot({ path: dir + '/' + label + '-details.png', animations: 'disabled' });
