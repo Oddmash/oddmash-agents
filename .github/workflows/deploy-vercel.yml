@@ -125,9 +125,12 @@ jobs:
       - name: Confirm combined build output
         run: |
           node --input-type=module <<'NODE'
-          import { existsSync } from 'node:fs';
-          const expected = ['static/index.html', 'functions/api/github.func/.vc-config.json', 'functions/api/advisory.func/.vc-config.json', 'functions/api/review-jobs.func/.vc-config.json', 'functions/api/status.func/.vc-config.json', 'functions/api/controls.func/.vc-config.json', 'functions/api/models.func/.vc-config.json', 'functions/api/availability.func/.vc-config.json', 'functions/api/auth/signin/github.func/.vc-config.json', 'functions/api/auth/callback/github.func/.vc-config.json'];
+          import { existsSync, readdirSync } from 'node:fs';
+          const expected = ['static/index.html', 'functions/api/github.func/.vc-config.json', 'functions/api/advisory.func/.vc-config.json', 'functions/api/review-jobs.func/.vc-config.json', 'functions/api/[resource].func/.vc-config.json', 'functions/api/auth/signin/github.func/.vc-config.json', 'functions/api/auth/callback/github.func/.vc-config.json'];
           for (const entry of expected) if (!existsSync('.vercel/output/' + entry)) throw new Error('Missing combined deployment artifact: ' + entry);
+          const count = readdirSync('.vercel/output/functions', { recursive: true }).filter(entry => entry.endsWith('.vc-config.json')).length;
+          if (count > 12) throw new Error('Hobby function budget exceeded: ' + count);
+          console.log('Function artifacts: ' + count);
           NODE
       - name: Stage production
         id: stage
@@ -174,7 +177,7 @@ jobs:
           const request = (path, method = 'GET') => fetch(new URL(path, origin), { method, headers: { 'x-vercel-protection-bypass': secret }, redirect: 'error', signal: AbortSignal.timeout(30000) });
           const shell = await request('/');
           if (!shell.ok || !shell.headers.get('content-type')?.includes('text/html') || !(await shell.text()).includes('id="root"')) throw new Error('Console shell unavailable');
-          for (const path of ['/ko', '/en/settings', '/ko/activity', '/en/usage']) {
+          for (const path of ['/ko', '/en/settings', '/ko/activity', '/en/usage', '/ko/contributors']) {
             const page = await request(path);
             if (!page.ok || !page.headers.get('content-type')?.includes('text/html') || !(await page.text()).includes('id="root"')) throw new Error('Localized console shell unavailable: ' + path);
           }
@@ -192,8 +195,12 @@ jobs:
           if (controls.status !== 401 || !controls.headers.get('cache-control')?.includes('no-store')) throw new Error('Console controls failed unauthenticated denial');
           const models = await request('/api/models');
           if (models.status !== 401 || !models.headers.get('cache-control')?.includes('no-store')) throw new Error('Console models failed unauthenticated denial');
-          const status = await request('/api/status');
-          if (status.status !== 401 || !status.headers.get('cache-control')?.includes('no-store')) throw new Error('Console status failed unauthenticated denial');
+          for (const path of ['/api/status', '/api/contributors', '/api/adoption']) {
+            const response = await request(path);
+            if (response.status !== 401 || !response.headers.get('cache-control')?.includes('no-store')) throw new Error('Console failed unauthenticated denial: ' + path);
+          }
+          const unknown = await request('/api/not-a-console-resource');
+          if (unknown.status !== 404) throw new Error('Unknown console resource did not fail closed');
           NODE
       - name: Recheck latest release before promotion
         env:

@@ -2,8 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { authorizedSessionId } from '../apps/console/auth-policy.ts';
 import { consoleApi } from '../apps/console/auth.ts';
-import { GET as statusGet } from '../api/status.ts';
-import { GET as availabilityGet } from '../api/availability.ts';
+import { GET as consoleGet } from '../api/[resource].ts';
 import { POST as signInPost } from '../api/auth/signin/github.ts';
 import { GET as callbackGet } from '../api/auth/callback/github.ts';
 import { GET as authGet } from '../api/auth/[...path].ts';
@@ -22,15 +21,15 @@ test('root console functions preserve fail-closed routes separately from worker 
   delete process.env.AUTH_SECRET;
   try {
     const origin = 'https://console.example.invalid';
-    const availability = await availabilityGet(new Request(origin + '/api/availability'));
+    const availability = await consoleGet(new Request(origin + '/api/availability'));
     assert.deepEqual(await availability.json(), { configured: false });
-    const status = await statusGet(new Request(origin + '/api/status'));
+    const status = await consoleGet(new Request(origin + '/api/status'));
     assert.equal(status.status, 401);
     assert.equal(status.headers.get('cache-control'), 'private, no-store');
     assert.equal((await authGet(new Request(origin + '/api/auth/session'))).status, 503);
     assert.equal((await signInPost(new Request(origin + '/api/auth/signin/github', { method: 'POST' }))).status, 503);
     assert.equal((await callbackGet(new Request(origin + '/api/auth/callback/github'))).status, 503);
-    assert.equal((await statusGet(new Request(origin + '/api/github'))).status, 404);
+    assert.equal((await consoleGet(new Request(origin + '/api/github'))).status, 404);
     assert.equal((await githubGet(new Request(origin + '/api/github'))).status, 200);
   } finally {
     if (previous === undefined) delete process.env.AUTH_SECRET; else process.env.AUTH_SECRET = previous;
