@@ -46,9 +46,11 @@ export async function collectAdoptionMetrics(request: typeof fetch = fetch, now 
     const metric: AdoptionMetric = {id, kind:'npm', source:npmSource(id), count:null, history:null, observedAt};
     try {
       const history = parseNpmHistory(await readJson(request, 'https://api.npmjs.org/downloads/range/' + (extendedHistory ? 'last-year/' : 'last-month/') + id), id, extendedHistory ? 366 : 31);
-      const cutoff = Date.parse(history.at(-1)!.day) - 29 * 86_400_000;
-      const total = history.filter(item => !extendedHistory || Date.parse(item.day) >= cutoff).reduce((sum, item) => sum + item.downloads, 0);
-      if (!count(total)) throw new Error('Invalid total');
+      const reportingEnd = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - 86_400_000;
+      const reportingStart = reportingEnd - 29 * 86_400_000;
+      const recent = history.filter(item => !extendedHistory || (Date.parse(item.day) >= reportingStart && Date.parse(item.day) <= reportingEnd));
+      const total = recent.length ? recent.reduce((sum, item) => sum + item.downloads, 0) : null;
+      if (total !== null && !count(total)) throw new Error('Invalid total');
       return {...metric, count:total, history};
     } catch { return metric; }
   });
@@ -75,7 +77,7 @@ export function createAdoptionReader(clock: () => number = Date.now) {
     const snapshot = () => metricIds.map(id => cached.get(id)!.metric);
     if (!expired.length) return snapshot();
     const promise = collectAdoptionMetrics(request, new Date(now), expired, true).then(metrics => {
-      for (const metric of metrics) cached.set(metric.id, { expires: now + (metric.count === null ? 60_000 : 3_600_000), metric });
+      for (const metric of metrics) cached.set(metric.id, { expires: now + (metric.count === null && !metric.history?.length ? 60_000 : 3_600_000), metric });
       return snapshot();
     });
     pending = promise;
