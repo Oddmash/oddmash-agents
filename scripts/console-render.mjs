@@ -183,7 +183,7 @@ try {
         assert.match(await tooltip.innerText(),/23/,label+' pointer leave restores keyboard focus');
         await chart.locator('.download-bar').nth(2).hover();
         await page.keyboard.press('Tab');
-        assert.match(await tooltip.innerText(),/24/,label+' latest keyboard focus overrides parked pointer');
+        assert.equal(await tooltip.locator('strong').innerText(),'0',label+' latest keyboard focus overrides parked pointer');
         await chart.locator('[data-zero="true"]').hover();
         assert.equal(await tooltip.locator('strong').innerText(),'0',label+' exact hover zero');
         await chart.locator('[data-missing="true"]').hover();
