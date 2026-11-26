@@ -27,3 +27,26 @@ export function matchesDateRange(timestamp: string, range: DateRange): boolean {
 }
 
 export const emptyDateRange = (): DateRange => ({ from: '', to: '' });
+
+export const organizationStart = '2026-04-23T04:38:00Z';
+
+export const localCalendarDate = (date: Date): string => [date.getFullYear(), date.getMonth() + 1, date.getDate()].map((part, index) => String(part).padStart(index === 0 ? 4 : 2, '0')).join('-');
+
+export const historyBounds = (now = new Date()) => ({ min: localCalendarDate(new Date(organizationStart)), max: localCalendarDate(now) });
+
+export const selectRangeDate = (range: DateRange, endpoint: keyof DateRange, day: string): DateRange => ({ ...range, [endpoint]: day ? day + 'T' + (range[endpoint].slice(11) || (endpoint === 'from' ? '00:00:00' : '23:59:59')) : '' });
+
+export const setRangeTime = (range: DateRange, endpoint: keyof DateRange, time: string): DateRange => ({ ...range, [endpoint]: range[endpoint].slice(0, 10) + 'T' + (time.length === 5 ? time + ':00' : time) });
+
+export function historyPreset(days: number, now = new Date()): DateRange {
+  const { min, max } = historyBounds(now);
+  const from = new Date(now);
+  from.setDate(from.getDate() - Math.max(0, days - 1));
+  const start = localCalendarDate(from);
+  return { from: (start < min ? min : start) + 'T00:00:00', to: max + 'T23:59:59' };
+}
+
+export function validHistoryRange(range: DateRange, now = new Date()): boolean {
+  const { min, max } = historyBounds(now);
+  return resolveDateRange(range) !== undefined && Object.values(range).every(value => !value || (value.slice(0, 10) >= min && value.slice(0, 10) <= max));
+}

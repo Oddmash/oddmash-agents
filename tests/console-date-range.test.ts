@@ -2,7 +2,30 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Job } from '@oddmash/agent-operator-contract';
 import { filterActivity } from '../apps/console/src/activity.ts';
-import { emptyDateRange, matchesDateRange, parseLocalDateTime, resolveDateRange } from '../apps/console/src/date-range.ts';
+import { emptyDateRange, matchesDateRange, parseLocalDateTime, resolveDateRange, historyBounds, historyPreset, selectRangeDate, setRangeTime, validHistoryRange, organizationStart } from '../apps/console/src/date-range.ts';
+
+test('calendar history bounds are local and presets include the full day without predating the organization', () => {
+  const now = new Date(2026, 3, 27, 14);
+  const { min, max } = historyBounds(now);
+  const earliest = new Date(organizationStart);
+  assert.equal(min, [earliest.getFullYear(), String(earliest.getMonth() + 1).padStart(2, '0'), String(earliest.getDate()).padStart(2, '0')].join('-'));
+  assert.equal(max, '2026-04-27');
+  assert.deepEqual(historyPreset(30, now), { from: min + 'T00:00:00', to: max + 'T23:59:59' });
+  assert.deepEqual(historyPreset(1, now), { from: max + 'T00:00:00', to: max + 'T23:59:59' });
+  assert.equal(validHistoryRange({ from: '2026-04-01T00:00:00', to: '' }, now), false);
+  assert.equal(validHistoryRange({ from: '', to: '2026-04-28T00:00:00' }, now), false);
+  assert.equal(validHistoryRange({ from: max + 'T23:59:59', to: min + 'T00:00:00' }, now), false);
+});
+
+test('calendar selection defaults to day boundaries, preserves explicit time, and clears each bound independently', () => {
+  const start = selectRangeDate(emptyDateRange(), 'from', '2026-05-01');
+  const both = selectRangeDate(start, 'to', '2026-05-02');
+  assert.deepEqual(both, { from: '2026-05-01T00:00:00', to: '2026-05-02T23:59:59' });
+  const exact = setRangeTime(both, 'from', '12:34:56');
+  assert.equal(selectRangeDate(exact, 'from', '2026-05-02').from, '2026-05-02T12:34:56');
+  assert.deepEqual(selectRangeDate(exact, 'from', ''), { from: '', to: both.to });
+  assert.equal(setRangeTime(both, 'to', '08:30').to, '2026-05-02T08:30:00');
+});
 
 test('valid local timestamps preserve seconds and reject invalid calendar values', () => {
   const local = parseLocalDateTime('2024-02-29T12:34:56');
