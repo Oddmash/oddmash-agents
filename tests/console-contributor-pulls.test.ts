@@ -10,6 +10,16 @@ test('external public PR records exclude owner, bots, members, collaborators and
   assert.equal(result.partial, true);
   assert.throws(() => parseContributorPulls({}, '123', row.updated_at));
 });
+test('the internal alternate GitHub identity is excluded independently of login and association', () => {
+  const items = [
+    { ...row, user: { ...row.user, id: 264418006, login: 'arvynoo' } },
+    { ...row, user: { ...row.user, id: 264418006, login: 'renamed-internal' }, author_association: 'FIRST_TIME_CONTRIBUTOR' },
+    row
+  ];
+  const result = parseContributorPulls({ items, total_count: items.length, incomplete_results: false }, '123', row.updated_at);
+  assert.deepEqual(result.pulls.map(pull => pull.author), ['guest']);
+  assert.equal(result.partial, false);
+});
 test('public search is fixed, bounded and uses no authorization header', async () => {
   const fake: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
