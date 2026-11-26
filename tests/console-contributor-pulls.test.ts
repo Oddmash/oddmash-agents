@@ -41,7 +41,7 @@ test('successful cache is reused for the same owner and failed fetches can be re
   assert.equal(calls,3);
   assert.deepEqual(a,b);
   await readContributorPulls('789',fake);
-  assert.equal(calls,2);
+  assert.equal(calls,3);
 });
 
 const head = {sha:'a'.repeat(40),repositoryId:8,branch:'feature'};
