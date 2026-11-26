@@ -37,9 +37,10 @@ const readJson = async (request: typeof fetch, url: string, init: RequestInit = 
   if (!response.ok) throw new Error('Source unavailable');
   return response.json() as Promise<unknown>;
 };
-export async function collectAdoptionMetrics(request: typeof fetch = fetch, now = new Date()): Promise<AdoptionMetric[]> {
+const metricIds = [...packages, extension] as const;
+export async function collectAdoptionMetrics(request: typeof fetch = fetch, now = new Date(), ids: readonly string[] = metricIds): Promise<AdoptionMetric[]> {
   const observedAt = now.toISOString();
-  const npm = packages.map(async id => {
+  const npm = packages.filter(id => ids.includes(id)).map(async id => {
     const metric: AdoptionMetric = {id, kind:'npm', source:npmSource(id), count:null, history:null, observedAt};
     try {
       const history = parseNpmHistory(await readJson(request, 'https://api.npmjs.org/downloads/range/last-month/' + id), id);
@@ -58,18 +59,24 @@ export async function collectAdoptionMetrics(request: typeof fetch = fetch, now 
       return {...metric, count:parseMarketplaceCount(payload)};
     } catch { return metric; }
   };
-  return Promise.all([...npm, marketplace()]);
+  return Promise.all([...npm, ...(ids.includes(extension) ? [marketplace()] : [])]);
 }
 
-let cached: { expires: number; metrics: AdoptionMetric[] } | undefined;
-let pending: Promise<AdoptionMetric[]> | undefined;
-export async function readAdoptionMetrics(request: typeof fetch = fetch) {
-  if (cached && Date.now() < cached.expires) return cached.metrics;
-  if (pending) return pending;
-  const promise = collectAdoptionMetrics(request).then(metrics => {
-    cached = { expires: Date.now() + (metrics.every(metric => metric.count === null) ? 60_000 : 3600_000), metrics };
-    return metrics;
-  });
-  pending = promise;
-  try { return await promise; } finally { if (pending === promise) pending = undefined; }
+export function createAdoptionReader(clock: () => number = Date.now) {
+  const cached = new Map<string, { expires: number; metric: AdoptionMetric }>();
+  let pending: Promise<AdoptionMetric[]> | undefined;
+  return async (request: typeof fetch = fetch) => {
+    if (pending) return pending;
+    const now = clock();
+    const expired = metricIds.filter(id => (cached.get(id)?.expires ?? 0) <= now);
+    const snapshot = () => metricIds.map(id => cached.get(id)!.metric);
+    if (!expired.length) return snapshot();
+    const promise = collectAdoptionMetrics(request, new Date(now), expired).then(metrics => {
+      for (const metric of metrics) cached.set(metric.id, { expires: now + (metric.count === null ? 60_000 : 3_600_000), metric });
+      return snapshot();
+    });
+    pending = promise;
+    try { return await promise; } finally { if (pending === promise) pending = undefined; }
+  };
 }
+export const readAdoptionMetrics = createAdoptionReader();

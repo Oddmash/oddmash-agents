@@ -1,4 +1,5 @@
 export const korean = {
+  "The npm download service has not returned statistics for this package. Try again later.": "npm 다운로드 통계 서비스에서 이 패키지의 데이터를 제공하지 않았습니다. 잠시 후 다시 확인해 주세요.",
   "View all targets": "모든 대상 보기",
   "Week": "주간",
   "Month": "월간",
