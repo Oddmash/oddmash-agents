@@ -1,5 +1,6 @@
 import type { AdvisoryRole } from './advisory-agents.ts';
 import type { Target } from './webhook.ts';
+import { deploymentControlLimits } from '../../../packages/operator-contract/src/controls.ts';
 
 export type ChangeMetadata = { filename: string; status?: string; changes?: number };
 export type CompareEvidence = { status: string; ahead_by: number; total_commits: number; merge_base_commit?: { sha?: string }; files?: ChangeMetadata[] };
@@ -24,21 +25,14 @@ export function incrementalPaths(previous: { commit_id: string; state: string; b
 const automaticRoles = ['impact', 'qa', 'release', 'docs', 'architect'] as const;
 type AutomaticRole = typeof automaticRoles[number];
 export type AdvisoryBudget = { maxRequests: number; elapsedMs: number };
-const bounded = (value: string | undefined, fallback: number, maximum: number) => {
-  if (value === undefined || !/^\d+$/.test(value)) return fallback;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? Math.min(parsed, maximum) : fallback;
-};
 
 export function coordinatedAdvisoriesEnabled(target: Pick<Target, 'recheck' | 'requestComment'>, enabled: string | undefined, boundedFollowUp = false): boolean {
   return !boundedFollowUp && enabled === 'true' && (!target.recheck || target.requestComment?.kind === 'issue');
 }
 
 export function automaticAdvisoryBudget(env: Record<string, string | undefined> = process.env, elapsedMs = 0): AdvisoryBudget {
-  return {
-    maxRequests: bounded(env.REVIEWER_AUTO_ADVISORY_MAX_REQUESTS, 5, automaticRoles.length),
-    elapsedMs: Math.min(bounded(env.REVIEWER_AUTO_ADVISORY_MAX_MS, 90_000, 120_000), Math.max(0, 245_000 - elapsedMs))
-  };
+  const limits = deploymentControlLimits(env);
+  return { maxRequests: limits.maxRequests, elapsedMs: Math.min(limits.maxMs, Math.max(0, 245_000 - elapsedMs)) };
 }
 
 export function automaticAdvisoryPaths(files: readonly ChangeMetadata[]): string[] {
