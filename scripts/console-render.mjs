@@ -226,7 +226,7 @@ try {
         await page.screenshot({path:dir+'/'+label+'-downloads-month.png',fullPage:true,animations:'disabled'});
         assert.deepEqual(errors,[],label);
         await page.getByRole('button',{name:language==='ko'?'월별':'By month',exact:true}).click();
-        assert.equal(await chart.locator('.download-bar').count(),4,label+' four calendar month buckets');
+        assert.equal(await chart.locator('.download-bar').count(),3,label+' October, November and December calendar buckets');
         assert(await chart.locator('[data-partial="true"]').count(),label+' partial months marked');
         await modelTab.click();
         assert.equal(await chart.isVisible(),false,label+' package chart hidden on model view');
