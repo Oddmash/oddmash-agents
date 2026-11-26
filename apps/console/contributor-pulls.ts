@@ -1,8 +1,10 @@
 import type { AgentRole } from '@oddmash/agent-operator-contract';
 
 export type ContributorReview = { role: AgentRole; state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED'; currentHead: boolean; submittedAt: string; id: number };
-export type ContributorWorkflow = { state: 'action-required' | 'waiting' | 'running' | 'failed' | 'reported' | 'unknown'; id?: number };
-export type ContributorEvidence = { reviews: ContributorReview[]; reviewsComplete: boolean; workflow: ContributorWorkflow; observedAt: string };
+export type WorkflowFailure = { job: string; step?: string; conclusion: string; jobId: number };
+export type ContributorWorkflow = { state: 'action-required' | 'waiting' | 'running' | 'failed' | 'reported' | 'unknown'; id?: number; attempt?: number; name?: string; conclusion?: string; failures?: WorkflowFailure[] };
+export type ContributorReviewStatus = { state: 'failed' | 'completed'; id: number; updatedAt: string; reason?: 'checks-failed' };
+export type ContributorEvidence = { reviews: ContributorReview[]; reviewsComplete: boolean; reviewStatus?: ContributorReviewStatus; workflow: ContributorWorkflow; observedAt: string };
 export type ContributorPull = { repository: string; number: number; title: string; author: string; updatedAt: string; draft: boolean | null; evidence?: ContributorEvidence };
 export type ContributorSnapshot = { pulls: ContributorPull[]; observedAt: string; partial: boolean };
 
@@ -58,21 +60,52 @@ export function parseWorkflowEvidence(payload: unknown, head: PullHead, number: 
     if (!run || !positiveId(run.id)) continue;
     const key = positiveId(run.workflow_id) ? run.workflow_id : run.id;
     const previous = newest.get(key);
-    if (!previous || Number(run.id) > Number(previous.id)) newest.set(key, run);
+    if (!previous || Number(run.id) > Number(previous.id) || (run.id === previous.id && Number(run.run_attempt ?? 0) > Number(previous.run_attempt ?? 0))) newest.set(key, run);
   }
   const matches = [...newest.values()];
+  const describe = (run: Record<string, unknown>, state: ContributorWorkflow['state']): ContributorWorkflow => ({ state, id: run.id as number, ...(positiveId(run.run_attempt) ? {attempt:run.run_attempt} : {}), ...(typeof run.name === 'string' ? {name:run.name.slice(0,160)} : {}), ...(typeof run.conclusion === 'string' && ['failure','timed_out','cancelled','startup_failure','action_required'].includes(run.conclusion) && state === 'failed' ? {conclusion:run.conclusion} : {}) });
   const actionable = matches.find(run => run?.status === 'action_required' || run?.conclusion === 'action_required');
-  if (actionable) return { state:'action-required', id: actionable.id as number };
+  if (actionable) return describe(actionable,'action-required');
   const waiting = matches.find(run => run?.status === 'waiting');
-  if (waiting) return { state:'waiting', id: waiting.id as number };
+  if (waiting) return describe(waiting,'waiting');
   const running = matches.find(run => run?.status === 'in_progress' || run?.status === 'queued' || run?.status === 'requested' || run?.status === 'pending');
-  if (running) return { state:'running', id: running.id as number };
-  const failed = matches.find(run => run.status === 'completed' && ['failure','timed_out','cancelled'].includes(String(run.conclusion)));
-  if (failed) return { state:'failed', id:failed.id as number };
+  if (running) return describe(running,'running');
+  const failed = matches.find(run => run.status === 'completed' && ['failure','timed_out','cancelled','startup_failure'].includes(String(run.conclusion)));
+  if (failed) return describe(failed,'failed');
   return { state: matches.length && Number(data.total_count) <= data.workflow_runs.length ? 'reported' : 'unknown' };
 }
+export function parseWorkflowFailures(payload: unknown, runId: number): WorkflowFailure[] {
+  const data = record(payload);
+  if (!data || !Array.isArray(data.jobs)) throw new Error('Invalid jobs');
+  const failed = new Set(['failure','timed_out','cancelled','action_required','startup_failure']);
+  return data.jobs.slice(0,100).flatMap(raw => {
+    const job = record(raw);
+    if (!job || job.run_id !== runId || !positiveId(job.id) || typeof job.name !== 'string' || typeof job.conclusion !== 'string' || !failed.has(job.conclusion)) return [];
+    const step = Array.isArray(job.steps) ? job.steps.map(record).find(s => typeof s?.conclusion === 'string' && failed.has(s.conclusion)) : undefined;
+    return [{job:job.name.slice(0,160), jobId:job.id, conclusion:job.conclusion, ...(typeof step?.name === 'string' ? {step:step.name.slice(0,160)} : {})}];
+  }).slice(0,8);
+}
+export function parseReviewStatus(payload: unknown, sha: string): ContributorReviewStatus | undefined {
+  if (!Array.isArray(payload)) throw new Error('Invalid comments');
+  let latest: ContributorReviewStatus | undefined;
+  for (const raw of payload) {
+    const item = record(raw), user = record(item?.user);
+    if (user?.id !== 360059368 || user.type !== 'Bot' || !item || !positiveId(item.id) || typeof item.body !== 'string' || typeof item.updated_at !== 'string' || !Number.isFinite(Date.parse(item.updated_at))) continue;
+    if (!item.body.startsWith('<!-- oddmash-automation-status:review -->\n') || !item.body.includes('Commit: `'+sha.slice(0,12)+'`')) continue;
+    const state = item.body.startsWith('<!-- oddmash-automation-status:review -->\n**Review processing failed**') ? 'failed' : item.body.startsWith('<!-- oddmash-automation-status:review -->\n**Completed**') ? 'completed' : undefined;
+    if (!state) continue;
+    const result: ContributorReviewStatus = {state,id:item.id,updatedAt:item.updated_at,...(item.body.includes('Required CI checks did not pass.') ? {reason:'checks-failed' as const} : {})};
+    if (!latest || Date.parse(result.updatedAt) > Date.parse(latest.updatedAt)) latest = result;
+  }
+  return latest;
+}
 const headers = { Accept:'application/vnd.github+json', 'User-Agent':'Oddmash-Console', 'X-GitHub-Api-Version':'2022-11-28' };
+const publicReadTimes: number[] = [];
 const readPublic = async (request: typeof fetch, url: string, signal: AbortSignal) => {
+  const now = Date.now();
+  while (publicReadTimes.length && publicReadTimes[0] <= now - 60 * 60_000) publicReadTimes.shift();
+  if (publicReadTimes.length >= 50) throw new Error('Public observation budget exhausted');
+  publicReadTimes.push(now);
   const response = await request(url, { headers, redirect:'error', signal });
   if (!response.ok) throw new Error('Public evidence unavailable');
   return response;
@@ -95,6 +128,16 @@ const readEvidence = async (pull: ContributorPull, request: typeof fetch, signal
       (async () => {
         const response = await readPublic(request, root + '/actions/runs?event=pull_request&head_sha=' + revision.sha + '&per_page=100', signal);
         evidence.workflow = parseWorkflowEvidence(await response.json(), revision, pull.number);
+        const workflow = evidence.workflow;
+        if (workflow.state === 'failed' && workflow.id) {
+          const attemptPath = workflow.attempt ? '/attempts/' + workflow.attempt : '';
+          const jobs = await readPublic(request, root + '/actions/runs/' + workflow.id + attemptPath + '/jobs?per_page=100', signal);
+          workflow.failures = parseWorkflowFailures(await jobs.json(), workflow.id);
+        }
+      })(),
+      (async () => {
+        const response = await readPublic(request, root + '/issues/' + pull.number + '/comments?per_page=100', signal);
+        evidence.reviewStatus = parseReviewStatus(await response.json(), revision.sha);
       })()
     ]);
   } catch {}
@@ -112,13 +155,17 @@ export async function readContributorPulls(owner: string, request: typeof fetch 
     url.searchParams.set('sort', 'updated');
     url.searchParams.set('order', 'desc');
     url.searchParams.set('per_page', '100');
-    const response = await request(url, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Oddmash-Console', 'X-GitHub-Api-Version': '2022-11-28' }, redirect: 'error', signal: AbortSignal.timeout(6000) });
-    if (!response.ok) throw new Error('Public search unavailable');
+    let response: Response;
+    try { response = await readPublic(request, url.toString(), AbortSignal.timeout(6000)); }
+    catch (error) {
+      if (cached?.owner !== owner) throw error;
+      return { ...cached.value, partial: true, pulls: cached.value.pulls.map(({evidence: _evidence, ...pull}) => pull) };
+    }
     const value = parseContributorPulls(await response.json(), owner, new Date().toISOString());
     const signal = AbortSignal.timeout(6000);
     const detailed = value.pulls.slice(0, 4);
     await Promise.all(detailed.map(async pull => { pull.evidence = await readEvidence(pull, request, signal); }));
-    cached = { owner, expires: Date.now() + 15 * 60_000, value };
+    cached = { owner, expires: Date.now() + 60_000, value };
     return value;
   })();
   pending = { owner, promise };
