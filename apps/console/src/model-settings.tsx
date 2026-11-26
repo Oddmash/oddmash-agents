@@ -28,12 +28,12 @@ const messages = {
 
 const StatusValue = ({ value, language, yes = 'Enabled', no = 'Disabled' }: { value: boolean | undefined; language: Language; yes?: Message; no?: Message }) => <Badge tone={value === true ? 'success' : value === false && no === 'Incomplete' ? 'warning' : 'neutral'}>{translate(language, value === undefined ? 'Unknown' : value ? yes : no)}</Badge>;
 
-export const ModelSettings = ({ language, agents, updatedAt, renderAgent, onDirtyChange }: { language: Language; agents?: readonly AgentSettings[]; updatedAt?: string; renderAgent: (role: AgentRole) => ReactNode; onDirtyChange?: (dirty: boolean) => void }) => {
+export const ModelSettings = ({ language, agents, updatedAt, renderAgent, onAccessLost, onDirtyChange }: { language: Language; agents?: readonly AgentSettings[]; updatedAt?: string; renderAgent: (role: AgentRole) => ReactNode; onAccessLost: () => void; onDirtyChange?: (dirty: boolean) => void }) => {
   const t = (key: keyof typeof messages) => language === 'ko' ? messages[key] : key;
   const [saved, setSaved] = useState<OperatorModelsResponse>();
   const [draft, setDraft] = useState<ModelOverrides>();
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState<'unavailable' | 'unauthorized' | ''>('');
+  const [failed, setFailed] = useState<'unavailable' | ''>('');
   const [retry, setRetry] = useState(0);
   const [conflict, setConflict] = useState(false);
   const [review, setReview] = useState(false);
@@ -49,12 +49,12 @@ export const ModelSettings = ({ language, agents, updatedAt, renderAgent, onDirt
     setFailed('');
     setSaved(undefined);
     setDraft(undefined);
-    fetch('/api/models', { signal: controller.signal, cache: 'no-store' })
-      .then(response => { if (response.status === 401 || response.status === 403) throw new Error('unauthorized'); if (!response.ok) throw new Error('Model settings unavailable'); return response.json() as Promise<OperatorModelsResponse>; })
-      .then(value => { if (!controller.signal.aborted) { setSaved(value); setDraft(value.overrides); setNotice(''); setConflict(false); setReview(false); } })
-      .catch(error => { if (!controller.signal.aborted) setFailed(error instanceof Error && error.message === 'unauthorized' ? 'unauthorized' : 'unavailable'); });
+    fetch('/api/models', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]), cache: 'no-store' })
+      .then(response => { if (response.status === 401 || response.status === 403) { if (!controller.signal.aborted) onAccessLost(); return; } if (!response.ok) throw new Error('Model settings unavailable'); return response.json() as Promise<OperatorModelsResponse>; })
+      .then(value => { if (value && !controller.signal.aborted) { setSaved(value); setDraft(value.overrides); setNotice(''); setConflict(false); setReview(false); } })
+      .catch(() => { if (!controller.signal.aborted) setFailed('unavailable'); });
     return () => controller.abort();
-  }, [retry]);
+  }, [retry, onAccessLost]);
 
   const change = (role: AgentRole, value: string) => setDraft(old => {
     if (!old) return old;
@@ -94,7 +94,7 @@ export const ModelSettings = ({ language, agents, updatedAt, renderAgent, onDirt
     <h3>{translate(language, 'Agent configuration')}</h3>
     <p className="muted">{t('Choose a deployment-approved model for future webhook and queued jobs. Defaults follow deployment configuration.')}</p>
     <p className="muted">{t('Agent availability, credentials, and merge authority are deployment-owned. Approved model choices are staged until saved.')}{updatedAt && <> · {translate(language, 'Updated')}: {new Date(updatedAt).toLocaleString(language)}</>}</p>
-    {failed && <><Alert tone="danger">{failed === 'unauthorized' ? translate(language, 'Session expired. Sign in again.') : t('Model selection unavailable.')}</Alert><Button variant="secondary" onClick={() => setRetry(value => value + 1)}>{translate(language, 'Refresh')}</Button></>}
+    {failed && <><Alert tone="danger">{t('Model selection unavailable.')}</Alert><Button variant="secondary" onClick={() => setRetry(value => value + 1)}>{translate(language, 'Refresh')}</Button></>}
     {saved && !approvedAlternates && <p className="muted">{t('No alternate models are approved for this deployment.')}</p>}
     {!failed && !saved && <span role="status" aria-label={translate(language, 'Loading status…')} className="skeleton-line"/>}
     {saved && draft && <>

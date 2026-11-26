@@ -22,6 +22,10 @@ export function createStatusPolling(options: Options) {
   const clearTimer = () => { if (timer !== undefined) cancel(timer); timer = undefined; };
   const canPoll = () => !disposed && !paused && !expired && !options.hidden();
 
+  const scheduleRefresh = (delay: number) => {
+    if (canPoll()) timer = schedule(() => { if (canPoll()) void refresh(); }, delay);
+  };
+
   async function refresh() {
     if (disposed || options.hidden() || expired || current) return;
     clearTimer();
@@ -46,12 +50,17 @@ export function createStatusPolling(options: Options) {
         void refresh();
       } else {
         wakePending = false;
-        if (canPoll()) timer = schedule(() => { if (canPoll()) void refresh(); }, delay);
+        scheduleRefresh(delay);
       }
     }
   }
 
   return {
+    start(delayMs = 0) {
+      if (!canPoll()) return;
+      if (delayMs > 0) scheduleRefresh(delayMs);
+      else void refresh();
+    },
     refresh: () => { expired = false; return refresh(); },
     setPaused(value: boolean) {
       paused = value;
