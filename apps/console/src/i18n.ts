@@ -2,6 +2,7 @@ export const korean = {
   "Skipped": "검토 건너뜀",
   "Publication confirmed": "게시 확인",
   "Choose a repository": "저장소 선택",
+  "Change repository": "저장소 변경",
   "Choose one repository to inspect its matching executions.": "저장소를 선택하면 해당 조건의 실행 기록을 확인할 수 있습니다.",
   "Theme": "테마",
   "Deployment model": "배포 모델",
