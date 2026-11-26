@@ -11,7 +11,7 @@ import { authorizeCoordinatedAdvisor } from './coordinated-advisory.ts';
 import { runReview } from './reviewer.ts';
 import { startReviewProgress } from './review-progress.ts';
 import { formatReviewBody, publicationFollowUp, reviewOutcome } from './core.ts';
-import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksMayStart, reviewChecksReady, reviewChecksSuccessful, scopedAdvisoryNote, shouldReconcilePendingChecks, type CheckEvidence, type ReviewCheckHead } from './checks.ts';
+import { checkWaitingSummary, finalReviewEvent, loadCheckEvidence, publicReviewCheckReader, reviewChecksAreScopedAdvisory, reviewChecksMayStart, reviewChecksReady, reviewChecksSuccessful, scopedAdvisoryNote, shouldReconcilePendingChecks, type CheckEvidence, type ReviewCheckHead } from './checks.ts';
 import { mergeCandidate, mergeAuthorized, mergeProof } from './auto-merge.ts';
 import { authorize, authorizeMerge, authorizePublicGuidance, githubApi, commentReceipt, completeCommentReaction, reactToComment, slashRequestContext, type Target } from './webhook.ts';
 import { reconcileReviewThreads, replyToReview, scopedAgentThreadResolution, scopedLeadThreadResolution, shouldReconcileEarlierFindings, threadReconciliationExclusions, threadReconciliationMarker, threadReconciliationScope, threadReconciliationScopeMarker } from './review-discussion.ts';
@@ -447,8 +447,10 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
       if (latest.length >= 100 || (!target.recheck && hasOfficialReview(latest, bot)) || !ownsPendingReview(latest, bot, current.head.sha, pendingId) || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && review.id !== approved?.id && (review.body?.includes(marker) || (requestTag && review.body?.includes(requestTag)) || (!target.recheck && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state) && (!approved || review.id > approved.id))))) return;
       const finalChecks = await readChecks(current);
-      const event = finalReviewEvent(incrementalFiles !== undefined && result.assessment === 'APPROVE' ? 'COMMENT' : result.assessment, finalChecks, repository, current.user);
-      const followUp = publicationFollowUp(result.followUp, result.assessment, current.user);
+      const advisoryOnly = incrementalFiles !== undefined || reviewChecksAreScopedAdvisory(finalChecks, repository);
+      const assessment = advisoryOnly && result.assessment === 'APPROVE' ? 'COMMENT' : result.assessment;
+      const event = finalReviewEvent(assessment, finalChecks, repository, current.user);
+      const followUp = publicationFollowUp(result.followUp, assessment, current.user);
       if (!event) {
         if (reviewChecksReady(finalChecks, repository) && !reviewChecksSuccessful(finalChecks, repository)) await publishAutomationStatus(api, repository, pr.number, bot, pr.head.sha, 'review', 'required checks failed');
         return;

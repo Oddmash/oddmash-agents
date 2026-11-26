@@ -84,7 +84,7 @@ test('only final aggregate CI evidence can produce an official review', () => {
   assert.equal(finalReviewEvent('APPROVE', early), null);
   assert.equal(finalReviewEvent('COMMENT', early), null);
   const finished = { total_count: 2, check_runs: [label, verify] };
-  assert.equal(finalReviewEvent('APPROVE', finished), 'APPROVE');
+  assert.equal(finalReviewEvent('APPROVE', finished), 'COMMENT');
   assert.equal(finalReviewEvent('COMMENT', finished), 'COMMENT');
   assert.equal(finalReviewEvent('APPROVE', { ...finished, total_count: 3 }), null);
   const failed = { total_count: 2, check_runs: [label, { ...verify, conclusion: 'failure' }] };
@@ -145,7 +145,7 @@ test('Boundra requires every trusted matrix job and the aggregate verify gate', 
   const jobs = names.map((name, index) => ({ name: index % 2 ? `Boundra / ${name}` : name, status: 'completed', conclusion: 'success', app: { id: 15368 } }));
   const full = { total_count: jobs.length, check_runs: jobs };
   assert.equal(reviewChecksSuccessful(full, repository), true);
-  assert.equal(finalReviewEvent('APPROVE', full, repository), 'APPROVE');
+  assert.equal(finalReviewEvent('APPROVE', full, repository, { id: 264418006, login: 'arvynoo' }), 'APPROVE');
   const profileOnly = { total_count: jobs.length - 1, check_runs: jobs.slice(0, -1) };
   assert.equal(reviewChecksReady(profileOnly, repository), false);
   assert.equal(reviewChecksSuccessful(profileOnly, repository), false);
@@ -206,6 +206,11 @@ test('maintainer actionable findings remain neutral without approving, while oth
   assert.equal(finalReviewEvent('REQUEST_CHANGES', passed, undefined, { ...owner, id: 1 }), 'REQUEST_CHANGES');
   assert.equal(finalReviewEvent('REQUEST_CHANGES', passed), 'REQUEST_CHANGES');
   assert.equal(finalReviewEvent('APPROVE', passed, undefined, owner), 'APPROVE');
+  const ai = { id: 264418006, login: 'arvynoo' };
+  assert.equal(finalReviewEvent('APPROVE', passed, undefined, ai), 'APPROVE');
+  assert.equal(finalReviewEvent('REQUEST_CHANGES', passed, undefined, ai), 'COMMENT');
+  assert.equal(finalReviewEvent('APPROVE', passed, undefined, { ...ai, id: 1 }), 'COMMENT');
+  assert.equal(finalReviewEvent('APPROVE', passed, undefined, { ...ai, login: 'external' }), 'COMMENT');
   const failed = { total_count: 1, check_runs: [{ ...verify, conclusion: 'failure' }] };
   assert.equal(finalReviewEvent('REQUEST_CHANGES', failed, undefined, owner), 'COMMENT');
   assert.equal(finalReviewEvent('APPROVE', failed, undefined, owner), null);

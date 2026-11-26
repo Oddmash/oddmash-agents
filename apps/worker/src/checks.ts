@@ -1,4 +1,4 @@
-import { checksPassed, isMaintainerReviewAuthor, type ReviewDecision } from './core.ts';
+import { checksPassed, isInternalReviewAuthor, type ReviewDecision } from './core.ts';
 import { progressCheckName } from './review-progress.ts';
 import { githubRequest } from './github-request.ts';
 export type Check = { id?: number; name: string; status: string; conclusion: string | null; app?: { id: number }; check_suite?: { id: number } };
@@ -224,8 +224,9 @@ export function shouldReconcilePendingChecks(evidence: CheckEvidence, expectedHe
 export function finalReviewEvent(assessment: ReviewDecision, evidence: CheckEvidence, repository?: string, author?: { id: number; login: string }): ReviewDecision | null {
   if (reviewChecksAreScopedAdvisory(evidence, repository)) return 'COMMENT';
   if (!reviewChecksReady(evidence, repository)) return null;
-  if (assessment === 'REQUEST_CHANGES') return isMaintainerReviewAuthor(author) ? 'COMMENT' : assessment;
-  return reviewChecksSuccessful(evidence, repository) ? assessment : null;
+  if (assessment === 'REQUEST_CHANGES') return isInternalReviewAuthor(author) ? 'COMMENT' : assessment;
+  if (!reviewChecksSuccessful(evidence, repository)) return null;
+  return assessment === 'APPROVE' && !isInternalReviewAuthor(author) ? 'COMMENT' : assessment;
 }
 
 export async function loadCheckEvidence(head: string, merge: string | null | undefined, read: (sha: string) => Promise<CheckEvidence | null>, reviewerAppId = Number(process.env.REVIEWER_APP_ID)): Promise<CheckEvidence> {
