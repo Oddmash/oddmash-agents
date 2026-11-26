@@ -7,14 +7,20 @@ export type Finding = { path: string; line: number; side?: 'LEFT' | 'RIGHT'; sev
 export type ReviewContext = { repository: string; number: number; head: string; title: string; files: ChangedFile[]; guidance: Record<string, string>; checks: { name: string; status: string; conclusion: string | null }[]; omitted: string[]; relatedBaseFiles?: Record<string, string>; changedHeadFiles?: Record<string, string>; focus?: string[]; feedback?: string[]; confirmedEmpty?: true };
 
 export type ReviewDecision = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
-export type ReviewFollowUp = { advisory: boolean; incompleteCoverage: boolean; invalidEvidence: boolean; maintainerFindings?: boolean; confirmedEmpty?: true };
+export type ReviewFollowUp = { advisory: boolean; incompleteCoverage: boolean; invalidEvidence: boolean; maintainerFindings?: boolean; externalApprovalRequired?: boolean; confirmedEmpty?: true };
 
-export function isMaintainerReviewAuthor(author?: { id: number; login: string }): boolean {
+export function isOwner(author?: { id: number; login: string }): boolean {
   return author?.id === 135234546 && author.login === 'qtaghdi';
 }
 
+export function isInternalReviewAuthor(author?: { id: number; login: string }): boolean {
+  return isOwner(author) || (author?.id === 264418006 && author.login === 'arvynoo');
+}
+
 export function publicationFollowUp(followUp: ReviewFollowUp, assessment: ReviewDecision, author?: { id: number; login: string }): ReviewFollowUp {
-  return assessment === 'REQUEST_CHANGES' && isMaintainerReviewAuthor(author) ? { ...followUp, maintainerFindings: true } : followUp;
+  if (assessment === 'REQUEST_CHANGES' && isInternalReviewAuthor(author)) return { ...followUp, maintainerFindings: true };
+  if (assessment === 'APPROVE' && !isInternalReviewAuthor(author)) return { ...followUp, externalApprovalRequired: true };
+  return followUp;
 }
 
 function isConfirmedEmpty(context: ReviewContext, findings: Finding[]): boolean {
@@ -30,6 +36,7 @@ export function reviewOutcome(event: ReviewDecision, followUp?: ReviewFollowUp):
   if (event === 'APPROVE') return { label: 'review: approved', title: 'Review approved' };
   if (event === 'REQUEST_CHANGES') return { label: 'review: changes requested', title: 'Changes requested' };
   if (followUp?.maintainerFindings) return { label: 'review: needs human', title: 'Actionable findings for maintainer decision' };
+  if (followUp?.externalApprovalRequired) return { label: 'review: needs human', title: 'Awaiting maintainer approval' };
   if (!followUp || followUp.incompleteCoverage || followUp.invalidEvidence) return { label: 'review: needs human', title: 'Review coverage or evidence incomplete' };
   if (followUp.confirmedEmpty) return { label: 'review: follow-up', title: 'No changed files' };
   return { label: 'review: follow-up', title: followUp.advisory ? 'Advisory findings to consider' : 'Review approval pending checks' };
@@ -305,11 +312,12 @@ export function formatReport(context: ReviewContext, findings: Finding[], modelV
 }
 
 export function formatReviewBody(event: ReviewDecision, marker: string, report: string, author?: { id: number; login: string }, followUp?: ReviewFollowUp): string {
-  if (event === 'APPROVE') return author?.id === 135234546 && author.login === 'qtaghdi' ? `${marker}\nApproved.` : `${marker}\nThanks for contributing! @qtaghdi, this PR is ready for your review.`;
+  if (event === 'APPROVE') return isInternalReviewAuthor(author) ? `${marker}\nApproved.` : `${marker}\nThanks for contributing! @qtaghdi, this PR is ready for your review.`;
+  if (event === 'COMMENT' && followUp?.externalApprovalRequired) return `${marker}\nAutomated review is complete. @qtaghdi, please review this revision and provide the final approval before merging.`;
   if (event === 'REQUEST_CHANGES') return `${marker}\nPlease address the findings before approval.\n\n${report}`;
   if (followUp?.confirmedEmpty && !followUp.incompleteCoverage && !followUp.invalidEvidence && !followUp.advisory && !followUp.maintainerFindings) return `${marker}\nNo changed files (neutral review).\n\n${report}`;
   const reasons: string[] = [];
-  if (followUp?.maintainerFindings) reasons.push('Actionable findings remain. For the verified maintainer author, the reviewer reports them without a formal change request or approval. Manual disposition is required; automatic merge is not available.');
+  if (followUp?.maintainerFindings) reasons.push('Actionable findings remain. For an internal PR author, the reviewer reports them without a formal change request or approval. Manual disposition is required; automatic merge is not available.');
   if (followUp?.advisory) reasons.push('Advisory findings are optional recommendations, not confirmed blockers. After verifying the evidence, the maintainer may accept, defer to a separate issue, or decline with rationale. A repeated review is not required solely to dispose of optional advice on the unchanged head.');
   if (followUp?.incompleteCoverage) reasons.push('Manual coverage check required: inspect the unreviewed changes listed below.');
   if (followUp?.invalidEvidence) reasons.push('Review evidence incomplete: validate the findings against the diff or request a fresh review.');

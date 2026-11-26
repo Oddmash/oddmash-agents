@@ -53,7 +53,8 @@ for (const repository of repositories) {
     if (current.head.sha !== result.head || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha || current.merge_commit_sha !== pr.merge_commit_sha || current.state !== 'open' || current.draft) continue;
     const finalChecks = await readChecks(current);
     const event = finalReviewEvent(result.assessment, finalChecks, repository, current.user);
-    const followUp = publicationFollowUp(result.followUp, result.assessment, current.user);
+    const followUp = publicationFollowUp(result.followUp,
+      result.assessment === 'APPROVE' && reviewChecksAreScopedAdvisory(finalChecks, repository) ? 'COMMENT' : result.assessment, current.user);
     if (!event) continue;
     const latest = await api<Review[]>(`${path}/reviews?per_page=100`);
     if (latest.length >= 100 || hasOfficialReview(latest, bot) || latest.some(review => review.user.login === bot && review.commit_id === current.head.sha && ['APPROVED', 'CHANGES_REQUESTED'].includes(review.state))) continue;

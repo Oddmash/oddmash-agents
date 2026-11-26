@@ -23,8 +23,14 @@ test('merge retry proof binds approval to the exact PR, head, base, merge commit
   assert.notEqual(marker, mergeProof({ ...candidate, acceptance: { ...candidate.acceptance, digest: 'changed' } }));
 });
 
-test('only maintainer-owned same-repository eligible main PRs are candidates', () => {
+test('only authorized internal same-repository eligible main PRs are candidates', () => {
   assert.equal(eligiblePull(pr, target), true);
+  const ai = { id: 264418006, login: 'arvynoo' };
+  assert.equal(eligiblePull({ ...pr, user: ai }, target), true);
+  assert.equal(eligiblePull({ ...pr, user: { ...ai, id: 99 } }, target), false);
+  assert.equal(eligiblePull({ ...pr, user: { ...ai, login: 'external' } }, target), false);
+  assert.equal(acceptanceForPull(issue, { ...pr, user: ai })?.issue, issue.number);
+  assert.equal(acceptanceForPull({ ...issue, user: ai }, { ...pr, user: ai }), null);
   assert.equal(eligiblePull({ ...pr, base: { ...pr.base, ref: 'develop' } }, target), true);
   assert.equal(eligiblePull({ ...pr, base: { ...pr.base, ref: 'feature/example' } }, target), false);
   assert.equal(eligiblePull({ ...pr, user: { id: 99, login: user.login } }, target), false);

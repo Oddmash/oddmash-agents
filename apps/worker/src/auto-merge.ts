@@ -1,9 +1,8 @@
 import { createHash } from 'node:crypto';
-import { addedLines, patchComplete, safeText, privateSensitiveText, selectFiles, type ChangedFile } from './core.ts';
+import { addedLines, isInternalReviewAuthor, isOwner, patchComplete, safeText, privateSensitiveText, selectFiles, type ChangedFile } from './core.ts';
 import { loadCheckEvidence, reviewChecksSuccessful, type CheckEvidence } from './checks.ts';
 import { githubApi, mergeRepositoryAllowed, type Target } from './webhook.ts';
 
-const ownerId = 135234546;
 const sha = /^[a-f0-9]{40}$/i;
 type Api = ReturnType<typeof githubApi>;
 type Identity = { id: number; login: string };
@@ -18,17 +17,16 @@ export function mergeProof(candidate: Candidate): string {
   const digest = createHash('sha256').update(JSON.stringify([pull.base.repo.id, pull.number, pull.base.ref, pull.head.sha, pull.base.sha, pull.merge_commit_sha, acceptance.digest, ...(candidate.repositoryOptIn ? [candidate.repositoryOptIn] : [])])).digest('hex');
   return `<!-- oddmash-merge-proof:${digest} -->`;
 }
-const maintainer = (user: Identity | undefined) => user?.id === ownerId && user?.login === 'qtaghdi';
 
 export function eligiblePull(pr: MergePull, target: Target): boolean {
   if (infrastructureRepositories.has(target.repository) && pr.base.ref !== 'main') return false;
-  return mergeRepositoryAllowed(target) && maintainer(pr.user) && pr.state === 'open' && !pr.draft && pr.base.repo.private === Boolean(target.private) && !pr.base.repo.archived && pr.base.repo.allow_merge_commit !== false && pr.base.repo.id === target.repositoryId && pr.base.repo.full_name === target.repository && pr.head.repo?.id === target.repositoryId && pr.head.repo.full_name === target.repository && (pr.base.ref === 'develop' || (pr.base.ref === 'main' && pr.base.repo.default_branch === 'main')) && sha.test(pr.head.sha) && sha.test(pr.base.sha) && sha.test(pr.merge_commit_sha ?? '') && pr.changed_files > 0 && pr.changed_files <= 20 && !pr.labels.some(l => /(?:^|: )(?:no auto.merge|do not merge|manual|blocked|hold|wip)$/i.test(l.name));
+  return mergeRepositoryAllowed(target) && isInternalReviewAuthor(pr.user) && pr.state === 'open' && !pr.draft && pr.base.repo.private === Boolean(target.private) && !pr.base.repo.archived && pr.base.repo.allow_merge_commit !== false && pr.base.repo.id === target.repositoryId && pr.base.repo.full_name === target.repository && pr.head.repo?.id === target.repositoryId && pr.head.repo.full_name === target.repository && (pr.base.ref === 'develop' || (pr.base.ref === 'main' && pr.base.repo.default_branch === 'main')) && sha.test(pr.head.sha) && sha.test(pr.base.sha) && sha.test(pr.merge_commit_sha ?? '') && pr.changed_files > 0 && pr.changed_files <= 20 && !pr.labels.some(l => /(?:^|: )(?:no auto.merge|do not merge|manual|blocked|hold|wip)$/i.test(l.name));
 }
 
 export function ineligiblePullReason(pr: MergePull, target: Target): string {
   if (!mergeRepositoryAllowed(target)) return 'repository is outside the auto-merge allowlist';
   if (infrastructureRepositories.has(target.repository) && pr.base.ref !== 'main') return 'infrastructure PR must target main';
-  if (!maintainer(pr.user)) return 'PR author is not the authorized maintainer';
+  if (!isInternalReviewAuthor(pr.user)) return 'PR author is not an authorized internal contributor';
   if (pr.state !== 'open' || pr.draft) return 'pull request is not open and ready';
   if (pr.base.repo.private !== Boolean(target.private) || pr.base.repo.archived) return 'repository visibility or archive state is ineligible';
   if (pr.base.repo.id !== target.repositoryId || pr.base.repo.full_name !== target.repository) return 'base repository identity is ineligible';
@@ -138,7 +136,7 @@ const acceptanceBullet = (line: string) => line.match(/^\s*[-*+]\s+(?:\[[ xX]\]\
 const validCriterion = (value: string | undefined) => Boolean(value && value.length >= 12 && value.length <= 500 && !/^(?:tbd|todo|placeholder|fill me in|none|n\/a|not applicable)[.!]?$/i.test(value));
 
 export function acceptanceOf(issue: Issue, privateReview = false): Acceptance | null {
-  if (!maintainer(issue.user) || issue.state !== 'open' || issue.pull_request || !issue.body || issue.body.length > 12000 || safeText(issue.body) !== issue.body || (privateReview && privateSensitiveText(issue.body))) return null;
+  if (!isOwner(issue.user) || issue.state !== 'open' || issue.pull_request || !issue.body || issue.body.length > 12000 || safeText(issue.body) !== issue.body || (privateReview && privateSensitiveText(issue.body))) return null;
   const sections = issue.body.split(/\r?\n/);
   const start = sections.findIndex(line => /^#{2,3} Acceptance criteria\s*$/i.test(line));
   if (start < 0) return null;
