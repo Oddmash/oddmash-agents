@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { DailyDownload } from '../adoption-metrics';
 import { downloadSeries, type DownloadPeriod } from './download-series';
 import { translate, type Language } from './i18n';
@@ -9,6 +9,7 @@ export const DownloadChart = ({ history, language, period, name }: { history: re
   const [selected,setSelected] = useState<string>();
   const [hovered,setHovered] = useState<string>();
   const [focused,setFocused] = useState<string>();
+  const keyboardFocus = useRef(false);
   const [dismissed,setDismissed] = useState(false);
   const active = points.find(point => point.day === (hovered ?? focused ?? selected)) ?? points.at(-1);
   const inspected = dismissed ? undefined : points.find(point => point.day === (hovered ?? focused ?? selected));
@@ -31,7 +32,7 @@ export const DownloadChart = ({ history, language, period, name }: { history: re
     <div className="download-plot" data-period={period} aria-label={name + ' · ' + t('Download history')}>
       <div className="download-axis" aria-hidden="true"><span>{max.toLocaleString(language)}</span><span>0</span></div>
       <div className="download-bars" style={{'--bar-count':points.length} as CSSProperties}>
-        {points.map((point,index) => <button type="button" key={point.day} className="download-bar" data-missing={point.downloads === null} data-zero={point.downloads === 0} data-selected={point.day === active?.day} aria-label={pointLabel(point) + ': ' + fmt(point.downloads)} data-partial={point.partial || undefined} aria-pressed={point.day === selected} onMouseEnter={()=>{setDismissed(false);setHovered(point.day);}} onMouseMove={()=>{setDismissed(false);setHovered(point.day);}} onMouseLeave={event=>{if(!(event.relatedTarget instanceof Element&&event.relatedTarget.closest('.download-hover-tooltip')))setHovered(undefined);}} onFocus={()=>{setDismissed(false);setHovered(undefined);setFocused(point.day);}} onBlur={()=>setFocused(undefined)} onClick={()=>{setDismissed(false);setSelected(point.day);}}>
+        {points.map((point,index) => <button type="button" key={point.day} className="download-bar" data-missing={point.downloads === null} data-zero={point.downloads === 0} data-selected={point.day === active?.day} aria-label={pointLabel(point) + ': ' + fmt(point.downloads)} data-partial={point.partial || undefined} aria-pressed={point.day === selected} onMouseEnter={()=>{if(!keyboardFocus.current){setDismissed(false);setHovered(point.day);}}} onMouseMove={event=>{if(!keyboardFocus.current || event.movementX !== 0 || event.movementY !== 0){setDismissed(false);setHovered(point.day);}}} onMouseLeave={event=>{if(!(event.relatedTarget instanceof Element&&event.relatedTarget.closest('.download-hover-tooltip')))setHovered(undefined);}} onFocus={()=>{keyboardFocus.current=true;setDismissed(false);setHovered(undefined);setFocused(point.day);}} onBlur={()=>{keyboardFocus.current=false;setFocused(undefined);}} onClick={()=>{setDismissed(false);setSelected(point.day);}}>
           <span className="download-bar-track"><span className="download-bar-fill" style={{height:(point.downloads === null ? 0 : point.downloads/max*100)+'%'}}/></span>
           <span className="download-bar-date" aria-hidden="true">{period === 'monthly' ? point.day.slice(5,7) : period === 7 || index===0 || index===points.length-1 || (index%7===0 && index<points.length-3) ? point.day.slice(5).replace('-','/') : ''}</span>
         </button>)}
