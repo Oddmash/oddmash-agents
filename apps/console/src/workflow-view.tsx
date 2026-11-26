@@ -5,7 +5,7 @@ import { jobElapsedMs, type AgentRole, type PublicTarget, type SkipReason } from
 import { executionTone } from './execution-status';
 import { korean, translate, type Language, type Message } from './i18n';
 import { type ObservedJob, type WorkflowState, type CanvasStage, type CanvasViewport, type CanvasPoint, type CanvasSize, specialistRoles, targetObservations, roleObservations, publicationObservations, publicationPhaseObserved, publicationLink, executionGroups, publicationCounts, latestObservation, canvasSize, canvasNodeSize, canvasNodes, canvasMinScale, canvasMaxScale, canvasDetailScale, fitViewport, panViewport, zoomViewport, workflowEdges } from './workflow-model';
-import { stateCounts, wheelZoomEnabled } from './workflow-model';
+import { stateCounts, wheelZoomEnabled, pointerDragInterrupted, publicationStageObservations } from './workflow-model';
 import './workflow.css';
 
 const words = {
@@ -58,13 +58,13 @@ const skipReasons: Record<SkipReason, { en: string; ko: string }> = {
 const stateLabel = (language: Language, state: WorkflowState, role?: AgentRole) => state === 'returned' && role === 'triage' ? words[language].triageCompleted : words[language][state];
 const time = (value: string | undefined, language: Language) => value ? new Date(value).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'medium' }) : '—';
 
-const LatestDetail = ({ job, language, observedAt }: { job?: ObservedJob; language: Language; observedAt: string }) => {
+const LatestDetail = ({ job, language, observedAt, showState = false }: { job?: ObservedJob; language: Language; observedAt: string; showState?: boolean }) => {
   if (!job) return null;
   const t = (key: Message) => translate(language, key);
   const elapsed = jobElapsedMs(job, observedAt);
   const seconds = elapsed === undefined ? undefined : new Intl.NumberFormat(language, { style: 'unit', unit: 'second', unitDisplay: 'narrow', maximumFractionDigits: 1 }).format(elapsed / 1000);
   return <span className="workflow-node-detail">
-    <span title={job.phaseHistory?.map(entry => t(entry.phase) + ' · ' + time(entry.timestamp, language)).join('\n')}>{t('Phase')}: {job.phase ? t(job.phase) : t('Not reported')}{job.phaseHistory?.length ? ' (' + job.phaseHistory.length + ')' : ''}</span>
+    <span title={[t('State') + ': ' + stateLabel(language, job.state, job.role), t('Phase') + ': ' + (job.phase ? t(job.phase) : t('Not reported')), ...(job.phaseHistory?.map(entry => t(entry.phase) + ' · ' + time(entry.timestamp, language)) ?? [])].join('\n')}>{showState ? stateLabel(language, job.state, job.role) + ' · ' : t('Phase') + ': '}{job.phase ? t(job.phase) : t('Not reported')}{job.phaseHistory?.length ? ' (' + job.phaseHistory.length + ')' : ''}</span>
     <span title={t('Elapsed') + ': ' + (seconds ?? '—') + ' · ' + t('Updated') + ': ' + time(job.updatedAt, language)}>{t('Attempt')} {job.attempt} {seconds && '· ' + seconds} · <time dateTime={job.updatedAt}>{new Date(job.updatedAt).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })}</time></span>
   </span>;
 };
@@ -111,13 +111,15 @@ const RoleNode = ({ role, description, jobs, target, observedAt, language, rende
   const latest = latestObservation(records);
   const counts = stateCounts(records);
   return <StageDialog title={renderAgent(role)} description={description} language={language} target={target} trigger={<>
-    <span className="workflow-node-title">{renderAgent(role)}</span>
-    <span className="workflow-node-status">{latest ? <Badge tone={executionTone(latest.state)}>{stateLabel(language, latest.state, role)} {counts[latest.state]}</Badge> : <Badge tone="neutral">{w.unobserved}</Badge>}{latest && records.length > (counts[latest.state] ?? 0) && <span className="workflow-other-count" title={w.other} aria-label={w.other + ' ' + (records.length - (counts[latest.state] ?? 0))}>+{records.length - (counts[latest.state] ?? 0)}</span>}</span>
+    <span className="workflow-node-title">{renderAgent(role)}{latest && records.length > (counts[latest.state] ?? 0) && <span className="workflow-other-count" title={w.other} aria-label={w.other + ' ' + (records.length - (counts[latest.state] ?? 0))}>+{records.length - (counts[latest.state] ?? 0)}</span>}</span>
+    <span className="workflow-node-status">{latest ? <Badge tone={executionTone(latest.state)}>{stateLabel(language, latest.state, role)} {counts[latest.state]}</Badge> : <Badge tone="neutral">{w.unobserved}</Badge>}</span>
     <LatestDetail job={latest} language={language} observedAt={observedAt}/>
   </>}>
     {records.length ? executionGroups(records).map(group => <section key={group.key}><h4>{w.run} · <code>{group.records[0].correlationId.slice(0, 12)}</code></h4>{group.records.map(job => <JobObservation key={job.correlationId + ':' + job.attempt} job={job} language={language} target={target} observedAt={observedAt}/>)}</section>) : <p>{w.noDetails}</p>}
   </StageDialog>;
 };
+
+const isCanvasEvent = (viewport: HTMLElement, target: EventTarget) => target instanceof Node && viewport.contains(target);
 
 const WorkflowCanvas = ({ jobs, language, children }: { jobs: readonly ObservedJob[]; language: Language; children: ReactNode }) => {
   const w = words[language];
@@ -201,14 +203,16 @@ const WorkflowCanvas = ({ jobs, language, children }: { jobs: readonly ObservedJ
     <JuliyaText as="p" locale={language} id={id} className="workflow-interaction">{w.interaction}</JuliyaText>
     <div ref={viewport} className="workflow-viewport" data-dragging={dragging} tabIndex={0} role="region" aria-label={w.workflow} aria-describedby={id}
       onPointerDown={event => {
-        if (!event.isPrimary || event.button !== 0) return;
+        if (!isCanvasEvent(event.currentTarget, event.target) || !event.isPrimary || event.button !== 0) return;
         suppressClick.current = false;
         pointer.current = { id: event.pointerId, start: { x: event.clientX, y: event.clientY }, original: view, moved: false };
         if (!(event.target instanceof Element) || !event.target.closest('button')) event.currentTarget.focus({ preventScroll: true });
       }}
       onPointerMove={event => {
+        if (!isCanvasEvent(event.currentTarget, event.target)) return;
         const active = pointer.current;
         if (!active || active.id !== event.pointerId) return;
+        if (pointerDragInterrupted(event.pointerType, event.buttons)) { endPointer(event.pointerId); return; }
         const delta = { x: event.clientX - active.start.x, y: event.clientY - active.start.y };
         if (!active.moved && Math.hypot(delta.x, delta.y) < 5) return;
         if (!active.moved) {
@@ -219,10 +223,11 @@ const WorkflowCanvas = ({ jobs, language, children }: { jobs: readonly ObservedJ
         }
         setView(panViewport(active.original, delta, size));
       }}
-      onPointerUp={event => endPointer(event.pointerId)}
-      onPointerCancel={event => endPointer(event.pointerId)}
-      onLostPointerCapture={event => endPointer(event.pointerId)}
-      onClickCapture={event => { if (suppressClick.current && event.detail > 0) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; } }}
+      onPointerLeave={event => { if (isCanvasEvent(event.currentTarget, event.target) && !pointer.current?.moved) endPointer(event.pointerId); }}
+      onPointerUp={event => { if (isCanvasEvent(event.currentTarget, event.target)) endPointer(event.pointerId); }}
+      onPointerCancel={event => { if (isCanvasEvent(event.currentTarget, event.target)) endPointer(event.pointerId); }}
+      onLostPointerCapture={event => { if (isCanvasEvent(event.currentTarget, event.target)) endPointer(event.pointerId); }}
+      onClickCapture={event => { if (isCanvasEvent(event.currentTarget, event.target) && suppressClick.current && event.detail > 0) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; } }}
       onKeyDown={event => {
         if (event.target !== event.currentTarget) return;
         const deltas: Record<string, CanvasPoint> = { ArrowLeft: { x: 64, y: 0 }, ArrowRight: { x: -64, y: 0 }, ArrowUp: { x: 0, y: 64 }, ArrowDown: { x: 0, y: -64 } };
@@ -234,7 +239,7 @@ const WorkflowCanvas = ({ jobs, language, children }: { jobs: readonly ObservedJ
         event.preventDefault();
       }}
       onFocusCapture={event => {
-        if (!(event.target instanceof HTMLElement) || event.target === event.currentTarget || !event.target.matches('.workflow-node:focus-visible')) return;
+        if (!isCanvasEvent(event.currentTarget, event.target) || !(event.target instanceof HTMLElement) || event.target === event.currentTarget || !event.target.matches('.workflow-node:focus-visible')) return;
         const outer = event.currentTarget.getBoundingClientRect(), inner = event.target.getBoundingClientRect();
         const margin = 12;
         const x = inner.left < outer.left + margin ? outer.left + margin - inner.left : inner.right > outer.right - margin ? outer.right - margin - inner.right : 0;
@@ -263,8 +268,8 @@ export const WorkflowView = ({ target, visibleJobs, observedAt, language, render
   const publications = publicationObservations(jobs);
   const counts = publicationCounts(publications);
   const publicationPhase = publicationPhaseObserved(jobs);
-  const publishingJobs = jobs.filter(job => publicationPhaseObserved([job]));
-  const latestPublication = latestObservation(publications.length ? publications : publishingJobs);
+  const publicationJobs = publicationStageObservations(jobs);
+  const latestPublication = latestObservation(publicationJobs);
   const roleProps = { jobs, target, observedAt, language, renderAgent };
   return <div className="workflow-view">
     <JuliyaText as="p" locale={language} className="workflow-note">{w.note}</JuliyaText>
@@ -273,8 +278,8 @@ export const WorkflowView = ({ target, visibleJobs, observedAt, language, render
         <CanvasNode stage="reviewer" heading={w.lead}><RoleNode role="reviewer" description={w.leadNote} {...roleProps}/></CanvasNode>
         {specialistRoles.map((role, index) => <CanvasNode key={role} stage={role} heading={index === 0 ? w.specialists : undefined}><RoleNode role={role} description={w.specialistNote} {...roleProps}/></CanvasNode>)}
         <CanvasNode stage="publication" heading={w.publishing}>
-          <StageDialog title={w.publishing} description={w.publicationNote} target={target} language={language} trigger={<><strong>{w.publishing}</strong><span className="workflow-node-status">{publications.length ? <Badge tone="success">{w.published} {publications.length}</Badge> : <Badge tone={publicationPhase ? 'info' : 'neutral'}>{publicationPhase ? w.phaseOnly : w.unobserved}</Badge>}</span><LatestDetail job={latestPublication} language={language} observedAt={observedAt}/></>}>
-            {publications.length ? <><span className="workflow-node-status">{(['review','inline-comment','comment'] as const).map(kind => counts[kind] ? <Badge key={kind} tone="success">{kind === 'review' ? w.reviewPublished : kind === 'inline-comment' ? w.inlinePublished : w.commentPublished} {counts[kind]}</Badge> : null)}</span>{publications.map(job => <JobObservation key={job.role + ':' + job.correlationId + ':' + job.attempt} job={job} target={target} language={language} observedAt={observedAt}/>)}</> : publishingJobs.length ? <>{publishingJobs.map(job => <JobObservation key={job.role + ':' + job.correlationId + ':' + job.attempt} job={job} target={target} language={language} observedAt={observedAt}/>)}</> : <p>{w.noDetails}</p>}
+          <StageDialog title={w.publishing} description={w.publicationNote} target={target} language={language} trigger={<><strong>{w.publishing}</strong><span className="workflow-node-status">{publications.length ? <Badge tone="success">{w.published} {publications.length}</Badge> : <Badge tone={publicationPhase ? 'info' : 'neutral'}>{publicationPhase ? w.phaseOnly : w.unobserved}</Badge>}</span><LatestDetail job={latestPublication} language={language} observedAt={observedAt} showState/></>}>
+            {publicationJobs.length ? <>{publications.length > 0 && <span className="workflow-node-status">{(['review','inline-comment','comment'] as const).map(kind => counts[kind] ? <Badge key={kind} tone="success">{kind === 'review' ? w.reviewPublished : kind === 'inline-comment' ? w.inlinePublished : w.commentPublished} {counts[kind]}</Badge> : null)}</span>}{publicationJobs.map(job => <JobObservation key={job.role + ':' + job.correlationId + ':' + job.attempt} job={job} target={target} language={language} observedAt={observedAt}/>)}</> : <p>{w.noDetails}</p>}
           </StageDialog>
         </CanvasNode>
         <CanvasNode stage="user" heading={w.user}><StageDialog title={w.user} description={w.userNote} target={target} language={language} trigger={<><strong>{w.user}</strong><Badge tone="neutral">{w.unobserved}</Badge></>}><p>{w.userNote}</p></StageDialog></CanvasNode>

@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { Job } from '@oddmash/agent-operator-contract';
 import { targetObservations, roleObservations, publicationObservations, publicationPhaseObserved, publicationLink, stateCounts, specialistRoles, executionGroups, publicationCounts } from '../apps/console/src/workflow-model.ts';
 import { canvasSize, canvasNodes, canvasNodeSize, fitViewport, panViewport, zoomViewport, canvasMinScale, canvasMaxScale, canvasDetailScale, latestObservation, workflowEdges, wheelZoomEnabled } from '../apps/console/src/workflow-model.ts';
+import { pointerDragInterrupted, publicationStageObservations } from '../apps/console/src/workflow-model.ts';
 
 const target = { repository: 'Oddmash/example', number: 12 };
 const job: Job = { role: 'reviewer', correlationId: 'a'.repeat(24), attempt: 1, state: 'returned', updatedAt: '2026-01-01T00:00:00Z', target };
@@ -94,6 +95,27 @@ test('latest details come from one exact observation, including explicit skipped
   assert.equal(latestObservation([oldAttempt, recent, job]), recent);
   assert.equal(latestObservation([job, oldAttempt]), oldAttempt);
   assert.equal(latestObservation([]), undefined);
+});
+
+test('publication stage retains phase-only attempts and selects the actual latest rather than a historical publication', () => {
+  const publication = { ...job, publication: { kind: 'review' as const, at: job.updatedAt, id: 8 } };
+  const later = { ...job, attempt: 2, state: 'running' as const, phase: 'publishing' as const, updatedAt: '2026-01-02T00:00:00Z' };
+  const skipped = { ...job, role: 'release' as const, state: 'skipped' as const };
+  const history = { ...job, role: 'qa' as const, phaseHistory: [{ phase: 'publishing' as const, timestamp: job.updatedAt }] };
+  const both = { ...publication, role: 'docs' as const, phase: 'publishing' as const };
+  const stage = publicationStageObservations([publication, later, skipped, history, both]);
+  assert.deepEqual(stage, [publication, later, history, both]);
+  assert.equal(latestObservation(stage), later);
+  assert.equal(publicationObservations(stage).length, 2);
+});
+
+test('reentering with the primary mouse or pen button released stops a pending drag', () => {
+  assert.equal(pointerDragInterrupted('mouse', 0), true);
+  assert.equal(pointerDragInterrupted('pen', 0), true);
+  assert.equal(pointerDragInterrupted('mouse', 2), true);
+  assert.equal(pointerDragInterrupted('mouse', 1), false);
+  assert.equal(pointerDragInterrupted('pen', 1), false);
+  assert.equal(pointerDragInterrupted('touch', 0), false);
 });
 
 test('fit centers the entire canvas, while narrow defaults remain readable and can still fit explicitly', () => {

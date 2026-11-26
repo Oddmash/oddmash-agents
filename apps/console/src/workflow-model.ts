@@ -24,6 +24,7 @@ export const stateCounts = (jobs: readonly ObservedJob[]) => {
 
 export const publicationObservations = (jobs: readonly ObservedJob[]) => jobs.filter(job => job.publication !== undefined);
 export const publicationPhaseObserved = (jobs: readonly ObservedJob[]) => jobs.some(job => job.phase === 'publishing' || job.phaseHistory?.some(entry => entry.phase === 'publishing'));
+export const publicationStageObservations = (jobs: readonly ObservedJob[]) => jobs.filter(job => job.publication !== undefined || publicationPhaseObserved([job]));
 
 export function publicationLink(target: PublicTarget, job: ObservedJob): string | undefined {
   const result = job.publication;
@@ -73,6 +74,7 @@ export const canvasMinScale = .25;
 export const canvasMaxScale = 2;
 export const canvasDetailScale = 1.05;
 export const wheelZoomEnabled = (focused: boolean, ctrlKey: boolean, metaKey: boolean) => focused || ctrlKey || metaKey;
+export const pointerDragInterrupted = (pointerType: string, buttons: number) => pointerType !== 'touch' && (buttons & 1) === 0;
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 export function fitViewport(size: CanvasSize, readable = false): CanvasViewport {

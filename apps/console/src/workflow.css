@@ -108,7 +108,7 @@
   cursor: pointer;
 }
 .workflow-node:hover { border-color: var(--om-semantic-color-focus); }
-.workflow-node-title { min-inline-size: 0; max-inline-size: 100%; overflow-wrap: anywhere; }
+.workflow-node-title { display: flex; align-items: center; justify-content: space-between; gap: var(--om-semantic-space-xs); min-inline-size: 0; inline-size: 100%; overflow-wrap: anywhere; }
 .workflow-node-title .agent-identity { font-size: var(--console-length-15); gap: var(--om-semantic-space-xs); }
 .workflow-node-title .agent-identity .agent-avatar { width: var(--console-length-20); height: var(--console-length-20); }
 .workflow-node-title small { display: none; }
