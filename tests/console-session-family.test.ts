@@ -89,3 +89,16 @@ test('store failures and malformed persisted records fail closed', async () => {
   const unavailable = createSessionStore({ url: 'https://test.upstash.io', token: 'synthetic' }, owner, async () => new Response('', { status: 503 }));
   await assert.rejects(() => unavailable.read(), /Session store unavailable/);
 });
+
+test('storage TTL never extends beyond the latest family absolute expiry', async () => {
+  const issued = issue();
+  const remaining = SESSION_LIFETIME_MS - ACCESS_LIFETIME_MS;
+  let command: unknown[] | undefined;
+  const store = createSessionStore({ url: 'https://test.upstash.io', token: 'synthetic' }, owner, async (_url, init) => {
+    command = JSON.parse(String(init?.body))[0] as unknown[];
+    return new Response(JSON.stringify([{ result: 1 }]), { headers: { 'Content-Type': 'application/json' } });
+  }, () => now + ACCESS_LIFETIME_MS);
+  assert.equal(await store.compareAndSet(null, JSON.stringify(issued.state)), true);
+  assert.equal(command?.at(-1), remaining);
+  assert.equal(JSON.stringify(command).includes(issued.credentials.access), false);
+});

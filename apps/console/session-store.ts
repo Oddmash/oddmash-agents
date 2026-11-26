@@ -29,7 +29,7 @@ export function parseSessionState(raw: string | null, ownerId: string): SessionS
   return { families: parsed.families.map(f => ({ id: f.id, bootstrapDigest: f.bootstrapDigest, ownerId: f.ownerId, issuedAt: f.issuedAt, expiresAt: f.expiresAt, accessExpiresAt: f.accessExpiresAt, accessDigest: f.accessDigest, refreshDigest: f.refreshDigest, spent: f.spent.map(entry => ({ digest: entry.digest, replacedAt: entry.replacedAt })), revoked: f.revoked })) };
 }
 
-export function createSessionStore(config: Config, ownerId: string, request = fetch): SessionStore {
+export function createSessionStore(config: Config, ownerId: string, request = fetch, clock = Date.now): SessionStore {
   const url = new URL(config.url);
   if (url.protocol !== 'https:' || !/^[a-z0-9-]+\.upstash\.io$/i.test(url.hostname) || url.port || url.username || url.password || url.search || url.hash || url.pathname !== '/' || !config.token || !/^[1-9]\d*$/.test(ownerId)) throw new Error('Session store unavailable');
   const key = namespace + ownerId;
@@ -43,7 +43,10 @@ export function createSessionStore(config: Config, ownerId: string, request = fe
   return {
     async read() { const value = await command(['GET', key]); if (value === null) return null; if (typeof value === 'string') return value; throw new Error('Session store unavailable'); },
     async compareAndSet(expected, next) {
-      const result = await command(['EVAL', compareAndSetScript, 1, key, expected ?? '', next, SESSION_LIFETIME_MS]);
+      const state = parseSessionState(next, ownerId);
+      const remaining = Math.max(0, ...state.families.map(family => family.expiresAt - clock()));
+      const ttl = Math.max(1, Math.min(SESSION_LIFETIME_MS, remaining));
+      const result = await command(['EVAL', compareAndSetScript, 1, key, expected ?? '', JSON.stringify(state), ttl]);
       if (result !== 0 && result !== 1) throw new Error('Session store unavailable');
       return result === 1;
     }
