@@ -14,7 +14,7 @@ Open agent changes as ready-for-review PRs by default under the organization agr
 
 ## GitHub account use
 
-Follow the [Oddmash GitHub account policy](https://github.com/Oddmash/.github/blob/main/docs/github-account-policy.md). Use `arvynoo` for AI-authored commits, issues and PRs with command-scoped authentication and a separate checkout or worktree per session. Only `qtaghdi` gives final approval to and manually merges external contributions.
+Follow the [Oddmash GitHub account policy](https://github.com/Oddmash/.github/blob/main/docs/github-account-policy.md). Use the verified maintainer account for authorized commits, issues and PRs, with command-scoped authentication and a separate checkout or worktree per session. Reserve the alternate account for isolated tests. Only `qtaghdi` gives final approval to and manually merges external contributions.
 
 ## Shared skills
 
