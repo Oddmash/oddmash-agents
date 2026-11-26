@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { runImpact } from './impact.ts';
 import { runAdvisory } from './advisory.ts';
 import { sameFindingText, verifiedReviewer } from './specialist-findings.ts';
-import { defaultControls, restrictAdvisoryBudget } from '../../../packages/operator-contract/src/controls.ts';
+import { defaultControls, restrictAdvisoryBudget, type OperatorControls } from '../../../packages/operator-contract/src/controls.ts';
 import { operatorStoreConfig, readOperatorControls } from '../../../packages/operator-store/src/index.ts';
 import { advisoryModelConfig, readReviewModelOverrides } from './runtime-config.ts';
 import { effectiveOperatorModel, modelPolicy } from '../../../packages/operator-contract/src/model-settings.ts';
@@ -123,13 +123,19 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
   if (target.advisoryIdentity && target.advisory !== target.advisoryIdentity) throw new Error('Invalid advisory identity');
   const { appId, key, slug, openaiKey } = config;
   const role = target.advisoryIdentity ?? target.advisory ?? (target.impact ? 'impact' : 'reviewer');
-  const controlStore = operatorStoreConfig(process.env.OPERATOR_STORE_URL, process.env.OPERATOR_STORE_READ_TOKEN);
-  const controls = !target.reply && (role === 'reviewer' || role === 'triage')
-    ? controlStore ? await readOperatorControls(controlStore).then(record => record.controls).catch(() => undefined) : defaultControls()
-    : undefined;
-  if (controls?.excludedRoles.includes(role)) {
-    recordCurrentExecutionSkipped('excluded');
-    return;
+  let controls: OperatorControls | undefined;
+  if (!target.reply && (role === 'reviewer' || role === 'triage')) {
+    const storeUrl = process.env.OPERATOR_STORE_URL;
+    const readToken = process.env.OPERATOR_STORE_READ_TOKEN;
+    const controlStore = operatorStoreConfig(storeUrl, readToken);
+    if (!controlStore && (storeUrl || readToken)) throw new Error('Operator controls unavailable');
+    controls = controlStore
+      ? await readOperatorControls(controlStore).then(record => record.controls).catch(() => { throw new Error('Operator controls unavailable'); })
+      : defaultControls();
+    if (controls.excludedRoles.includes(role)) {
+      recordCurrentExecutionSkipped('excluded');
+      return;
+    }
   }
   const overrides = await readReviewModelOverrides();
   const model = effectiveOperatorModel(role, config.model, overrides, modelPolicy(process.env));
