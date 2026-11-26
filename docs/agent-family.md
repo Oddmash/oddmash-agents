@@ -12,7 +12,7 @@ One repository, Vercel project and queue serve the agents. Each role has individ
 | Docs | PR | `/docs` | Documentation changes and examples |
 | Architect | PR | `/architect` | Design, trade-offs and maintainability |
 
-For explicit manual requests, use the standalone slash commands above in their supported contexts. Lead routes them to the appropriate enabled and installed specialist. Legacy explicit App mention commands remain supported; do not invoke both forms for the same assessment. Each role uses one updatable bilingual advisory for its own authenticated identity and evidence snapshot. It does not alter labels, issue state, checks, release or merge decisions.
+For explicit manual requests, use the standalone slash commands above in their supported contexts. Lead routes them to the appropriate enabled and installed specialist. Legacy explicit App mention commands remain supported; do not invoke both forms for the same assessment. Each role uses one updatable English advisory for its own authenticated identity and evidence snapshot. It does not alter labels, issue state, checks, release or merge decisions.
 
 For coordinated requests, Lead resolves the selected role's own enabled App installation for the repository and uses that role's existing scoped token. Unavailable, unconfigured or unauthorized roles are skipped, with no fallback publication under Lead. No new app permissions or repository enrollment are granted by orchestration. Impact is dispatched to its existing impact-specific implementation, while the other five roles use the shared advisory engine. Neither path can approve or authorize a merge.
 
