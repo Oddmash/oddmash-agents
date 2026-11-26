@@ -101,3 +101,5 @@
   .adoption-reported-total { text-align:start; }
 }
 @media(prefers-reduced-motion:reduce) { .metric-link[data-active="true"] .metric-mark { animation:none; } }
+
+.history-scope-actions { display:flex; flex-wrap:wrap; gap:var(--om-semantic-space-xs); }

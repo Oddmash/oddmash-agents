@@ -106,7 +106,7 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
   const repositories = repositoryActivity(jobs);
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const { counts, byRole } = activitySummary(jobs);
-  const visibleJobs = filterActivity(jobs, filter);
+  const visibleJobs = filterActivity(jobs, filter).filter(job=>!selectedTarget || (job.target && job.target.repository.toLowerCase()+'#'+job.target.number===selectedTarget));
   const groups = groupActivity(visibleJobs);
   const overview = reviewOverview(groupActivity(jobs));
   const choosingRepository = historyNeedsRepository(view, filter);
@@ -141,7 +141,7 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
       {view === 'activity' && <div className="workspace-history">
       <section aria-labelledby="review-targets">
         <div className="activity-heading"><h2 id="review-targets">{t(choosingRepository ? 'Choose a repository' : 'Review targets')}</h2><span className="muted activity-count" aria-live="polite">{connected ? executionCount(language, visibleJobs.length, jobs.length) : t('No live activity source')}</span></div>
-        {!choosingRepository && <div className="history-repository-scope"><span><span className="muted">{t('Repository')}: </span><strong>{selectedRepositoryName}</strong></span><Button type="button" variant="secondary" onClick={changeRepository}>{t('Change repository')}</Button></div>}
+        {!choosingRepository && <div className="history-repository-scope"><span><span className="muted">{t('Repository')}: </span><strong>{selectedRepositoryName}{selectedTarget && ' #'+selectedTarget.split('#').at(-1)}</strong></span><div className="history-scope-actions">{selectedTarget && <Button type="button" variant="secondary" onClick={()=>setSelectedTarget(undefined)}>{t('View all targets')}</Button>}<Button type="button" variant="secondary" onClick={changeRepository}>{t('Change repository')}</Button></div></div>}
         <div className="activity-filters primary-filters"><DateRangeFilter language={language} timeZone={timeZone} value={filter.range ?? emptyDateRange()} onApply={range => setFilter(current => ({ ...current, day: undefined, range }))}/><button type="button" className="advanced-toggle" ref={advancedToggle} aria-expanded={showAdvanced} aria-controls="advanced-filters" onClick={() => setShowAdvanced(value => !value)}>{t('More filters')}{advancedCount > 0 && <Badge tone="active">{advancedCount}</Badge>}<Chevron expanded={showAdvanced}/></button></div>
         <div id="advanced-filters" hidden={!showAdvanced} className="activity-filters advanced-filter-controls"><div className="filter-control"><span>{t("Agent")}</span><Select aria-label={t("Agent")} value={filter.role} options={[{ value: 'all', label: t("All agents") }, ...byRole.map(row => ({ value: row.role, label: names[row.role] }))]} onValueChange={value => setFilter(current => ({ ...current, role: value as ActivityFilter['role'] }))}/></div><div className="filter-control"><span>{t("State")}</span><Select aria-label={t("State")} value={filter.state} options={[{ value: 'all', label: t("All states") }, ...jobStates.map(state => ({ value: state, label: executionLabel(language, state) }))]} onValueChange={value => setFilter(current => ({ ...current, state: value as ActivityFilter['state'] }))}/></div></div>
         {filtered && <div className="applied-filters" role="group" aria-label={t('Applied filters')}>

@@ -1,6 +1,6 @@
 # Operator console design
 
-Primary task: identify active or failed work, open its target and inspect retained evidence. The console is not a generic analytics landing. Overview prioritizes operational attention with four actionable metrics and compact recent target rows; selecting a target opens its exact history workflow. History preserves repository and target filters; Contributor PRs excludes internal contributions; Usage and Settings retain separate responsibilities.
+Primary task: identify active or failed work, open its target and inspect retained evidence. The console is not a generic analytics landing. Overview prioritizes operational attention with four actionable metrics and compact recent target rows; selecting a target opens its exact history workflow with an explicit action to return to all targets in that repository. History preserves repository and target filters; Contributor PRs excludes internal contributions; Usage and Settings retain separate responsibilities.
 
 Replace the fixed graph canvas with responsive observed-role cards and accessible execution detail timelines. A static topology canvas was rejected because fixed scaling reduced control and type legibility, required unnecessary zoom/pan controls, and emphasized unobserved roles. Sort failures and active work first; group unobserved roles in a disclosure. Publication is separate from execution and approval. Do not infer a single chronological sequence, an overall progress percentage or unsupported CI status.
 

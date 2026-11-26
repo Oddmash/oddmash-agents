@@ -14,7 +14,8 @@ const jobs = [
   job('reviewer', 'failed', { finishedAt: updatedAt, failure: 'unexpected', phase: 'validating', phaseHistory: [{ phase: 'collecting-changes', timestamp: startedAt }, { phase: 'validating', timestamp: '2026-01-01T12:00:30Z' }] }),
   job('qa', 'running', { phase: 'specialist-review' }),
   job('docs', 'returned', { finishedAt: updatedAt }),
-  job('impact', 'published', { phase: 'publishing', publication: { kind: 'comment', id: 1, at: updatedAt }, finishedAt: updatedAt })
+  job('impact', 'published', { phase: 'publishing', publication: { kind: 'comment', id: 1, at: updatedAt }, finishedAt: updatedAt }),
+  job('docs','returned',{target:{repository:target.repository,number:43},correlationId:'fixture-other-target',finishedAt:updatedAt})
 ];
 const snapshot = { connected: true, jobs, settings: null, observedAt: updatedAt };
 let browser;
@@ -58,6 +59,15 @@ try {
         assert.equal(await page.locator('.workflow-view:visible').count(),0,label);
         assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),label+' overview overflow');
         await page.screenshot({path:dir+'/'+label+'-overview.png',fullPage:true,animations:'disabled'});
+        assert.equal(await page.locator('.overview-target').count(),2,label);
+        await page.locator('.overview-target').nth(1).click();
+        await page.locator('.review-target').first().waitFor({state:'visible'});
+        assert.equal(await page.locator('.review-target').count(),1,label);
+        assert.match(await page.locator('.review-target').first().innerText(),/#43/,label);
+        await page.getByRole('button',{name:language==='ko'?'모든 대상 보기':'View all targets',exact:true}).click();
+        assert.equal(await page.locator('.review-target').count(),2,label);
+        await page.goto(base+'/tests/render-fixture.html?theme='+theme+'&language='+language);
+        await overviewTarget.waitFor({state:'visible'});
         await overviewTarget.click();
         const workflow = page.locator('.workflow-view').first();
         try { await workflow.waitFor({ state: 'visible', timeout: 12000 }); } catch (error) {

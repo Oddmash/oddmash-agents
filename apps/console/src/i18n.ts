@@ -1,4 +1,5 @@
 export const korean = {
+  "View all targets": "모든 대상 보기",
   "Week": "주간",
   "Month": "월간",
   "Download period": "다운로드 기간",
