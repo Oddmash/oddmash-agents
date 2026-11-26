@@ -1,11 +1,12 @@
-import { StrictMode, useEffect, useRef, useState } from 'react';
+import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { authConfigManager, SessionProvider, useSession, signIn, signOut } from '@hono/auth-js/react';
 import { chooseLanguage, consoleRoute, localizedCallback, localizedUrl, translate, type Language, type ConsoleView } from './i18n';
-import { Alert, Button, LocalePicker } from '@oddmash/ui';
+import { Button, LocalePicker } from '@oddmash/ui';
 import { AgentLoading } from './agent-loading';
 import { parseTheme, resolveTheme, type ThemePreference } from './console-preferences';
 import { Dashboard } from './dashboard';
+import { useUnsavedGuard } from './unsaved-guard';
 import { SignInScreen } from './sign-in-screen';
 import { clearSignInError, signInErrorMessage } from './sign-in-feedback';
 import { useFirstPartySession } from './use-first-party-session';
@@ -37,20 +38,7 @@ const Console = () => {
     return () => systemDark.removeEventListener('change', update);
   }, [theme]);
   const t = (message: Parameters<typeof translate>[1]) => translate(language, message);
-  const [unsaved, setUnsaved] = useState(false);
-  const [pending, setPending] = useState<(() => void)>();
-  const confirmation = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    if (pending && !confirmation.current?.open) confirmation.current?.showModal();
-    if (!pending && confirmation.current?.open) confirmation.current.close();
-  }, [pending]);
-  useEffect(() => {
-    if (!unsaved) return;
-    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [unsaved]);
-  const guard = (action: () => void) => { if (unsaved) setPending(() => action); else action(); };
+  const { unsaved, setUnsaved, guard, dialog } = useUnsavedGuard(language);
   const navigateNow = (nextLanguage: Language, nextView: ConsoleView) => {
     const url = localizedUrl(window.location.href, nextLanguage, nextView);
     if (url.href !== window.location.href) window.history.pushState(window.history.state, '', url);
@@ -65,7 +53,7 @@ const Console = () => {
       const next = consoleRoute(window.location.href);
       if (unsaved && next.view !== view) {
         window.history.pushState(window.history.state, '', localizedUrl(window.location.href, language, view));
-        setPending(() => () => navigateNow(next.language ?? language, next.view));
+        guard(() => navigateNow(next.language ?? language, next.view));
         return;
       }
       setRoute(current => ({ language: next.language ?? current.language, view: next.view }));
@@ -112,6 +100,6 @@ const Console = () => {
   if (mode === 'first-party' && firstParty.state === 'logout-pending') return <main className="session-loading" lang="en"><p role="alert">Sign-out could not be confirmed. Retry to revoke this session.</p><Button onClick={() => void logout()}>Retry sign out</Button></main>;
   if (status === 'loading' || configured === 'checking' || (configured === 'ready' && mode === 'first-party' && firstParty.state === 'checking')) return <main className="session-loading" lang="en"><AgentLoading label="Checking session…"/></main>;
   if (!authenticated) return <SignInScreen availability={mode === 'first-party' && firstParty.state === 'unavailable' ? 'error' : configured} errorMessage={loginError} onSignIn={async () => { setLoginError(undefined); const url = clearSignInError(window.location.href); if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url); await signIn('github', { callbackUrl: localizedCallback(window.location.origin, localizedUrl(window.location.href, language, view).pathname, language) }); }} />;
-  return <><Dashboard onUnsavedChange={setUnsaved} view={view} navigate={nextView => navigate(language, nextView)} language={language} languageControl={languageControl} themeControl={themeControl} logout={<Button variant="secondary" className="login-button console-logout" onClick={() => guard(() => void logout())}>{t("Sign out")}</Button>} /><dialog ref={confirmation} className="console-discard-dialog" aria-labelledby="unsaved-title" aria-describedby="unsaved-detail" onCancel={event=>{event.preventDefault();setPending(undefined);}}><h2 id="unsaved-title">{t('Unsaved changes')}</h2><Alert tone="danger"><span id="unsaved-detail">{t('Leaving will discard your unsaved settings. Stay to save them first.')}</span></Alert><div className="control-actions"><Button autoFocus variant="secondary" onClick={()=>setPending(undefined)}>{t('Stay')}</Button><Button className="console-logout" variant="secondary" onClick={()=>{const action=pending;setPending(undefined);setUnsaved(false);action?.();}}>{t('Discard and leave')}</Button></div></dialog></>;
+  return <><Dashboard onUnsavedChange={setUnsaved} view={view} navigate={nextView => navigate(language, nextView)} language={language} languageControl={languageControl} themeControl={themeControl} logout={<Button variant="secondary" className="login-button console-logout" onClick={() => guard(() => void logout())}>{t("Sign out")}</Button>} />{dialog}</>;
 }
 createRoot(document.getElementById('root')!).render(<StrictMode><SessionProvider><Console /></SessionProvider></StrictMode>);
