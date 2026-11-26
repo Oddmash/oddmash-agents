@@ -94,3 +94,16 @@ test('a timed-out status fetch reports failure and schedules the normal error ba
   assert.equal(f.settled(), 1);
   assert.deepEqual([...f.timers.values()].map(timer => timer.delay), [30000]);
 });
+
+test('both startup paths respect pause while manual refresh remains available', async () => {
+  const f = fixture();
+  f.polling.setPaused(true);
+  f.polling.start();
+  f.polling.start(4000);
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.timers.size, 0);
+  void f.polling.refresh();
+  assert.equal(f.requests.length, 1);
+  await f.complete(0);
+  assert.equal(f.timers.size, 0);
+});
