@@ -14,7 +14,7 @@
     "@oddmash/agent-operator-contract": "workspace:*",
     "@oddmash/agent-operator-store": "workspace:*",
     "@oddmash/juliya": "0.4.1",
-    "@oddmash/ui": "0.8.0",
+    "@oddmash/ui": "0.9.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "@auth/core": "0.41.3",
