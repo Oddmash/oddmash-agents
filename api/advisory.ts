@@ -6,7 +6,7 @@ import { advisoryConfig } from '../apps/worker/src/runtime-config.ts';
 import { isAdvisoryRole } from '../apps/worker/src/advisory-agents.ts';
 import { dedicatedAdvisoryTarget, validSignature } from '../apps/worker/src/webhook.ts';
 import { createReviewJob, reviewTopic } from '../apps/worker/src/review-job.ts';
-import { reviewWebhook } from '../apps/worker/src/webhook-review.ts';
+import { readExecutionControls, reviewWebhook } from '../apps/worker/src/webhook-review.ts';
 
 async function receive(request: Request) {
   const role = new URL(request.url).searchParams.get('agent');
@@ -29,10 +29,15 @@ async function receive(request: Request) {
     try { await send(reviewTopic, job, { idempotencyKey: `${role}:${delivery}`, retentionSeconds: 86400 }); }
     catch { return new Response('Unavailable', { status: 503 }); }
     waitUntil(recordQueued(execution));
-  } else waitUntil(runAgentExecution(execution, () => reviewWebhook(target, config)).catch(error => {
-    const controlsUnavailable = error instanceof Error && error.message === 'Operator controls unavailable';
-    console.error(controlsUnavailable ? 'Advisory job deferred: operator controls unavailable' : 'Advisory job failed');
-  }));
+    return new Response('Accepted', { status: 202 });
+  }
+  let controls;
+  try { controls = await readExecutionControls(target); }
+  catch {
+    console.warn('Advisory delivery not accepted: operator controls unavailable');
+    return new Response('Unavailable', { status: 503 });
+  }
+  waitUntil(runAgentExecution(execution, () => reviewWebhook(target, config, controls)).catch(() => console.error('Advisory job failed')));
   return new Response('Accepted', { status: 202 });
 }
 
