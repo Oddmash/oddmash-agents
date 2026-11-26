@@ -81,3 +81,16 @@ test('a fresh session snapshot defers the first poll and manual refresh cancels 
   await f.complete(0);
   assert.deepEqual([...f.timers.values()].map(timer => timer.delay), [10000]);
 });
+
+test('a timed-out status fetch reports failure and schedules the normal error backoff', async () => {
+  const f = fixture();
+  void f.polling.refresh();
+  const [timeout] = f.timers.values();
+  assert.equal(timeout.delay, 15000);
+  f.requests[0].signal.addEventListener('abort', () => f.requests[0].reject(new Error('Request aborted')));
+  timeout.callback();
+  await Promise.resolve();
+  assert.equal(f.errors(), 1);
+  assert.equal(f.settled(), 1);
+  assert.deepEqual([...f.timers.values()].map(timer => timer.delay), [30000]);
+});
