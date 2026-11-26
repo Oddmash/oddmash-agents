@@ -23,9 +23,15 @@
 .workflow-unobserved { margin-block-start: var(--om-semantic-space-md); }
 .workflow-unobserved > summary { cursor: pointer; color: var(--muted); min-block-size: var(--console-length-44); padding-block: var(--om-semantic-space-sm); }
 .workflow-note { margin-block: var(--om-semantic-space-md) 0; font-size: var(--console-length-13); color: var(--muted); }
-.workflow-dialog { max-block-size: 85dvh; overflow: auto; }
-.workflow-dialog-title { margin-block: 0 var(--om-semantic-space-sm); }
-.workflow-dialog-body { display: grid; gap: var(--om-semantic-space-md); margin-block: var(--om-semantic-space-lg); }
+.workflow-publication { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.workflow-publication .workflow-node-detail { grid-column: 1 / -1; }
+.om-dialog-content.workflow-dialog { display: flex; flex-direction: column; gap: var(--om-semantic-space-sm); width: min(var(--console-length-710), calc(100vw - var(--console-length-32))); max-height: min(85dvh, calc(100dvh - var(--console-length-32))); overflow: hidden; }
+.workflow-dialog-title, .workflow-dialog > .muted { margin: 0; }
+.workflow-dialog-title > small { display: none; }
+.workflow-dialog-body { display: grid; gap: var(--om-semantic-space-md); min-block-size: 0; overflow: auto; padding: var(--om-semantic-space-xs); margin-block: var(--om-semantic-space-sm); }
+.workflow-dialog-body h4 { margin: 0 0 var(--om-semantic-space-sm); }
+.workflow-dialog-footer { flex-shrink: 0; }
+@media (max-width: 480px) { .workflow-publication { grid-template-columns: minmax(0, 1fr); } }
 .workflow-dialog-footer, .workflow-observation-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--om-semantic-space-sm); }
 .workflow-observation { border: var(--om-semantic-border-width) solid var(--om-semantic-color-border-subtle); border-radius: var(--om-semantic-radius-md); padding: var(--om-semantic-space-md); }
 .workflow-facts { display: grid; gap: var(--om-semantic-space-sm); }

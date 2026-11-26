@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { JuliyaText } from '@oddmash/juliya/react';
 import { Badge, Button, Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription, DialogClose } from '@oddmash/ui';
-import { jobElapsedMs, type AgentRole, type PublicTarget, type SkipReason } from '@oddmash/agent-operator-contract';
+import { jobElapsedMs, type AgentRole, type PublicTarget, type SkipReason, type ExecutionPhase } from '@oddmash/agent-operator-contract';
 import { executionTone } from './execution-status';
 import { korean, translate, type Language, type Message } from './i18n';
 import { type ObservedJob, type WorkflowState, targetObservations, roleObservations, publicationObservations, publicationPhaseObserved, publicationLink, executionGroups, publicationCounts, latestObservation, stateCounts, publicationStageObservations, observedStages, workflowRoleGroups } from './workflow-model';
@@ -57,6 +57,8 @@ const skipReasons: Record<SkipReason, { en: string; ko: string }> = {
   'not-reached': { en: 'Execution stopped before this stage', ko: '해당 단계에 도달하기 전에 실행 종료' }
 };
 const stateLabel = (language: Language, state: WorkflowState, role?: AgentRole) => state === 'returned' && role === 'triage' ? words[language].triageCompleted : words[language][state];
+const phaseLabels: Record<ExecutionPhase, string> = { 'collecting-changes': 'Collecting changes', 'collecting-context': 'Collecting context', reviewing: 'Reviewing', validating: 'Validating', 'specialist-review': 'Specialist review', publishing: 'Publishing', 'verifying-findings': 'Verifying findings' };
+const phaseLabel = (language: Language, phase: ExecutionPhase) => language === 'ko' ? translate(language, phase) : phaseLabels[phase];
 const time = (value: string | undefined, language: Language) => value ? new Date(value).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'medium' }) : '—';
 
 const LatestDetail = ({ job, language, observedAt, showState = false }: { job?: ObservedJob; language: Language; observedAt: string; showState?: boolean }) => {
@@ -65,7 +67,7 @@ const LatestDetail = ({ job, language, observedAt, showState = false }: { job?: 
   const elapsed = jobElapsedMs(job, observedAt);
   const seconds = elapsed === undefined ? undefined : new Intl.NumberFormat(language, { style: 'unit', unit: 'second', unitDisplay: 'narrow', maximumFractionDigits: 1 }).format(elapsed / 1000);
   return <span className="workflow-node-detail">
-    <span title={[t('State') + ': ' + stateLabel(language, job.state, job.role), t('Phase') + ': ' + (job.phase ? t(job.phase) : t('Not reported')), ...(job.phaseHistory?.map(entry => t(entry.phase) + ' · ' + time(entry.timestamp, language)) ?? [])].join('\n')}>{showState ? stateLabel(language, job.state, job.role) + ' · ' : t('Phase') + ': '}{job.phase ? t(job.phase) : t('Not reported')}{job.phaseHistory?.length ? ' (' + job.phaseHistory.length + ')' : ''}</span>
+    <span title={[t('State') + ': ' + stateLabel(language, job.state, job.role), t('Phase') + ': ' + (job.phase ? phaseLabel(language, job.phase) : t('Not reported')), ...(job.phaseHistory?.map(entry => phaseLabel(language, entry.phase) + ' · ' + time(entry.timestamp, language)) ?? [])].join('\n')}>{showState ? stateLabel(language, job.state, job.role) + ' · ' : t('Phase') + ': '}{job.phase ? phaseLabel(language, job.phase) : t('Not reported')}{job.phaseHistory?.length ? ' (' + job.phaseHistory.length + ')' : ''}</span>
     <span title={t('Elapsed') + ': ' + (seconds ?? '—') + ' · ' + t('Updated') + ': ' + time(job.updatedAt, language)}>{t('Attempt')} {job.attempt} {seconds && '· ' + seconds} · <time dateTime={job.updatedAt}>{new Date(job.updatedAt).toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })}</time></span>
   </span>;
 };
@@ -84,14 +86,14 @@ const JobObservation = ({ job, target, language, observedAt }: { job: ObservedJo
       <h5>{w.stages} <span>{stages.length}</span></h5>
       {stages.length ? <ol className="workflow-timeline">{stages.map((stage, index) => <li key={stage.timestamp + ':' + index} data-stage-state={stage.state}>
         <span className="workflow-timeline-marker" aria-hidden="true"/>
-        <div><strong>{t(stage.phase)}</strong><Badge tone={stage.state === 'failed' ? 'danger' : stage.state === 'running' ? 'info' : 'neutral'}>{w[stage.state]}</Badge></div>
+        <div><strong>{phaseLabel(language, stage.phase)}</strong><Badge tone={stage.state === 'failed' ? 'danger' : stage.state === 'running' ? 'info' : 'neutral'}>{w[stage.state]}</Badge></div>
         <time dateTime={stage.timestamp}>{time(stage.timestamp, language)}</time>
         {stage.intervalMs !== undefined && <span className="workflow-stage-interval">{w.interval}: {formatDuration(stage.intervalMs)}</span>}
       </li>)}</ol> : <p>{w.noStages}</p>}
-      {state === 'failed' && <p className="workflow-failure-phase">{w.failurePhase}: {job.phase ? t(job.phase) : t('Not reported')}</p>}
+      {state === 'failed' && <p className="workflow-failure-phase">{w.failurePhase}: {job.phase ? phaseLabel(language, job.phase) : t('Not reported')}</p>}
     </section>
     <dl className="workflow-facts">
-      <div><dt>{t('Phase')}</dt><dd>{job.phase ? t(job.phase) : t('Not reported')}</dd></div>
+      <div><dt>{t('Phase')}</dt><dd>{job.phase ? phaseLabel(language, job.phase) : t('Not reported')}</dd></div>
       <div><dt>{t('Queued at')}</dt><dd>{time(job.queuedAt, language)}</dd></div>
       <div><dt>{t('Started at')}</dt><dd>{time(job.startedAt, language)}</dd></div>
       <div><dt>{t('Finished at')}</dt><dd>{time(job.finishedAt, language)}</dd></div>
@@ -104,10 +106,10 @@ const JobObservation = ({ job, target, language, observedAt }: { job: ObservedJo
   </article>;
 };
 
-const StageDialog = ({ title, description, language, trigger, children, target, running = false }: { title: ReactNode; description: string; language: Language; trigger: ReactNode; children: ReactNode; target: PublicTarget; running?: boolean }) => {
+const StageDialog = ({ title, description, language, trigger, children, target, running = false, publication = false }: { title: ReactNode; description: string; language: Language; trigger: ReactNode; children: ReactNode; target: PublicTarget; running?: boolean; publication?: boolean }) => {
   const w = words[language];
   return <Dialog>
-    <DialogTrigger asChild><button className="workflow-node" data-running={running} type="button">{trigger}</button></DialogTrigger>
+    <DialogTrigger asChild><button className={publication ? "workflow-node workflow-publication" : "workflow-node"} data-running={running} type="button">{trigger}</button></DialogTrigger>
     <DialogContent className="workflow-dialog">
       <DialogTitle className="workflow-dialog-title">{title}</DialogTitle>
       <DialogDescription className="muted">{description}</DialogDescription>
@@ -127,7 +129,7 @@ const RoleNode = ({ role, description, jobs, target, observedAt, language, rende
   return <StageDialog title={renderAgent(role)} description={description} language={language} target={target} running={latest?.state === 'running'} trigger={<>
     <span className="workflow-node-title">{renderAgent(role)}{latest && records.length > (counts[latest.state] ?? 0) && <span className="workflow-other-count" title={w.other} aria-label={w.other + ' ' + (records.length - (counts[latest.state] ?? 0))}>+{records.length - (counts[latest.state] ?? 0)}</span>}</span>
     <span className="workflow-node-status">{latest ? <Badge tone={executionTone(latest.state)}>{stateLabel(language, latest.state, role)} {counts[latest.state]}</Badge> : <Badge tone="neutral">{w.unobserved}</Badge>}</span>
-    <LatestDetail job={latest} language={language} observedAt={observedAt}/>{latestFailure && <span className="workflow-node-failure">{w.failed} {failed.length} · {latestFailure.phase ? translate(language, latestFailure.phase) : translate(language, 'Not reported')}</span>}
+    <LatestDetail job={latest} language={language} observedAt={observedAt}/>{latestFailure && <span className="workflow-node-failure">{w.failed} {failed.length} · {latestFailure.phase ? phaseLabel(language, latestFailure.phase) : translate(language, 'Not reported')}</span>
   </>}>
     {records.length ? executionGroups(records).map(group => <section key={group.key}><h4>{w.run} · <code>{group.records[0].correlationId.slice(0, 12)}</code></h4>{group.records.map(job => <JobObservation key={job.correlationId + ':' + job.attempt} job={job} language={language} target={target} observedAt={observedAt}/>)}</section>) : <p>{w.noDetails}</p>}
   </StageDialog>;
@@ -142,13 +144,11 @@ export const WorkflowView = ({ target, visibleJobs, observedAt, language, render
   const publicationJobs = publicationStageObservations(jobs);
   const { observed, unobserved } = workflowRoleGroups(jobs);
   const roleProps = { jobs, target, observedAt, language, renderAgent };
-  const failureCount = jobs.filter(job => job.state === 'failed').length;
-  const activeCount = jobs.filter(job => job.state === 'running' || job.state === 'queued').length;
   return <div className="workflow-view">
-    <div className="workflow-summary"><strong>{w.workflow}</strong><span>{language === 'ko' ? '관측된 실행' : 'Observed executions'} {jobs.length}</span>{activeCount > 0 && <Badge tone="active">{w.running} {activeCount}</Badge>}{failureCount > 0 && <Badge tone="danger">{w.failed} {failureCount}</Badge>}</div>
+    <div className="workflow-summary"><strong>{w.workflow}</strong><span>{language === 'ko' ? '관측된 실행' : 'Observed executions'} {jobs.length}</span></div>
     <div className="workflow-grid">
       {observed.map(role => <RoleNode key={role} role={role} description={role === 'triage' ? w.triageNote : role === 'reviewer' ? w.leadNote : w.specialistNote} {...roleProps}/>)}
-      <StageDialog title={w.publishing} description={w.publicationNote} target={target} language={language} trigger={<>
+      <StageDialog publication title={w.publishing} description={w.publicationNote} target={target} language={language} trigger={<>
         <span className="workflow-node-title"><span className="workflow-publication-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M5 12l4 4L19 6M5 20h14"/></svg></span><strong>{w.publishing}</strong></span>
         <span className="workflow-node-status">{publications.length ? <Badge tone="success">{w.published} {publications.length}</Badge> : <Badge tone={publicationPhase ? 'info' : 'neutral'}>{publicationPhase ? w.phaseOnly : w.unobserved}</Badge>}</span>
         <LatestDetail job={latestObservation(publicationJobs)} language={language} observedAt={observedAt} showState/>
