@@ -66,6 +66,33 @@ test('all current public product repositories are eligible while organization go
   assert.equal(mergeRepositoryAllowed({ installation: 1, repository: 'Oddmash/unknown', repositoryId: 42 }), false);
 });
 
+test('Oddmash Mobile accepts only its exact public repository and low-risk product paths', () => {
+  const repository = 'Oddmash/oddmash-mobile';
+  const repositoryId = 1473122877;
+  const mobile = { installation: 1, repository, repositoryId };
+  const identity = { id: repositoryId, full_name: repository };
+  const pull = {
+    ...pr,
+    head: { sha: head, repo: identity },
+    base: { sha: base, ref: 'develop', repo: { ...identity, default_branch: 'main', private: false } },
+  };
+  assert.equal(eligiblePull(pull, mobile), true);
+  assert.equal(mergeRepositoryAllowed({ ...mobile, repositoryId: 42 }), false);
+  assert.equal(mergeRepositoryAllowed({ ...mobile, private: true }), false);
+  assert.equal(eligiblePull({ ...pull, head: { sha: head, repo: { id: 42, full_name: 'someone/oddmash-mobile' } } }, mobile), false);
+
+  for (const filename of ['src/bottom-sheet.tsx', 'demo/main.tsx', 'docs/components/bottom-sheet.md']) {
+    assert.equal(lowRisk([{ ...files[0], filename }], 1, repository), true);
+  }
+  const filename = 'tests/browser/interactions.spec.ts';
+  const addition = { filename, status: 'added', patch: '@@ -0,0 +1 @@\n+assert.ok(true)' };
+  assert.equal(lowRisk([addition], 1, repository), true);
+  assert.equal(lowRisk([{ ...files[0], filename }], 1, repository), false);
+  for (const protectedPath of ['.github/workflows/ci.yml', 'AGENTS.md', 'docs/quality-and-release.md', 'playwright.config.ts', 'scripts/copy-css.mjs']) {
+    assert.equal(lowRisk([{ ...files[0], filename: protectedPath }], 1, repository), false);
+  }
+});
+
 test('Juliya retains the existing source and additive-test path scope under its canonical name', () => {
   const repository = 'Oddmash/juliya';
   assert.equal(mergeRepositoryAllowed({ installation: 1, repository, repositoryId: 1463701198 }), true);
@@ -191,14 +218,14 @@ test('allows ordinary source and additive tests only under known product paths',
 test('mint write token only after exact-head approval and protected current CI', async () => {
   let writes = 0;
   let mints = 0;
-  const makeApi = (passing = true, pull = pr, skippedVerify = false, boundraMatrix = false) => githubApi('fixture-token', async (input, init) => {
+  const makeApi = (passing = true, pull = pr, skippedVerify = false, boundraMatrix = false, evidence = { protected: true, approvedHead: head }) => githubApi('fixture-token', async (input, init) => {
     const url = String(input);
     if (url.endsWith('/pulls/10')) return Response.json(pull);
     if (url.endsWith('/issues/9')) return Response.json(issue);
     if (url.includes('/files?')) return Response.json(files);
-    if (url.endsWith('/branches/' + pull.base.ref)) return Response.json(branch);
+    if (url.endsWith('/branches/' + pull.base.ref)) return Response.json({ ...branch, protected: evidence.protected });
     if (url.includes('/compare/')) return Response.json({ behind_by: 0, merge_base_commit: { sha: base } });
-    if (url.includes('/reviews?')) return Response.json([{ id: 5, user: { login: 'oddmash-reviewer[bot]', id: 100 }, state: 'APPROVED', commit_id: head }]);
+    if (url.includes('/reviews?')) return Response.json([{ id: 5, user: { login: 'oddmash-reviewer[bot]', id: 100 }, state: 'APPROVED', commit_id: evidence.approvedHead }]);
     if (url.includes('/check-runs?')) {
       const check_runs = [{ id: 1, name: 'verify', app: { id: 15368 }, status: 'completed', conclusion: passing ? 'success' : 'failure' }, ...(skippedVerify ? [{ id: 2, name: 'verify', app: { id: 15368 }, status: 'completed', conclusion: 'skipped' }] : [])];
       if (boundraMatrix) for (const name of ['verify-example', 'verify-runtime (20)', 'verify-runtime (22)', 'verify-runtime (24)', 'verify-cli-platforms (ubuntu-24.04)', 'verify-cli-platforms (macos-15)', 'verify-cli-platforms (macos-15-intel)', 'verify-cli-platforms (windows-2025)', 'benchmark-smoke']) check_runs.push({ id: check_runs.length + 1, name, app: { id: 15368 }, status: 'completed', conclusion: 'success' });
@@ -241,6 +268,23 @@ test('mint write token only after exact-head approval and protected current CI',
   assert.equal(await mergeAuthorized(makeApi(true, developPull), target, developCandidate, 'oddmash-reviewer[bot]', 5, true, mint), true);
   assert.equal(mints, 4);
   assert.equal(writes, 4);
+
+  const mobileTarget = { installation: 1, repository: 'Oddmash/oddmash-mobile', repositoryId: 1473122877 };
+  const mobileIdentity = { id: mobileTarget.repositoryId, full_name: mobileTarget.repository };
+  const mobilePull = {
+    ...developPull,
+    head: { sha: head, repo: mobileIdentity },
+    base: { ...developPull.base, repo: { ...mobileIdentity, private: false, default_branch: 'main' } },
+  };
+  const mobileCandidate = { pull: mobilePull, acceptance: acceptanceForPull(issue, mobilePull)! };
+  const mergeMobile = (api: ReturnType<typeof makeApi>) => mergeAuthorized(api, mobileTarget, mobileCandidate, 'oddmash-reviewer[bot]', 5, true, mint);
+  assert.equal(await mergeMobile(makeApi(false, mobilePull)), false);
+  assert.equal(await mergeMobile(makeApi(true, mobilePull, false, false, { protected: false, approvedHead: head })), false);
+  assert.equal(await mergeMobile(makeApi(true, mobilePull, false, false, { protected: true, approvedHead: base })), false);
+  assert.equal(mints, 4);
+  assert.equal(await mergeMobile(makeApi(true, mobilePull)), true);
+  assert.equal(mints, 5);
+  assert.equal(writes, 5);
 });
 
 

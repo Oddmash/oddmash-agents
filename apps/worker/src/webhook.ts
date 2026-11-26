@@ -257,6 +257,7 @@ const publicMergeRepositories = new Set(['Oddmash/juliya', 'Oddmash/oddmash-ui',
 
 export function mergeRepositoryAllowed(target: Target): boolean {
   if (target.repository === 'Oddmash/.github') return target.private !== true && target.repositoryId === 1455305553;
+  if (target.repository === 'Oddmash/oddmash-mobile') return target.private !== true && target.repositoryId === 1473122877;
   return positive(target.repositoryId) && (target.private === true ? privateRepositoryAllowed(target.repository, target.repositoryId) : publicMergeRepositories.has(target.repository));
 }
 
