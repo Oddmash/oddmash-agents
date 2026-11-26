@@ -1,8 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { createServer as createHttpServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 import { adoption, contributors, status } from './synthetic-data.mjs';
+import { defaultControls } from '../../../packages/operator-contract/src/controls.ts';
+import { modelPolicy } from '../../../packages/operator-contract/src/model-settings.ts';
+import { handleControlWrite } from '../control-request.ts';
+import { handleModelWrite } from '../model-request.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 if (execFileSync('git', ['branch', '--show-current'], { cwd: root, encoding: 'utf8' }).trim() !== 'test/console-fixtures') {
@@ -12,6 +18,9 @@ if (execFileSync('git', ['branch', '--show-current'], { cwd: root, encoding: 'ut
 const host = '127.0.0.1';
 const apiPort = 4312;
 const appPort = 4175;
+const appOrigin = 'http://' + host + ':' + appPort;
+const limits = { maxRequests: 5, maxMs: 90000 };
+const policy = modelPolicy({ OPENAI_MODEL: 'gpt-fixture-default', REVIEWER_OPERATOR_ALLOWED_MODELS: 'gpt-fixture-alternate' });
 const scenarios = new Set(['populated', 'slow', 'empty', 'partial', 'unavailable', 'expired']);
 const scenariosByPath = new Map();
 const counts = new Map();
@@ -19,8 +28,8 @@ const previews = new Map([
   ['/api/status', status],
   ['/api/contributors', contributors],
   ['/api/adoption', adoption],
-  ['/api/controls', { revision: null, controls: { paused: false, excludedRoles: [], maxRequests: null, maxMs: null }, limits: { maxRequests: 5, maxMs: 90000 } }],
-  ['/api/models', { revision: null, overrides: {}, policy: Object.fromEntries(['reviewer', 'impact', 'triage', 'qa', 'release', 'docs', 'architect'].map(role => [role, { defaultModel: 'fixture-model', allowed: [] }])) }]
+  ['/api/controls', { revision: null, updatedAt: null, controls: defaultControls(), limits }],
+  ['/api/models', { revision: null, updatedAt: null, overrides: {}, policy }]
 ]);
 const empty = new Map([
   ['/api/status', { ...status, jobs: [] }],
@@ -30,6 +39,26 @@ const empty = new Map([
 const send = (response, code, json) => {
   response.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   response.end(JSON.stringify(json));
+};
+
+const writeSettings = async (request, response, path) => {
+  if (request.headers.origin !== appOrigin || request.headers['content-type']?.split(';')[0] !== 'application/json') {
+    return send(response, 403, { error: 'Use the local console origin and JSON' });
+  }
+  const input = new Request(appOrigin + path, {
+    method: 'POST', headers: request.headers, body: Readable.toWeb(request), duplex: 'half'
+  });
+  const persist = field => async (revision, value) => {
+    const previous = previews.get(path);
+    if (revision !== previous.revision) return null;
+    const next = { ...previous, [field]: value, revision: randomUUID(), updatedAt: new Date().toISOString() };
+    previews.set(path, next);
+    return next;
+  };
+  const result = path === '/api/controls'
+    ? await handleControlWrite(input, persist('controls'), limits)
+    : await handleModelWrite(input, policy, async () => true, persist('overrides'));
+  return send(response, result.status, result.body);
 };
 
 const api = createHttpServer(async (request, response) => {
@@ -43,7 +72,8 @@ const api = createHttpServer(async (request, response) => {
     else if (request.method !== 'GET') return send(response, 400, { error: 'Unknown fixture resource or scenario' });
     return send(response, 200, { scenarios: Object.fromEntries(scenariosByPath), counts: Object.fromEntries(counts) });
   }
-  if (request.method !== 'GET') return send(response, 405, { error: 'Fixture data is read-only' });
+  const write = request.method === 'POST' && (path === '/api/controls' || path === '/api/models');
+  if (request.method !== 'GET' && !write) return send(response, 405, { error: 'Unsupported fixture action' });
   if (path === '/api/auth/session') return send(response, 200, { user: { id: '1' }, expires: '2099-01-01T00:00:00.000Z' });
   if (path === '/api/availability') return send(response, 200, { configured: true });
   if (!previews.has(path)) return send(response, 404, { error: 'Unknown fixture endpoint' });
@@ -52,6 +82,10 @@ const api = createHttpServer(async (request, response) => {
   if (scenario === 'slow') await new Promise(resolve => setTimeout(resolve, 900));
   if (scenario === 'unavailable') return send(response, 503, { error: 'Synthetic outage' });
   if (scenario === 'expired') return send(response, 401, { error: 'Synthetic session expiry' });
+  if (write) {
+    try { return await writeSettings(request, response, path); }
+    catch { return send(response, 400, { error: 'Invalid fixture write' }); }
+  }
   if (scenario === 'partial' && path === '/api/contributors') return send(response, 200, { ...contributors, partial: true });
   return send(response, 200, (scenario === 'empty' && empty.get(path)) || previews.get(path));
 });
