@@ -67,7 +67,7 @@
 .download-values ul { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--console-length-140)),1fr)); gap:var(--om-semantic-space-sm); }
 .download-values li { display:flex; justify-content:space-between; gap:var(--om-semantic-space-xs); border-block-end:var(--om-semantic-border-width) solid var(--border); }
 @keyframes download-grow { from { transform:scaleY(0); } to { transform:scaleY(1); } }
-@media(max-width:760px) { .overview-content .overview-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .overview-content .overview-metrics .metric-link:last-child { grid-column:auto; } }
+@media(max-width:760px) { .overview-content .overview-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .overview-content .overview-metrics .metric-link:last-child { grid-column:auto; border-bottom:var(--om-semantic-border-width) solid var(--border); } }
 @media(max-width:680px) { .overview-target { grid-template-columns:minmax(0,1fr) auto; } .overview-target-states { grid-column:1/-1; justify-content:flex-start; grid-row:2; } .overview-target > .console-chevron { grid-column:2; grid-row:1; } .repository-chooser .repository-chooser-state { flex:0 1 auto; } }
 @media(prefers-reduced-motion:reduce) { .console-chevron,.console-collapse,.overview-content .metric-link,.overview-target,.repository-toggle,.review-target-toggle,.repository-chooser button,.console-nav a,.advanced-toggle,.workflow-view .workflow-node,.download-bar-fill { transition:none; } .download-bar-fill { animation:none; } }
 
