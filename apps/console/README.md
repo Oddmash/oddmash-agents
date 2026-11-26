@@ -6,7 +6,7 @@ Set AUTH_URL to the exact console origin plus /api/auth, register the GitHub OAu
 
 Run pnpm --filter @oddmash/agents-console dev:api in one terminal and pnpm --filter @oddmash/agents-console dev in another. The development frontend proxies /api to the local Hono server. Root functions expose /api/status, /api/availability and /api/auth/* on the same origin as the Vite assets. No catch-all route intercepts worker endpoints. The console status API remains owner-only even though the sign-in shell is public. If storage is unconfigured, the UI displays that condition instead of simulated data.
 
-Runtime controls can pause new Lead and Triage jobs independently. Scoped replies and running jobs continue. The coordinated-specialist toggle and request limits apply to optional specialists. Changes take effect after saving. If a configured controls store cannot be read, new Lead and Triage jobs wait for confirmation; queued jobs follow the existing retry policy.
+Runtime controls can pause new Lead and Triage jobs independently. Scoped replies and running jobs continue. The coordinated-specialist toggle and request limits apply to optional specialists. Changes take effect after saving. If a configured controls store cannot be read, queued Lead and Triage jobs follow the existing retry policy. Direct deliveries receive HTTP 503 and can be redelivered after recovery.
 
 History is limited to 500 events within seven days. The worker retains GitHub Checks and runtime logs if optional telemetry fails. Status polls every ten seconds during active work and backs off to thirty seconds while idle; hidden tabs stop polling.
 

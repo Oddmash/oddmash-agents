@@ -1,4 +1,4 @@
-import { executionContext, publicationRecorder, recordCurrentExecutionSkipped, recordSkippedExecution, recordReviewPhase, runAgentExecution } from './agent-execution.ts';
+import { executionContext, executionRole, publicationRecorder, recordCurrentExecutionSkipped, recordSkippedExecution, recordReviewPhase, runAgentExecution } from './agent-execution.ts';
 import { createHash } from 'node:crypto';
 import { runImpact } from './impact.ts';
 import { runAdvisory } from './advisory.ts';
@@ -118,24 +118,28 @@ export async function attachReviewFindings(api: Api, path: string, pendingId: nu
 
 const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human', 'review: follow-up', 'review: stale'];
 
-export async function reviewWebhook(target: Target, config: { appId: string; key: string; slug: string; openaiKey: string; model: string; autoMerge?: boolean }) {
+export async function readExecutionControls(target: Target): Promise<OperatorControls | undefined> {
+  const role = executionRole(target);
+  if (target.reply || (role !== 'reviewer' && role !== 'triage')) return;
+  const storeUrl = process.env.OPERATOR_STORE_URL;
+  const readToken = process.env.OPERATOR_STORE_READ_TOKEN;
+  if (!storeUrl && !readToken) return defaultControls();
+  const store = operatorStoreConfig(storeUrl, readToken);
+  if (!store) throw new Error('Operator controls unavailable');
+  try { return (await readOperatorControls(store)).controls; }
+  catch { throw new Error('Operator controls unavailable'); }
+}
+
+export async function reviewWebhook(target: Target, config: { appId: string; key: string; slug: string; openaiKey: string; model: string; autoMerge?: boolean }, admittedControls?: OperatorControls) {
   const executionStarted = Date.now();
   if (target.advisoryIdentity && target.advisory !== target.advisoryIdentity) throw new Error('Invalid advisory identity');
   const { appId, key, slug, openaiKey } = config;
-  const role = target.advisoryIdentity ?? target.advisory ?? (target.impact ? 'impact' : 'reviewer');
-  let controls: OperatorControls | undefined;
-  if (!target.reply && (role === 'reviewer' || role === 'triage')) {
-    const storeUrl = process.env.OPERATOR_STORE_URL;
-    const readToken = process.env.OPERATOR_STORE_READ_TOKEN;
-    const controlStore = operatorStoreConfig(storeUrl, readToken);
-    if (!controlStore && (storeUrl || readToken)) throw new Error('Operator controls unavailable');
-    controls = controlStore
-      ? await readOperatorControls(controlStore).then(record => record.controls).catch(() => { throw new Error('Operator controls unavailable'); })
-      : defaultControls();
-    if (controls.excludedRoles.includes(role)) {
-      recordCurrentExecutionSkipped('excluded');
-      return;
-    }
+  const role = executionRole(target);
+  // Direct deliveries have already confirmed this snapshot before returning 202.
+  const controls = admittedControls ?? await readExecutionControls(target);
+  if ((role === 'reviewer' || role === 'triage') && controls?.excludedRoles.includes(role)) {
+    recordCurrentExecutionSkipped('excluded');
+    return;
   }
   const overrides = await readReviewModelOverrides();
   const model = effectiveOperatorModel(role, config.model, overrides, modelPolicy(process.env));
