@@ -12,6 +12,7 @@ test('Marketplace count is the exact publisher extension install statistic', () 
   const payload = {results:[{extensions:[{publisher:{publisherName:'oddmash'},extensionName:'boundra-vscode',statistics:[{statisticName:'install',value:0},{statisticName:'downloadCount',value:99}]}]}]};
   assert.equal(parseMarketplaceCount(payload),0);
   assert.throws(()=>parseMarketplaceCount({results:[]}));
+  assert.throws(()=>parseMarketplaceCount({results:[{extensions:[{...payload.results[0].extensions[0],publisher:{publisherName:'other'}}]}]}));
 });
 test('provider failure is unavailable, separate from successful zero; no credentials are sent', async () => {
   const request: typeof fetch = async (input, init) => {

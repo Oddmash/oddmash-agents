@@ -21,7 +21,7 @@ export function parseMarketplaceCount(payload: unknown): number {
   const results = object(payload)?.results;
   if (!Array.isArray(results)) throw new Error('Invalid Marketplace data');
   const entries = results.flatMap(result => { const extensions = object(result)?.extensions; return Array.isArray(extensions) ? extensions : []; });
-  const matches = entries.filter(raw => { const row = object(raw); return row?.extensionName === 'boundra-vscode' && object(row.publisher)?.publisherName === 'oddmash'; });
+  const matches = entries.filter(raw => { const row = object(raw); const publisher = object(row?.publisher)?.publisherName; return typeof publisher === 'string' && typeof row?.extensionName === 'string' && publisher + '.' + row.extensionName === extension; });
   if (matches.length !== 1) throw new Error('Extension unavailable');
   const stats = object(matches[0])?.statistics;
   if (!Array.isArray(stats)) throw new Error('Marketplace statistics unavailable');
