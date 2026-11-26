@@ -73,7 +73,7 @@ jobs:
         if: steps.prior.outputs.run == ''
       - run: pnpm --filter @oddmash/agents-console build
         if: steps.prior.outputs.run == ''
-      - name: Confirm console server denies unauthenticated status requests
+      - name: Confirm console server denies unauthenticated operator requests
         if: steps.prior.outputs.run == ''
         run: |
           pnpm --filter @oddmash/agents-console run dev:api > /tmp/console-smoke.log 2>&1 &
@@ -84,6 +84,8 @@ jobs:
             sleep 1
           done
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:4312/api/status)" = 401
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:4312/api/models)" = 401
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{}' http://127.0.0.1:4312/api/models)" = 401
       - name: Record full test result for ${{ github.sha }}
         if: steps.prior.outputs.run == ''
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"

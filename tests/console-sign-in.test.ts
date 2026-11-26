@@ -11,6 +11,7 @@ test('unauthenticated presentation is English without affecting the authenticate
   assert.match(main, /<AgentLoading label="Checking session…"/);
   assert.match(main, /if \(!authenticated\) return <SignInScreen/);
   assert.match(main, /localizedCallback\(window\.location\.origin, localizedUrl\(window\.location\.href, language, view\)\.pathname, language\)/);
+  assert.match(main, /<Dashboard[^\n]+languageControl=\{languageControl\} themeControl=\{themeControl\}/);
   assert.match(screen, /<main className="login" lang="en">/);
   assert.match(screen, /Sign in with GitHub/);
   assert.doesNotMatch(screen, /LocalePicker|languageControl|translate\(/);

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { defaultControls, parseControlsRecord, parseOperatorControls, type ControlsRecord, type OperatorControls } from '../../operator-contract/src/controls.ts';
+import { parseModelOverrides, parseOperatorModelsRecord, type ModelOverrides, type OperatorModelsRecord } from '../../operator-contract/src/model-settings.ts';
 import { parseExecutionEvent, parseWorkerSettings, projectJobs, projectModelUsage, type ExecutionEvent, type WorkerSettings, type Job } from '../../operator-contract/src/index.ts';
 
 type StoreConfig = { url: string; token: string };
@@ -82,5 +83,27 @@ export async function saveOperatorControls(config: StoreConfig, expectedRevision
   const [result] = await pipeline(config, [['EVAL', saveControlsScript, 2, controlsKey, auditKey, expectedRevision ?? '', JSON.stringify(record), JSON.stringify(audit)]], request);
   if (result === 0) return null;
   if (result !== 1) throw new Error('Operator controls unavailable');
+  return record;
+}
+
+const modelSettingsKey = 'oddmash:operator:models:v1';
+const modelAuditKey = 'oddmash:operator:models-audit:v1';
+
+export async function readOperatorModels(config: StoreConfig, request = fetch): Promise<OperatorModelsRecord> {
+  const [value] = await pipeline(config, [['GET', modelSettingsKey]], request);
+  if (value === null) return { revision: null, overrides: {}, updatedAt: null };
+  const parsed = parseOperatorModelsRecord(decode(value));
+  if (!parsed) throw new Error('Operator model settings unavailable');
+  return parsed;
+}
+
+export async function saveOperatorModels(config: StoreConfig, expectedRevision: string | null, overrides: ModelOverrides, ownerId: string, request = fetch): Promise<OperatorModelsRecord | null> {
+  const safe = parseModelOverrides(overrides);
+  if (!safe || !/^[1-9]\d*$/.test(ownerId) || expectedRevision !== null && !/^[a-f0-9-]{36}$/.test(expectedRevision)) throw new Error('Invalid model settings');
+  const record = { revision: randomUUID(), overrides: safe, updatedAt: new Date().toISOString() };
+  const audit = { ...record, ownerId };
+  const [result] = await pipeline(config, [['EVAL', saveControlsScript, 2, modelSettingsKey, modelAuditKey, expectedRevision ?? '', JSON.stringify(record), JSON.stringify(audit)]], request);
+  if (result === 0) return null;
+  if (result !== 1) throw new Error('Operator model settings unavailable');
   return record;
 }

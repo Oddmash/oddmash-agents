@@ -1,11 +1,12 @@
+import type { ModelOverrides } from '../../../packages/operator-contract/src/model-settings.ts';
 import { scopedAgentThreadResolution } from './review-discussion.ts';
 import { advisoryConfig } from './runtime-config.ts';
 import { type AdvisoryRole } from './advisory-agents.ts';
 import { githubAppApi, authorize, githubApi, privateRepositoryAllowed, type Target } from './webhook.ts';
 
-export async function authorizeCoordinatedAdvisor(target: Target, role: AdvisoryRole, reviewerAppId: string, request: typeof fetch = fetch) {
+export async function authorizeCoordinatedAdvisor(target: Target, role: AdvisoryRole, reviewerAppId: string, request: typeof fetch = fetch, overrides: ModelOverrides = {}) {
   if ((role === 'triage' && !target.requestComment?.slash) || !/^Oddmash\/[a-z0-9_.-]+$/i.test(target.repository) || !Number.isSafeInteger(target.repositoryId) || target.repositoryId <= 0 || (target.private && !privateRepositoryAllowed(target.repository, target.repositoryId))) return;
-  const config = advisoryConfig(role);
+  const config = advisoryConfig(role, overrides);
   if (!config || Number(config.appId) === Number(reviewerAppId)) return;
   const app = githubAppApi(config.appId, config.key, request);
   const installation = await app<{ id: number; app_id: number; app_slug: string; suspended_at: string | null }>(`/repos/${target.repository}/installation`);

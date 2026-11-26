@@ -13,7 +13,8 @@
   "dependencies": {
     "@oddmash/agent-operator-contract": "workspace:*",
     "@oddmash/agent-operator-store": "workspace:*",
-    "@oddmash/ui": "0.7.0",
+    "@oddmash/juliya": "0.4.1",
+    "@oddmash/ui": "0.8.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "@auth/core": "0.41.3",
