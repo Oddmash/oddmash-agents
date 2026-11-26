@@ -43,7 +43,7 @@ try {
           const path = new URL(route.request().url()).pathname;
           if (path === '/api/contributors') {
             await contributorsGate;
-            return route.fulfill({json:{observedAt:updatedAt,partial:false,pulls:[{repository:target.repository, number:43, title:'Improve component accessibility for long localized labels on narrow screens',author:'external-contributor',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[{role:'reviewer',state:'APPROVED',currentHead:true,submittedAt:updatedAt,id:91}],workflow:{state:'action-required',id:71}}},{repository:target.repository,number:44,title:'Handle missing workflow evidence',author:'guest',updatedAt,draft:false}]}});
+            return route.fulfill({json:{observedAt:updatedAt,partial:false,pulls:[{repository:target.repository, number:43, title:'Improve component accessibility for long localized labels on narrow screens',author:'external-contributor',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[{role:'reviewer',state:'APPROVED',currentHead:true,submittedAt:updatedAt,id:91}],workflow:{state:'action-required',id:71}}},{repository:target.repository,number:45,title:'Workflow rerun in progress',author:'guest',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[{role:'reviewer',state:'APPROVED',currentHead:true,submittedAt:updatedAt,id:92}],workflow:{state:'running',id:72,attempt:2,name:'CI'}}},{repository:target.repository,number:46,title:'Failed browser tests',author:'guest',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[],reviewStatus:{state:'failed',id:93,updatedAt,reason:'checks-failed'},workflow:{state:'failed',id:73,attempt:2,name:'CI',failures:[{job:'extension',step:'Chromium extension E2E',conclusion:'failure',jobId:74}]}}},{repository:target.repository,number:44,title:'Handle missing workflow evidence',author:'guest',updatedAt,draft:false}]}});
           }
           if (path === '/api/status') return route.fulfill({ json: snapshot });
           if (path === '/api/models') return route.fulfill({ json: { revision: 'fixture', overrides: {}, policy: Object.fromEntries(['reviewer','impact','triage','qa','release','docs','architect'].map(role => [role, { defaultModel: 'fixture-model', allowed: [] }])) } });
@@ -117,11 +117,19 @@ try {
         const cards = page.locator('.contributor-card');
         await loading.waitFor({state:'hidden'});
         await cards.first().waitFor({state:'visible'});
-        assert.equal(await cards.count(),2,label);
+        assert.equal(await cards.count(),4,label);
         assert.match(await cards.first().innerText(), language === 'ko' ? /승인 또는 조치 필요/ : /Workflow approval or action required/,label);
         assert.match(await cards.first().innerText(), /Lead/,label);
-        assert.match(await cards.nth(1).innerText(), language === 'ko' ? /확인 불가/ : /unavailable/,label);
+        assert.match(await cards.nth(3).innerText(), language === 'ko' ? /확인 불가/ : /unavailable/,label);
         assert.equal(await cards.first().locator('.contributor-workflow-link').getAttribute('href'),'https://github.com/Oddmash/example/actions/runs/71',label);
+        assert.match(await cards.nth(1).innerText(),language === 'ko' ? /현재 검사 완료 대기/ : /Waiting on current checks/,label);
+        assert.match(await cards.nth(1).innerText(),language === 'ko' ? /이전 리뷰 게시됨/ : /Previous review posted/,label);
+        assert.match(await cards.nth(2).innerText(),/Chromium extension E2E/,label);
+        const indicator = cards.nth(1).locator('[data-state="running"]');
+        assert.equal(await indicator.evaluate(element => getComputedStyle(element).animationName),'none',label);
+        await page.emulateMedia({reducedMotion:'no-preference'});
+        assert.equal(await indicator.evaluate(element => getComputedStyle(element).animationName),'contributor-spin',label);
+        await page.emulateMedia({reducedMotion:'reduce'});
         const cardBounds = await cards.first().boundingBox();
         assert(Math.abs(skeletonBounds.width-cardBounds.width) <= 1,label+' skeleton matches card width');
         assert(Math.abs(skeletonBounds.y-cardBounds.y) <= 5,label+' skeleton matches card location');

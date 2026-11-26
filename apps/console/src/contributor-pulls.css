@@ -19,3 +19,17 @@
 .contributor-placeholder .contributor-status-row > span:first-child { inline-size: min(100%, var(--console-length-100)); }
 .contributor-placeholder-footer { display: grid; gap: var(--om-semantic-space-sm); margin-block-start: var(--om-semantic-space-xs); }
 @media (max-width: 480px) { .contributor-status-row, .contributor-placeholder-header, .contributor-card .review-target-row { grid-template-columns: minmax(0, 1fr); } .contributor-card .review-target-row > .om-badge { justify-self: start; } .contributor-placeholder-header > div > span:nth-child(2) { block-size: var(--console-length-40); } }
+
+.contributor-indicator { display: inline-grid; place-items: center; flex: none; inline-size: var(--console-length-12); block-size: var(--console-length-12); margin-inline-end: var(--om-semantic-space-xs); border-radius: 50%; color: currentColor; font-weight: var(--console-font-weight-600); }
+.contributor-indicator[data-state="running"] { border: var(--console-length-2) solid currentColor; border-inline-end-color: transparent; animation: contributor-spin 1s linear infinite; }
+.contributor-indicator[data-state="waiting"] { border: var(--om-semantic-border-width) solid currentColor; animation: workflow-active 2.4s ease-in-out infinite; }
+.contributor-indicator[data-state="done"], .contributor-indicator[data-state="failed"] { animation: contributor-arrive 180ms ease-out both; }
+.contributor-indicator[data-state="neutral"] { border: var(--om-semantic-border-width) solid currentColor; }
+@keyframes contributor-spin { to { transform: rotate(360deg); } }
+@keyframes contributor-arrive { from { opacity: 0; transform: scale(.7); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .contributor-indicator { animation: none !important; } }
+.contributor-failures { display: grid; gap: var(--om-semantic-space-xs); border: var(--om-semantic-border-width) solid var(--om-semantic-color-border-subtle); border-radius: var(--om-semantic-radius-sm); padding: var(--om-semantic-space-sm); color: var(--om-semantic-color-danger); overflow-wrap: anywhere; }
+.contributor-failures ul { display: grid; gap: var(--om-semantic-space-xs); margin: 0; padding: 0; list-style: none; }
+.contributor-failures li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--om-semantic-space-xs); }
+.contributor-failures a { color: inherit; }
+.contributor-history summary { cursor: pointer; color: var(--muted); overflow-wrap: anywhere; }
