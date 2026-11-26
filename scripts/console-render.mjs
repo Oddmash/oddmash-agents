@@ -186,6 +186,12 @@ try {
         assert(await tooltip.evaluate(el=>{const a=el.getBoundingClientRect(),b=el.parentElement.getBoundingClientRect();return a.left>=b.left-1&&a.right<=b.right+1}),label+' tooltip within plot');
         await page.keyboard.press('Escape');
         assert.equal(await tooltip.count(),0,label+' tooltip dismiss');
+        const week=page.getByRole('button',{name:language==='ko'?'주간':'Week',exact:true});
+        await week.focus();
+        await chart.locator('.download-bar').nth(2).hover({position:{x:3,y:100}});
+        await page.keyboard.press('Escape');
+        assert.equal(await tooltip.count(),0,label+' Escape without moving focus');
+        assert(await week.evaluate(el=>document.activeElement===el),label+' period focus preserved');
         assert.match(await page.locator('.adoption-card').filter({hasText:'@oddmash/juliya'}).innerText(),language==='ko'?/통계 서비스/:/npm download service/,label);
         assert.equal(await chart.locator('.download-bar-fill').first().evaluate(el=>getComputedStyle(el).animationName),'none',label);
         await page.screenshot({path:dir+'/'+label+'-downloads-week.png',fullPage:true,animations:'disabled'});
@@ -193,6 +199,10 @@ try {
         assert.equal(await chart.locator('.download-bar').count(),30,label);
         assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),label+' download document overflow');
         assert(await chart.locator('.download-plot').evaluate(el=>el.scrollWidth<=el.clientWidth+1),label+' complete monthly chart visible');
+        await chart.locator('.download-bar').nth(15).hover({position:{x:2,y:100}});
+        const hoveredValue=await tooltip.innerText();
+        await tooltip.hover();
+        assert.equal(await tooltip.innerText(),hoveredValue,label+' tooltip hover preserves value');
         await page.screenshot({path:dir+'/'+label+'-downloads-month.png',fullPage:true,animations:'disabled'});
         assert.deepEqual(errors,[],label);
         await context.close();

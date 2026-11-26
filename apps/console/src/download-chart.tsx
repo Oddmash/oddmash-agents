@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import type { DailyDownload } from '../adoption-metrics';
 import { downloadSeries, type DownloadPeriod } from './download-series';
 import { translate, type Language } from './i18n';
@@ -10,6 +10,12 @@ export const DownloadChart = ({ history, language, period, name }: { history: re
   const [hovered,setHovered] = useState<string>();
   const active = points.find(point => point.day === (hovered ?? selected)) ?? points.at(-1);
   const inspected = points.find(point => point.day === (hovered ?? selected));
+  useEffect(()=>{
+    if(!inspected) return;
+    const dismiss=(event:KeyboardEvent)=>{if(event.key==='Escape'){setHovered(undefined);setSelected(undefined);}};
+    document.addEventListener('keydown',dismiss);
+    return ()=>document.removeEventListener('keydown',dismiss);
+  },[inspected?.day]);
   const tooltipPosition = inspected ? (points.indexOf(inspected)+0.5)/points.length*100 : 0;
   const fmt = (value: number | null) => value === null ? t('Unavailable') : value.toLocaleString(language);
   const day = (value: string) => new Intl.DateTimeFormat(language, {month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(value));
@@ -20,11 +26,11 @@ export const DownloadChart = ({ history, language, period, name }: { history: re
     <div className="download-plot" data-period={period} aria-label={name + ' · ' + t('Download history')}>
       <div className="download-axis" aria-hidden="true"><span>{max.toLocaleString(language)}</span><span>0</span></div>
       <div className="download-bars" style={{'--bar-count':points.length} as CSSProperties}>
-        {points.map((point,index) => <button type="button" key={point.day} className="download-bar" data-missing={point.downloads === null} data-zero={point.downloads === 0} data-selected={point.day === active?.day} aria-label={point.day + ': ' + fmt(point.downloads)} aria-pressed={point.day === selected} onMouseEnter={()=>setHovered(point.day)} onMouseLeave={()=>setHovered(undefined)} onFocus={()=>setHovered(point.day)} onBlur={()=>setHovered(undefined)} onClick={()=>setSelected(point.day)} onKeyDown={event=>{if(event.key==='Escape'){setHovered(undefined);setSelected(undefined);}}}>
+        {points.map((point,index) => <button type="button" key={point.day} className="download-bar" data-missing={point.downloads === null} data-zero={point.downloads === 0} data-selected={point.day === active?.day} aria-label={point.day + ': ' + fmt(point.downloads)} aria-pressed={point.day === selected} onMouseEnter={()=>setHovered(point.day)} onMouseLeave={event=>{if(!(event.relatedTarget instanceof Element&&event.relatedTarget.closest('.download-hover-tooltip')))setHovered(undefined);}} onFocus={()=>setHovered(point.day)} onBlur={()=>setHovered(undefined)} onClick={()=>setSelected(point.day)}>
           <span className="download-bar-track"><span className="download-bar-fill" style={{height:(point.downloads === null ? 0 : point.downloads/max*100)+'%'}}/></span>
           <span className="download-bar-date" aria-hidden="true">{period === 7 || index===0 || index===points.length-1 || (index%7===0 && index<points.length-3) ? point.day.slice(5).replace('-','/') : ''}</span>
         </button>)}
-        {inspected && <div className="download-hover-tooltip" aria-hidden="true" style={{'--tooltip-position':tooltipPosition+'%'} as CSSProperties}><span>{day(inspected.day)}</span><strong>{fmt(inspected.downloads)}</strong></div>}
+        {inspected && <div className="download-hover-tooltip" aria-hidden="true" onMouseLeave={event=>{if(!(event.relatedTarget instanceof Element&&event.relatedTarget.closest('.download-bar')))setHovered(undefined);}} style={{'--tooltip-position':tooltipPosition+'%'} as CSSProperties}><span>{day(inspected.day)}</span><strong>{fmt(inspected.downloads)}</strong></div>}
       </div>
     </div>
     <details className="download-values"><summary>{t('View daily values')}</summary><ul>{points.map(point=><li key={point.day}><time dateTime={point.day}>{point.day}</time><strong>{fmt(point.downloads)}</strong></li>)}</ul></details>
