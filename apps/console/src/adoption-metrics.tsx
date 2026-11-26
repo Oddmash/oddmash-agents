@@ -31,11 +31,11 @@ export const AdoptionMetrics = ({ language, active = true }: { language: Languag
         .then(async response => {if (!response.ok) throw new Error('Unavailable'); return await response.json() as {metrics: AdoptionMetric[]};})
         .then(data => {
           if (abort.signal.aborted) return;
-          const freshness = data.metrics.map(metric => Date.parse(metric.observedAt) + (metric.count === null ? 60_000 : 3_600_000)).filter(Number.isFinite);
+          const freshness = data.metrics.map(metric => Date.parse(metric.observedAt) + (metric.count === null && !metric.history?.length ? 60_000 : 3_600_000)).filter(Number.isFinite);
           expires.current = Math.max(Date.now()+1000, Math.min(...freshness, Date.now()+3_600_000));
           const staleIds = new Set<string>();
           const display = data.metrics.map(metric => {
-            if (metric.count !== null) { lastGood.current.set(metric.id, metric); return metric; }
+            if (metric.count !== null || metric.history?.length) { lastGood.current.set(metric.id, metric); return metric; }
             const previous = lastGood.current.get(metric.id);
             if (!previous) return metric;
             staleIds.add(metric.id);
