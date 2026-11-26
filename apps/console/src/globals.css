@@ -305,7 +305,7 @@ aside > p.muted { margin: var(--console-length-6) 0 var(--om-semantic-space-lg);
 .control-check { display: flex; align-items: center; gap: var(--console-length-9); min-height: var(--console-length-44); cursor: pointer; }
 .control-check input { width: var(--console-length-18); height: var(--console-length-18); accent-color: var(--accent); }
 .role-checks, .control-actions { display: flex; flex-wrap: wrap; gap: var(--om-semantic-space-sm) var(--console-length-18); }
-.control-inputs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--om-semantic-space-lg); }
+.control-inputs { max-inline-size: var(--console-length-520); display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--om-semantic-space-lg); }
 .control-inputs label { display: grid; gap: var(--om-semantic-space-sm); font-size: var(--console-length-13); color: var(--muted); min-width: 0; }
 .control-inputs input { width: 100%; min-height: var(--console-length-44); background: var(--background); border: var(--om-semantic-border-width) solid var(--border); color: var(--text); border-radius: var(--console-length-7); padding: var(--om-semantic-space-sm) var(--om-semantic-space-md); font: inherit; }
 .control-inputs input:focus-visible, .control-check input:focus-visible { outline: var(--console-length-2) solid var(--accent); outline-offset: var(--console-length-3); }
