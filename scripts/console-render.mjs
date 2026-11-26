@@ -268,6 +268,20 @@ try {
         await page.locator('.runtime-controls:visible .control-check input').first().waitFor({state:'visible'});
         assert.equal(await page.locator('.runtime-controls:visible .control-check input').first().isChecked(),false,label+' confirmed departure discards only draft');
         assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),label+' settings document overflow');
+        await page.route('**/api/status', route => route.fulfill({ status: 503, json: { error: 'Fixture status unavailable' } }));
+        await page.route('**/api/controls', route => route.fulfill({ json: { revision: 'fixture', controls: { paused: false, excludedRoles: [], maxRequests: null, maxMs: null }, limits: { maxRequests: 2, maxMs: 45000 } } }));
+        await page.goto(base + '/tests/render-fixture.html?theme=' + theme + '&language=' + language);
+        await page.locator('.status-line .om-alert').waitFor({state:'visible'});
+        await page.locator('.console-nav a').nth(4).click();
+        const requestLimit=page.locator('.runtime-controls:visible .control-inputs input').first();
+        await requestLimit.waitFor({state:'visible'});
+        assert.equal(await requestLimit.inputValue(),'2',label+' current request cap without retained status');
+        assert.equal(await page.locator('.runtime-controls:visible .control-inputs input').nth(1).inputValue(),'45',label+' current time cap without retained status');
+        await requestLimit.fill('3');
+        assert(await page.locator('.runtime-controls:visible .control-actions button').first().isDisabled(),label+' deployment cap cannot be expanded');
+        await requestLimit.fill('1');
+        assert(await page.locator('.runtime-controls:visible .control-actions button').first().isEnabled(),label+' restriction remains editable while status unavailable');
+        assert.deepEqual(errors,[],label);
         await context.close();
       }
     }
