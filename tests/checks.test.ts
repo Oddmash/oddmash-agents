@@ -89,7 +89,7 @@ test('only final aggregate CI evidence can produce an official review', () => {
   assert.equal(finalReviewEvent('APPROVE', { ...finished, total_count: 3 }), null);
   const failed = { total_count: 2, check_runs: [label, { ...verify, conclusion: 'failure' }] };
   assert.equal(finalReviewEvent('APPROVE', failed), null);
-  assert.equal(finalReviewEvent('REQUEST_CHANGES', failed), 'REQUEST_CHANGES');
+  assert.equal(finalReviewEvent('REQUEST_CHANGES', failed), 'COMMENT');
 });
 
 test('reads both current head and generated merge commit evidence for fork PRs', async () => {
@@ -197,14 +197,14 @@ test('waiting diagnostics distinguish missing, running, failed and incomplete ch
   assert.doesNotMatch(summary, /labels/);
 });
 
-test('maintainer actionable findings remain neutral without approving, while other authors still get change requests', () => {
+test('actionable findings remain neutral for all authors while approval rules still apply', () => {
   const owner = { id: 135234546, login: 'qtaghdi' };
   const verify = { name: 'verify', status: 'completed', conclusion: 'success', app: { id: 15368, slug: 'github-actions' } };
   const passed = { total_count: 1, check_runs: [verify] };
   assert.equal(finalReviewEvent('REQUEST_CHANGES', passed, undefined, owner), 'COMMENT');
-  assert.equal(finalReviewEvent('REQUEST_CHANGES', passed, undefined, { ...owner, login: 'other' }), 'REQUEST_CHANGES');
-  assert.equal(finalReviewEvent('REQUEST_CHANGES', passed, undefined, { ...owner, id: 1 }), 'REQUEST_CHANGES');
-  assert.equal(finalReviewEvent('REQUEST_CHANGES', passed), 'REQUEST_CHANGES');
+  assert.equal(finalReviewEvent('REQUEST_CHANGES', passed, undefined, { ...owner, login: 'other' }), 'COMMENT');
+  assert.equal(finalReviewEvent('REQUEST_CHANGES', passed, undefined, { ...owner, id: 1 }), 'COMMENT');
+  assert.equal(finalReviewEvent('REQUEST_CHANGES', passed), 'COMMENT');
   assert.equal(finalReviewEvent('APPROVE', passed, undefined, owner), 'APPROVE');
   const ai = { id: 264418006, login: 'arvynoo' };
   assert.equal(finalReviewEvent('APPROVE', passed, undefined, ai), 'APPROVE');

@@ -458,7 +458,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       const finalMarker = reviewFingerprint(repository, pr.number, current.head.sha, current.base.sha, finalChecks, target.recheck);
       recordReviewPhase('Publishing review');
       await progress?.update('Publishing review', 'Rechecking the current commit and submitting the result.');
-      const completedResult = event === 'APPROVE' ? { conclusion: 'success' as const, title: 'Review approved' } : event === 'REQUEST_CHANGES' ? { conclusion: 'failure' as const, title: 'Changes requested' } : { conclusion: 'neutral' as const, title: reviewOutcome(event, followUp).title };
+      const completedResult = event === 'APPROVE' ? { conclusion: 'success' as const, title: 'Review approved' } : { conclusion: 'neutral' as const, title: reviewOutcome(event, followUp).title };
       const proof = incrementalFiles === undefined && event === 'APPROVE' && candidate && result.issueVerified && candidate.pull.head.sha === current.head.sha && candidate.pull.base.sha === current.base.sha && candidate.pull.merge_commit_sha === current.merge_commit_sha ? `\n\n${mergeProof(candidate)}` : '';
       const hasEarlierReview = Boolean(previous) || hasOfficialReview(own, bot, current.head.sha);
       const reconcileThreads = shouldReconcileEarlierFindings({
