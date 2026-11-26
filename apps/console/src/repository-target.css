@@ -1,0 +1,11 @@
+.repository-activity .review-target { padding-block: var(--om-semantic-space-sm); }
+.review-target-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--om-semantic-space-sm) var(--om-semantic-space-md); min-inline-size: 0; }
+.review-target-identity { flex: 1 1 var(--console-length-140); min-inline-size: 0; }
+.review-target-identity h3 { margin: 0; font-size: var(--console-length-15); }
+.review-target-identity h3 a { color: var(--text); text-decoration: none; }
+.review-target-identity h3 a:hover { text-decoration: underline; }
+.review-target-identity small { display: block; font-size: var(--console-length-12); overflow-wrap: anywhere; }
+.review-target-states { display: flex; flex-wrap: wrap; align-items: center; gap: var(--om-semantic-space-xs); min-inline-size: 0; }
+.review-target-toggle { display: inline-flex; align-items: center; justify-content: center; gap: var(--om-semantic-space-sm); flex: none; min-block-size: var(--console-length-44); padding-inline: var(--om-semantic-space-sm); border: var(--om-semantic-border-width) solid var(--border); border-radius: var(--om-semantic-radius-sm); background: var(--panel); color: var(--text); font: inherit; font-size: var(--console-length-12); cursor: pointer; }
+.review-target-toggle:hover, .review-target-toggle[aria-expanded="true"] { background: var(--background); border-color: var(--muted); }
+.review-target-toggle:focus-visible { outline: var(--console-length-2) solid var(--om-semantic-color-focus); outline-offset: var(--console-length-2); }
