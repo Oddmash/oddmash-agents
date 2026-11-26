@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseNpmHistory, parseMarketplaceCount, collectAdoptionMetrics, readAdoptionMetrics } from '../apps/console/adoption-metrics.ts';
+import { parseNpmHistory, parseMarketplaceCount, collectAdoptionMetrics, readAdoptionMetrics, createAdoptionReader } from '../apps/console/adoption-metrics.ts';
 test('npm daily counts preserve zero and reject invalid, duplicate or mismatched data', () => {
   const history = [{day:'2026-11-24',downloads:0},{day:'2026-11-25',downloads:3}];
   assert.deepEqual(parseNpmHistory({package:'boundra',downloads:history},'boundra'),history);
@@ -41,4 +41,27 @@ test('console reads share an in-flight public snapshot and reuse it', async () =
   assert.ok(a.every(metric => metric.count === null));
   await readAdoptionMetrics(request);
   assert.equal(calls,4);
+});
+
+test('only expired provider observations are retried; successful values remain cached', async () => {
+  let now = Date.parse('2026-11-26T00:00:00Z');
+  const calls: string[] = [];
+  const read = createAdoptionReader(()=>now);
+  const request: typeof fetch = async input => {
+    const url = new URL(String(input));
+    const id = url.hostname === 'marketplace.visualstudio.com' ? 'marketplace' : url.pathname.split('/last-month/')[1];
+    calls.push(id);
+    if(id==='@oddmash/juliya') return new Response('',{status:404});
+    if(id==='marketplace') return Response.json({results:[{extensions:[{publisher:{publisherName:'oddmash'},extensionName:'boundra-vscode',statistics:[{statisticName:'install',value:9}]}]}]});
+    return Response.json({package:id,downloads:[{day:'2026-11-25',downloads:3}]});
+  };
+  const first=await read(request);
+  assert.equal(calls.length,4);
+  now+=60_000;
+  const second=await read(request);
+  assert.deepEqual(calls.slice(4),['@oddmash/juliya']);
+  assert.deepEqual(second.filter(metric=>metric.count!==null),first.filter(metric=>metric.count!==null));
+  now+=3_540_000;
+  await read(request);
+  assert.equal(calls.length,9);
 });
