@@ -7,7 +7,7 @@ Advisory agents for Oddmash products. Lead coordinates specialized agents, ident
 Oddmash Agents is open-source software used to review eligible pull requests in Oddmash's enrolled repositories. The hosted GitHub Apps are operated by Oddmash; a public, self-service installation into arbitrary repositories is not a supported or verified offering. Do not install an app or request repository permissions solely to try the agents.
 
 - **Contributing to Oddmash:** Open a pull request in an eligible Oddmash repository and wait for its required checks. Read the Lead review and any specialist findings in the PR conversation and Files changed. If no review appears, check CI and ask the maintainer; slash commands are maintainer-controlled.
-- **Exploring the project:** Read [the agent family overview](docs/agent-family.md) and [contributing](CONTRIBUTING.md). The offline test suite is the first-use path for developers inspecting the source without any credentials or external calls.
+- **Exploring the project:** Read [public onboarding](docs/public-onboarding.md), [the agent family overview](docs/agent-family.md) and [contributing](CONTRIBUTING.md). The offline test suite is the first-use path for developers inspecting the source without any credentials or external calls.
 
 Example of advisory feedback (illustrative, not a real PR): a UI change removes keyboard focus feedback. Lead reports the affected line and asks for restored focus visibility; QA can describe missing keyboard coverage. The maintainer decides how to address the findings and whether to merge.
 
