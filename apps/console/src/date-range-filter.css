@@ -1,5 +1,13 @@
 .date-range-control { min-inline-size: 0; }
 .date-range-control button { justify-content: flex-start; min-block-size: var(--console-length-44); min-inline-size: 0; max-inline-size: 100%; white-space: normal; overflow-wrap: anywhere; text-align: start; }
 .om-dialog-content.date-range-dialog { width: min(var(--console-length-710), calc(100vw - var(--om-semantic-space-xl) * 2)); max-block-size: 85dvh; overflow: auto; }
-.date-range-fields { display: grid; gap: var(--om-semantic-space-lg); margin-block: var(--om-semantic-space-lg); }
+.date-range-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--console-length-260)), 1fr)); gap: var(--om-semantic-space-lg); margin-block: var(--om-semantic-space-lg); }
+.date-range-presets, .date-calendar-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--om-semantic-space-xs); }
+.date-range-presets { margin-block-start: var(--om-semantic-space-md); }
+.date-calendar-endpoint { display: grid; gap: var(--om-semantic-space-xs); min-inline-size: 0; }
+.date-calendar-heading { justify-content: space-between; }
+.date-time-advanced { margin-block: var(--om-semantic-space-md); }
+.date-time-advanced summary { cursor: pointer; padding-block: var(--om-semantic-space-sm); }
+.date-time-advanced > div { display: flex; flex-wrap: wrap; gap: var(--om-semantic-space-md); }
+.date-time-advanced label { display: grid; gap: var(--om-semantic-space-xs); flex: 1; min-inline-size: 0; }
 .date-range-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--om-semantic-space-sm); }
