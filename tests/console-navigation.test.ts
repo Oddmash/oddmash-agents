@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { historyNeedsRepository, metricFilter } from '../apps/console/src/activity.ts';
+import type { Job } from '@oddmash/agent-operator-contract';
+import { filterActivity, historyNeedsRepository, metricFilter, repositoryActivity, withRepositoryFilter } from '../apps/console/src/activity.ts';
 import { parseTheme, resolveTheme } from '../apps/console/src/console-preferences.ts';
 import { executionLabel, executionTone } from '../apps/console/src/execution-status.ts';
 
@@ -12,6 +13,26 @@ test('metric filters reset unrelated constraints and lead to repository selectio
   assert.equal(historyNeedsRepository('activity', { ...filter, repository: 'oddmash/ui' }), false);
   assert.equal(historyNeedsRepository('activity', { ...filter, repository: 'unreported' }), false);
   assert.equal(historyNeedsRepository('overview', filter), false);
+});
+
+test('changing history repositories returns to the filtered chooser without losing other constraints', () => {
+  const first: Job = { role: 'reviewer', correlationId: 'a'.repeat(24), attempt: 1, state: 'failed', updatedAt: '2026-05-10T12:00:00Z', target: { repository: 'Oddmash/ui', number: 4 } };
+  const second: Job = { ...first, correlationId: 'b'.repeat(24), target: { repository: 'Oddmash/agents', number: 5 } };
+  const unknown: Job = { ...first, correlationId: 'c'.repeat(24), target: undefined };
+  const success: Job = { ...first, correlationId: 'd'.repeat(24), state: 'returned' };
+  const jobs = [first, second, unknown, success];
+  const range = { from: '2026-05-09T00:00:00', to: '2026-05-12T00:00:00' };
+  const filtered = { ...metricFilter('failed'), role: 'reviewer' as const, range };
+  const selected = withRepositoryFilter(filtered, 'oddmash/ui');
+  assert.deepEqual(filterActivity(jobs, selected), [first]);
+  assert.equal(historyNeedsRepository('activity', selected), false);
+  const chooser = withRepositoryFilter(selected);
+  assert.deepEqual(chooser, { ...filtered, repository: undefined });
+  assert.equal(historyNeedsRepository('activity', chooser), true);
+  assert.deepEqual(repositoryActivity(filterActivity(jobs, chooser)).map(row => row.key).sort(), ['oddmash/agents', 'oddmash/ui', 'unreported']);
+  assert.deepEqual(filterActivity(jobs, withRepositoryFilter(chooser, 'unreported')), [unknown]);
+  assert.deepEqual(withRepositoryFilter(selected, 'all'), chooser);
+  assert.equal(historyNeedsRepository('overview', chooser), false);
 });
 
 test('theme preference distinguishes explicit and live system selection', () => {

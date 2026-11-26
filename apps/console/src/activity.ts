@@ -95,3 +95,7 @@ export function metricFilter(state: ActivityFilter['state']): ActivityFilter {
 export function historyNeedsRepository(view: string, filter: ActivityFilter): boolean {
   return view === 'activity' && (!filter.repository || filter.repository === 'all');
 }
+
+export function withRepositoryFilter(filter: ActivityFilter, repository?: string): ActivityFilter {
+  return { ...filter, repository: repository === 'all' ? undefined : repository };
+}

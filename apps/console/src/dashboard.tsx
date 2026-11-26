@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, type MouseEvent } from 'react';
-import { Alert, Avatar, Badge, Card, EmptyState, Select } from '@oddmash/ui';
+import { Alert, Avatar, Badge, Button, Card, EmptyState, Select } from '@oddmash/ui';
 import { type Job, type WorkerSettings, type ModelUsageSummary, type AgentRole } from '@oddmash/agent-operator-contract';
 import { JuliyaText } from '@oddmash/juliya/react';
 import { NavigationIcon } from './console-sidebar';
@@ -8,7 +8,7 @@ import { createStatusPolling } from './status-polling';
 import { RuntimeControls } from './runtime-controls';
 import { ConsoleSkeleton } from './console-skeleton';
 import { translate, executionCount, missingCalls, consoleViews, consoleRoute, localizedUrl, type ConsoleView, type Language, type Message } from './i18n';
-import { activitySummary, filterActivity, groupActivity, reviewOverview, repositoryActivity, toggleRepositoryCollapse, jobStates, historyNeedsRepository, metricFilter, type ActivityFilter } from './activity';
+import { activitySummary, filterActivity, groupActivity, reviewOverview, repositoryActivity, toggleRepositoryCollapse, jobStates, historyNeedsRepository, metricFilter, withRepositoryFilter, type ActivityFilter } from './activity';
 
 import { DateRangeFilter } from './date-range-filter';
 import { emptyDateRange } from './date-range';
@@ -62,7 +62,8 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
   const toggleRepository = (key: string) => setCollapsedRepositories(previous => toggleRepositoryCollapse(previous, key));
   const [filter, setFilter] = useState<ActivityFilter>({ role: 'all', state: 'all' });
   const openMetric = (state: ActivityFilter['state']) => { setFilter(metricFilter(state)); navigate('activity'); };
-  const openRepository = (repository: string) => { setCollapsedRepositories(previous => { const next = new Set(previous); next.delete(repository); return next; }); setFilter(current => ({ ...current, repository })); };
+  const openRepository = (repository: string) => { setCollapsedRepositories(previous => { const next = new Set(previous); next.delete(repository); return next; }); setFilter(current => withRepositoryFilter(current, repository)); };
+  const changeRepository = () => { setFilter(current => withRepositoryFilter(current)); headingRef.current?.focus(); };
   useEffect(() => {
     const polling = createStatusPolling({
       hidden: () => document.hidden,
@@ -99,6 +100,7 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
   const groups = groupActivity(visibleJobs);
   const overview = reviewOverview(groups);
   const choosingRepository = historyNeedsRepository(view, filter);
+  const selectedRepositoryName = filter.repository === 'unreported' ? t('Unattributed executions') : repositories.find(repository => repository.key === filter.repository)?.repository ?? filter.repository;
   const matchedRepositories = repositoryActivity(visibleJobs);
   const displayedGroups = view === 'overview' ? overview.groups : choosingRepository ? [] : groups.map(group => ({ ...group, total: group.jobs.length }));
   const connected = snapshot?.connected === true;
@@ -119,7 +121,8 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
       <section aria-labelledby="review-targets">
         <h2 id="review-targets">{t("Review targets")}</h2>
         <JuliyaText as="p" locale={language} className="muted">{t("Agents shown are observed executions. Unreported assignments are not inferred; execution completion is not approval.")}</JuliyaText>
-        <div className="activity-filters"><div className="filter-control project-filter"><span>{t("Repository")}</span><Select aria-label={t("Repository")} value={filter.repository ?? "all"} options={[{ value: "all", label: t(view === 'activity' ? "Choose a repository" : "All repositories") }, ...repositories.map(repository => ({ value: repository.key, label: (repository.repository ?? t("Target not reported")) + " (" + repository.jobs.length + ")" }))]} onValueChange={openRepository}/></div><DateRangeFilter language={language} timeZone={timeZone} value={filter.range ?? emptyDateRange()} onApply={range => setFilter(current => ({ ...current, day: undefined, range }))}/><div className="filter-control"><span>{t("Agent")}</span><Select aria-label={t("Agent")} value={filter.role} options={[{ value: 'all', label: t("All agents") }, ...byRole.map(row => ({ value: row.role, label: names[row.role] }))]} onValueChange={value => setFilter(current => ({ ...current, role: value as ActivityFilter['role'] }))}/></div><div className="filter-control"><span>{t("State")}</span><Select aria-label={t("State")} value={filter.state} options={[{ value: 'all', label: t("All states") }, ...jobStates.map(state => ({ value: state, label: executionLabel(language, state) }))]} onValueChange={value => setFilter(current => ({ ...current, state: value as ActivityFilter['state'] }))}/></div><span className="muted">{connected ? executionCount(language, visibleJobs.length, jobs.length) : t("No live activity source")}</span></div>
+        {view === 'activity' && !choosingRepository && <div className="history-repository-scope"><span><span className="muted">{t('Repository')}: </span><strong>{selectedRepositoryName}</strong></span><Button type="button" variant="secondary" onClick={changeRepository}>{t('Change repository')}</Button></div>}
+        <div className="activity-filters">{view === 'overview' && <div className="filter-control project-filter"><span>{t("Repository")}</span><Select aria-label={t("Repository")} value={filter.repository ?? "all"} options={[{ value: "all", label: t("All repositories") }, ...repositories.map(repository => ({ value: repository.key, label: (repository.repository ?? t("Target not reported")) + " (" + repository.jobs.length + ")" }))]} onValueChange={openRepository}/></div>}<DateRangeFilter language={language} timeZone={timeZone} value={filter.range ?? emptyDateRange()} onApply={range => setFilter(current => ({ ...current, day: undefined, range }))}/><div className="filter-control"><span>{t("Agent")}</span><Select aria-label={t("Agent")} value={filter.role} options={[{ value: 'all', label: t("All agents") }, ...byRole.map(row => ({ value: row.role, label: names[row.role] }))]} onValueChange={value => setFilter(current => ({ ...current, role: value as ActivityFilter['role'] }))}/></div><div className="filter-control"><span>{t("State")}</span><Select aria-label={t("State")} value={filter.state} options={[{ value: 'all', label: t("All states") }, ...jobStates.map(state => ({ value: state, label: executionLabel(language, state) }))]} onValueChange={value => setFilter(current => ({ ...current, state: value as ActivityFilter['state'] }))}/></div><span className="muted">{connected ? executionCount(language, visibleJobs.length, jobs.length) : t("No live activity source")}</span></div>
         <p className="muted">{t('Local time zone')}: {timeZone} · {t('Retained observations (up to 7 days or 500 recent events)')}</p>
         {choosingRepository && <section className="repository-chooser" aria-labelledby="choose-repository"><h3 id="choose-repository">{t('Choose a repository')}</h3><JuliyaText as="p" locale={language} className="muted">{t('Choose one repository to inspect its matching executions.')}</JuliyaText><ul>{matchedRepositories.map(repository => <li key={repository.key}><button type="button" onClick={() => { openRepository(repository.key); headingRef.current?.focus(); }}><div><strong>{repository.repository ?? t('Unattributed executions')}</strong><span className="muted">{executionCount(language, repository.jobs.length, repository.jobs.length)}</span></div><span className="repository-chooser-state">{repository.active > 0 && <Badge tone="active">{t('Active:')} {repository.active}</Badge>}{repository.failed > 0 && <Badge tone="danger">{t('Recent failures')} {repository.failed}</Badge>}<span aria-hidden="true">›</span></span></button></li>)}</ul></section>}
         {!choosingRepository && (view === 'overview' || view === 'activity') && snapshot && <RepositoryActivity collapsed={collapsedRepositories} onToggle={toggleRepository} groups={displayedGroups} visibleJobs={visibleJobs} observedAt={snapshot.observedAt} live={connected && !error} language={language} renderAgent={role => <><AgentIdentity role={role} compact/><small>{t(descriptions[role])}</small></>}/>}
