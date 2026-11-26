@@ -6,6 +6,7 @@ import { operatorStoreConfig, readOperatorStatus, readOperatorControls, saveOper
 
 import { modelPolicy } from '../../packages/operator-contract/src/model-settings.ts';
 import { handleModelWrite } from './model-request.ts';
+import { verifyModelAvailability } from './model-availability.ts';
 import { handleControlWrite } from './control-request.ts';
 
 function owner(id: unknown) { return isAuthorizedOwner(id, process.env.CONSOLE_OWNER_GITHUB_ID); }
@@ -91,7 +92,7 @@ consoleApi.post('/api/models', verifyAuth(), async c => {
   const config = operatorStoreConfig(process.env.OPERATOR_STORE_URL, process.env.OPERATOR_STORE_WRITE_TOKEN);
   if (!config) return c.json({ error: 'Model settings unavailable' }, 503);
   try {
-    const result = await handleModelWrite(c.req.raw, modelPolicy(process.env), (revision, overrides) => saveOperatorModels(config, revision, overrides, String(id)));
+    const result = await handleModelWrite(c.req.raw, modelPolicy(process.env), overrides => verifyModelAvailability(overrides), (revision, overrides) => saveOperatorModels(config, revision, overrides, String(id)));
     return c.json(result.body, result.status);
   } catch { return c.json({ error: 'Model settings unavailable' }, 503); }
 });
