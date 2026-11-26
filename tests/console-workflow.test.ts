@@ -3,10 +3,22 @@ import test from 'node:test';
 import type { Job } from '@oddmash/agent-operator-contract';
 import { targetObservations, roleObservations, publicationObservations, publicationPhaseObserved, publicationLink, stateCounts, specialistRoles, executionGroups, publicationCounts } from '../apps/console/src/workflow-model.ts';
 import { canvasSize, canvasNodes, canvasNodeSize, fitViewport, panViewport, zoomViewport, canvasMinScale, canvasMaxScale, canvasDetailScale, latestObservation, workflowEdges, wheelZoomEnabled } from '../apps/console/src/workflow-model.ts';
-import { pointerDragInterrupted, publicationStageObservations } from '../apps/console/src/workflow-model.ts';
+import { pointerDragInterrupted, publicationStageObservations, observedStages } from '../apps/console/src/workflow-model.ts';
 
 const target = { repository: 'Oddmash/example', number: 12 };
 const job: Job = { role: 'reviewer', correlationId: 'a'.repeat(24), attempt: 1, state: 'returned', updatedAt: '2026-01-01T00:00:00Z', target };
+
+test('stage timelines retain only recorded phases and distinguish failure from elapsed intervals', () => {
+  const first = { phase: 'publishing' as const, timestamp: '2026-01-01T00:00:00Z' };
+  const second = { phase: 'publishing' as const, timestamp: '2026-01-01T00:00:02Z' };
+  const failed: Job = { ...job, state: 'failed', phase: 'publishing', phaseHistory: [first, second], finishedAt: '2026-01-01T00:00:03Z' };
+  assert.deepEqual(observedStages(failed), [{ ...first, intervalMs: 2000, state: 'observed' }, { ...second, intervalMs: 1000, state: 'failed' }]);
+  assert.deepEqual(observedStages({ ...failed, phase: undefined }), [{ ...first, intervalMs: 2000, state: 'observed' }, { ...second, intervalMs: undefined, state: 'observed' }]);
+  assert.deepEqual(observedStages({ ...failed, state: 'running', finishedAt: undefined }).at(-1), { ...second, intervalMs: undefined, state: 'running' });
+  assert.deepEqual(observedStages({ ...failed, state: 'stale', finishedAt: undefined }).at(-1), { ...second, intervalMs: undefined, state: 'observed' });
+  assert.equal(observedStages({ ...failed, finishedAt: first.timestamp }).at(-1)?.intervalMs, undefined);
+  assert.deepEqual(observedStages({ ...failed, phaseHistory: undefined }), []);
+});
 
 test('target workflow isolates observations by repository and number, retaining independent roles and attempts', () => {
   const qa = { ...job, role: 'qa' as const, target: { repository: 'Oddmash/EXAMPLE', number: 12 } };
