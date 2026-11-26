@@ -5,7 +5,7 @@ import { jobElapsedMs, type AgentRole, type PublicTarget, type SkipReason } from
 import { executionTone } from './execution-status';
 import { korean, translate, type Language, type Message } from './i18n';
 import { type ObservedJob, type WorkflowState, type CanvasStage, type CanvasViewport, type CanvasPoint, type CanvasSize, specialistRoles, targetObservations, roleObservations, publicationObservations, publicationPhaseObserved, publicationLink, executionGroups, publicationCounts, latestObservation, canvasSize, canvasNodeSize, canvasNodes, canvasMinScale, canvasMaxScale, canvasDetailScale, fitViewport, panViewport, zoomViewport, workflowEdges } from './workflow-model';
-import { stateCounts, wheelZoomEnabled, pointerDragInterrupted, publicationStageObservations } from './workflow-model';
+import { stateCounts, wheelZoomEnabled, pointerDragInterrupted, publicationStageObservations, observedStages } from './workflow-model';
 import './workflow.css';
 
 const words = {
@@ -24,7 +24,8 @@ const words = {
     queued: 'Queued', running: 'In progress', failed: 'Failed', stale: 'Stale', skipped: 'Skipped',
     noDetails: 'No retained observations for this stage in the current selection.',
     skip: 'Skip reason', publication: 'Published result', noResult: 'No publication evidence',
-    review: 'Review', comment: 'Comment', inlineComment: 'Inline comment', detail: 'Execution details', run: 'Observed execution'
+    review: 'Review', comment: 'Comment', inlineComment: 'Inline comment', detail: 'Execution details', run: 'Observed execution',
+    stages: 'Recorded stages', observed: 'Observed', interval: 'Time until next observation or finish', failurePhase: 'Last reported phase at failure', noStages: 'No stage history retained.'
   },
   ko: {
     workflow: '리뷰 워크플로우', note: '현재 대상의 작업 흐름 템플릿과 워커 관측 기록입니다. 연결선은 하나의 순차 실행을 보장하지 않습니다.',
@@ -41,7 +42,8 @@ const words = {
     queued: '대기 중', running: '진행 중', failed: '검토 실패', stale: '갱신 지연', skipped: '검토 건너뜀',
     noDetails: '현재 선택에서 이 단계의 보관 기록이 없습니다.',
     skip: '건너뜀 사유', publication: '게시 결과', noResult: '게시 기록 없음',
-    review: '리뷰', comment: '댓글', inlineComment: '인라인 댓글', detail: '실행 상세', run: '관측된 실행'
+    review: '리뷰', comment: '댓글', inlineComment: '인라인 댓글', detail: '실행 상세', run: '관측된 실행',
+    stages: '기록된 실행 단계', observed: '관측됨', interval: '다음 관측 또는 종료까지의 시간', failurePhase: '실패 당시 마지막 보고 단계', noStages: '보관된 단계 기록이 없습니다.'
   }
 } as const;
 
@@ -75,27 +77,38 @@ const JobObservation = ({ job, target, language, observedAt }: { job: ObservedJo
   const duration = jobElapsedMs(job, observedAt);
   const state = job.state;
   const href = publicationLink(target, job);
+  const stages = observedStages(job);
+  const formatDuration = (ms: number) => new Intl.NumberFormat(language, { style: 'unit', unit: 'second', maximumFractionDigits: 1 }).format(ms / 1000);
   return <article className="workflow-observation">
     <div className="workflow-observation-heading"><Badge tone={executionTone(state)}>{stateLabel(language, state, job.role) ?? w.unobserved}</Badge><span>{t('Attempt')} {job.attempt}</span></div>
+    <section className="workflow-stage-history">
+      <h5>{w.stages} <span>{stages.length}</span></h5>
+      {stages.length ? <ol className="workflow-timeline">{stages.map((stage, index) => <li key={stage.timestamp + ':' + index} data-stage-state={stage.state}>
+        <span className="workflow-timeline-marker" aria-hidden="true"/>
+        <div><strong>{t(stage.phase)}</strong><Badge tone={stage.state === 'failed' ? 'danger' : stage.state === 'running' ? 'info' : 'neutral'}>{w[stage.state]}</Badge></div>
+        <time dateTime={stage.timestamp}>{time(stage.timestamp, language)}</time>
+        {stage.intervalMs !== undefined && <span className="workflow-stage-interval">{w.interval}: {formatDuration(stage.intervalMs)}</span>}
+      </li>)}</ol> : <p>{w.noStages}</p>}
+      {state === 'failed' && <p className="workflow-failure-phase">{w.failurePhase}: {job.phase ? t(job.phase) : t('Not reported')}</p>}
+    </section>
     <dl className="workflow-facts">
       <div><dt>{t('Phase')}</dt><dd>{job.phase ? t(job.phase) : t('Not reported')}</dd></div>
       <div><dt>{t('Queued at')}</dt><dd>{time(job.queuedAt, language)}</dd></div>
       <div><dt>{t('Started at')}</dt><dd>{time(job.startedAt, language)}</dd></div>
       <div><dt>{t('Finished at')}</dt><dd>{time(job.finishedAt, language)}</dd></div>
       <div><dt>{t('Updated')}</dt><dd>{time(job.updatedAt, language)}</dd></div>
-      <div><dt>{t('Elapsed')}</dt><dd>{duration === undefined ? '—' : new Intl.NumberFormat(language, { style: 'unit', unit: 'second', maximumFractionDigits: 1 }).format(duration / 1000)}</dd></div>
+      <div><dt>{t('Elapsed')}</dt><dd>{duration === undefined ? '—' : formatDuration(duration)}</dd></div>
       {job.failure && <div><dt>{w.failed}</dt><dd>{failureReason(language, job.failure)}</dd></div>}
       {job.skipReason && <div><dt>{w.skip}</dt><dd>{skipReasons[job.skipReason]?.[language] ?? t('Not reported')}</dd></div>}
       <div><dt>{w.publication}</dt><dd>{job.publication ? <>{job.publication.kind === 'review' ? w.review : job.publication.kind === 'inline-comment' ? w.inlineComment : w.comment} · {time(job.publication.at, language)} {href && <a href={href} target="_blank" rel="noreferrer">{w.target}</a>}</> : w.noResult}</dd></div>
     </dl>
-    {job.phaseHistory?.length ? <ol className="phase-history">{job.phaseHistory.map((phase, index) => <li key={phase.timestamp + ':' + index}><span>{t(phase.phase)}</span><time dateTime={phase.timestamp}>{time(phase.timestamp, language)}</time></li>)}</ol> : null}
   </article>;
 };
 
-const StageDialog = ({ title, description, language, trigger, children, target }: { title: ReactNode; description: string; language: Language; trigger: ReactNode; children: ReactNode; target: PublicTarget }) => {
+const StageDialog = ({ title, description, language, trigger, children, target, running = false }: { title: ReactNode; description: string; language: Language; trigger: ReactNode; children: ReactNode; target: PublicTarget; running?: boolean }) => {
   const w = words[language];
   return <Dialog>
-    <DialogTrigger asChild><button className="workflow-node" type="button">{trigger}</button></DialogTrigger>
+    <DialogTrigger asChild><button className="workflow-node" data-running={running} type="button">{trigger}</button></DialogTrigger>
     <DialogContent className="workflow-dialog">
       <DialogTitle className="workflow-dialog-title">{title}</DialogTitle>
       <DialogDescription className="muted">{description}</DialogDescription>
@@ -110,7 +123,7 @@ const RoleNode = ({ role, description, jobs, target, observedAt, language, rende
   const records = roleObservations(role, jobs);
   const latest = latestObservation(records);
   const counts = stateCounts(records);
-  return <StageDialog title={renderAgent(role)} description={description} language={language} target={target} trigger={<>
+  return <StageDialog title={renderAgent(role)} description={description} language={language} target={target} running={latest?.state === 'running'} trigger={<>
     <span className="workflow-node-title">{renderAgent(role)}{latest && records.length > (counts[latest.state] ?? 0) && <span className="workflow-other-count" title={w.other} aria-label={w.other + ' ' + (records.length - (counts[latest.state] ?? 0))}>+{records.length - (counts[latest.state] ?? 0)}</span>}</span>
     <span className="workflow-node-status">{latest ? <Badge tone={executionTone(latest.state)}>{stateLabel(language, latest.state, role)} {counts[latest.state]}</Badge> : <Badge tone="neutral">{w.unobserved}</Badge>}</span>
     <LatestDetail job={latest} language={language} observedAt={observedAt}/>
@@ -199,8 +212,8 @@ const WorkflowCanvas = ({ jobs, language, children }: { jobs: readonly ObservedJ
         <Button type="button" size="sm" variant="secondary" onClick={fit}>{w.fit}</Button>
         <div className="workflow-pan-controls">{controls.map(control => <Button key={control.name} type="button" size="sm" variant="ghost" aria-label={control.name} title={control.name} onClick={control.action}>{control.label}</Button>)}</div>
       </div>
+      <JuliyaText as="p" locale={language} id={id} className="workflow-interaction">{w.interaction}</JuliyaText>
     </div>
-    <JuliyaText as="p" locale={language} id={id} className="workflow-interaction">{w.interaction}</JuliyaText>
     <div ref={viewport} className="workflow-viewport" data-dragging={dragging} tabIndex={0} role="region" aria-label={w.workflow} aria-describedby={id}
       onPointerDown={event => {
         if (!isCanvasEvent(event.currentTarget, event.target) || !event.isPrimary || event.button !== 0) return;
