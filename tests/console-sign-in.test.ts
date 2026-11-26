@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { signInErrorMessage, clearSignInError } from '../apps/console/src/sign-in-feedback.ts';
+import { consoleApi } from '../apps/console/auth.ts';
 
 const source = (name: string) => readFileSync(new URL('../apps/console/' + name, import.meta.url), 'utf8');
 
@@ -23,8 +25,33 @@ test('sign-in uses one pending action and leaves account authorization server-si
   assert.match(screen, /inFlight\.current \|\| availability === 'unconfigured'/);
   assert.match(screen, /disabled=\{pending\}/);
   assert.match(screen, /role="status" aria-live="polite"/);
+  assert.match(screen, /disabled=\{pending\} onClick=\{\(\) => void start\(\)\}>Sign in with GitHub<\/Button>/);
+  assert.match(screen, /login-progress[^>]*>\{pending \? 'Opening GitHub sign-in\.'/);
   assert.match(auth, /scope: 'read:user', prompt: 'select_account'/);
   assert.match(auth, /signIn\(\{ account, profile \}\) \{ return account\?\.provider === 'github' && owner\(profile\?\.id\); \}/);
+});
+
+test('OAuth errors return to the public console with safe visible feedback', async () => {
+  const environment = { AUTH_URL: 'https://console.example.test/api/auth', AUTH_SECRET: 'fixture-only-secret', AUTH_GITHUB_ID: 'fixture-id', AUTH_GITHUB_SECRET: 'fixture-secret', CONSOLE_OWNER_GITHUB_ID: '123' };
+  const previous = Object.fromEntries(Object.keys(environment).map(key => [key, process.env[key]]));
+  try {
+    Object.assign(process.env, environment);
+    const response = await consoleApi.fetch(new Request('https://console.example.test/api/auth/error?error=AccessDenied'));
+    assert.equal(response.status, 302);
+    const location = new URL(response.headers.get('location')!, 'https://console.example.test');
+    assert.equal(location.origin, 'https://console.example.test');
+    assert.equal(location.pathname, '/');
+    assert.match(signInErrorMessage(location.href)!, /Access denied.*not authorized/);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  assert.equal(signInErrorMessage('https://console.example.test/ko'), undefined);
+  assert.equal(signInErrorMessage('https://console.example.test/ko?error=OAuthCallbackError'), 'GitHub sign-in could not be completed. Please try again.');
+  assert.equal(signInErrorMessage('https://console.example.test/ko?error=untrusted-provider-text'), 'GitHub sign-in could not be completed. Please try again.');
+  assert.equal(clearSignInError('https://console.example.test/ko/activity?error=AccessDenied&keep=1').href, 'https://console.example.test/ko/activity?keep=1');
 });
 
 test('login glow remains static and token-backed', () => {

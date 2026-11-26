@@ -40,6 +40,7 @@ consoleApi.use('/api/*', initAuthConfig(() => ({
   secret: process.env.AUTH_SECRET!,
   basePath: '/api/auth',
   trustHost: true,
+  pages: { signIn: '/', error: '/' },
   providers: [GitHub({ clientId: process.env.AUTH_GITHUB_ID!, clientSecret: process.env.AUTH_GITHUB_SECRET!, authorization: { params: { scope: 'read:user', prompt: 'select_account' } } })],
   session: { strategy: 'jwt', maxAge: 8 * 60 * 60 },
   callbacks: {
