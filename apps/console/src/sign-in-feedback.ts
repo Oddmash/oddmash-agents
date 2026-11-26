@@ -1,7 +1,7 @@
 export function signInErrorMessage(href: string): string | undefined {
   const error = new URL(href).searchParams.get('error');
   if (error === null) return undefined;
-  if (error === 'AccessDenied') return 'Access denied. This GitHub account is not authorized to use the Agents Console. Sign in with the authorized account.';
+  if (error === 'AccessDenied') return 'Access denied. This GitHub account is not authorized. Try another account.';
   return 'GitHub sign-in could not be completed. Please try again.';
 }
 
