@@ -1,4 +1,7 @@
 type SessionCheck = { state: 'authenticated' | 'unauthenticated' | 'unavailable' | 'retrying'; nextMs?: number };
+export const logoutPendingKey = 'oddmash-console-logout-pending';
+export const readLogoutPending = (storage: Pick<Storage, 'getItem'>): boolean => { try { return storage.getItem(logoutPendingKey) === '1'; } catch { return false; } };
+export const writeLogoutPending = (storage: Pick<Storage, 'setItem' | 'removeItem'>, pending: boolean): void => { try { if (pending) storage.setItem(logoutPendingKey, '1'); else storage.removeItem(logoutPendingKey); } catch {} };
 const statusRequest = (request: typeof fetch) => request('/api/session/status', { cache: 'no-store', credentials: 'same-origin' });
 export const sessionWrite = (path: 'bootstrap' | 'refresh' | 'logout', request = fetch) => request('/api/session/' + path, { method: 'POST', cache: 'no-store', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
 

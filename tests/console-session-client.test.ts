@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { checkFirstPartySession } from '../apps/console/src/session-client.ts';
+import { checkFirstPartySession, readLogoutPending, writeLogoutPending } from '../apps/console/src/session-client.ts';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const scripted = (responses: Response[]) => {
@@ -31,4 +31,14 @@ test('bootstrap requires verified OAuth readiness; unavailable storage never fal
   const boot = scripted([json({ authenticated: false }), json({}, 401), json({ authenticated: true })]);
   assert.equal((await checkFirstPartySession(boot.request, true)).state, 'authenticated');
   assert.equal(boot.calls.at(-1), '/api/session/bootstrap');
+});
+
+test('a failed logout retains only a nonsecret retry marker until successful revocation', () => {
+  const entries = new Map<string, string>();
+  const storage = { getItem: (key: string) => entries.get(key) ?? null, setItem: (key: string, value: string) => { entries.set(key, value); }, removeItem: (key: string) => { entries.delete(key); } };
+  writeLogoutPending(storage, true);
+  assert.equal(readLogoutPending(storage), true);
+  assert.deepEqual([...entries.values()], ['1']);
+  writeLogoutPending(storage, false);
+  assert.equal(readLogoutPending(storage), false);
 });
