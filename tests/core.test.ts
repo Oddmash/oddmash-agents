@@ -274,9 +274,9 @@ test('maintainer findings preserve manual disposition and never imply approval',
   const body = formatReviewBody('COMMENT', '<!-- marker -->', 'Actionable finding', owner, published);
   assert.match(body, /Actionable findings remain/);
   assert.match(body, /No approval was issued/);
-  assert.match(body, /automatic merge is not available/);
+  assert.match(body, /Automatic merge is not available/);
   assert.match(body, /Actionable finding/);
-  assert.deepEqual(publicationFollowUp(followUp, 'REQUEST_CHANGES', { ...owner, id: 1 }), followUp);
+  assert.deepEqual(publicationFollowUp(followUp, 'REQUEST_CHANGES', { ...owner, id: 1 }), published);
   assert.deepEqual(publicationFollowUp(followUp, 'APPROVE', owner), followUp);
 });
 

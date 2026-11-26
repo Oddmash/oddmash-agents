@@ -18,7 +18,7 @@ export function isInternalReviewAuthor(author?: { id: number; login: string }): 
 }
 
 export function publicationFollowUp(followUp: ReviewFollowUp, assessment: ReviewDecision, author?: { id: number; login: string }): ReviewFollowUp {
-  if (assessment === 'REQUEST_CHANGES' && isInternalReviewAuthor(author)) return { ...followUp, maintainerFindings: true };
+  if (assessment === 'REQUEST_CHANGES') return { ...followUp, maintainerFindings: true };
   if (assessment === 'APPROVE' && !isInternalReviewAuthor(author)) return { ...followUp, externalApprovalRequired: true };
   return followUp;
 }
@@ -317,7 +317,7 @@ export function formatReviewBody(event: ReviewDecision, marker: string, report: 
   if (event === 'REQUEST_CHANGES') return `${marker}\nPlease address the findings before approval.\n\n${report}`;
   if (followUp?.confirmedEmpty && !followUp.incompleteCoverage && !followUp.invalidEvidence && !followUp.advisory && !followUp.maintainerFindings) return `${marker}\nNo changed files (neutral review).\n\n${report}`;
   const reasons: string[] = [];
-  if (followUp?.maintainerFindings) reasons.push('Actionable findings remain. For an internal PR author, the reviewer reports them without a formal change request or approval. Manual disposition is required; automatic merge is not available.');
+  if (followUp?.maintainerFindings) reasons.push('Actionable findings remain. The agent published them as a review comment. Manual disposition is required. Automatic merge is not available.');
   if (followUp?.advisory) reasons.push('Advisory findings are optional recommendations, not confirmed blockers. After verifying the evidence, the maintainer may accept, defer to a separate issue, or decline with rationale. A repeated review is not required solely to dispose of optional advice on the unchanged head.');
   if (followUp?.incompleteCoverage) reasons.push('Manual coverage check required: inspect the unreviewed changes listed below.');
   if (followUp?.invalidEvidence) reasons.push('Review evidence incomplete: validate the findings against the diff or request a fresh review.');

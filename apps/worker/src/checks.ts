@@ -265,10 +265,10 @@ export function shouldReconcilePendingChecks(evidence: CheckEvidence, expectedHe
   return queueEnabled && expectedHead === head && /^[a-f0-9]{40}$/i.test(head) && !reviewChecksReady(evidence, repository) && !reviewChecksAreScopedAdvisory(evidence, repository);
 }
 
-export function finalReviewEvent(assessment: ReviewDecision, evidence: CheckEvidence, repository?: string, author?: { id: number; login: string }): ReviewDecision | null {
+export function finalReviewEvent(assessment: ReviewDecision, evidence: CheckEvidence, repository?: string, author?: { id: number; login: string }): Exclude<ReviewDecision, 'REQUEST_CHANGES'> | null {
   if (reviewChecksAreScopedAdvisory(evidence, repository)) return 'COMMENT';
   if (!reviewChecksReady(evidence, repository)) return null;
-  if (assessment === 'REQUEST_CHANGES') return isInternalReviewAuthor(author) ? 'COMMENT' : assessment;
+  if (assessment === 'REQUEST_CHANGES') return 'COMMENT';
   if (!reviewChecksSuccessful(evidence, repository)) return null;
   return assessment === 'APPROVE' && !isInternalReviewAuthor(author) ? 'COMMENT' : assessment;
 }
