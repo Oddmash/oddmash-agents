@@ -83,7 +83,7 @@ try {
         await page.screenshot({ path: dir + '/' + label + '-details.png', animations: 'disabled' });
         await page.keyboard.press('Escape');
         await dialog.waitFor({ state: 'hidden' });
-        assert(await lead.evaluate(element => document.activeElement === element), label + ' focus return');
+        await page.waitForFunction(element => document.activeElement === element, await lead.elementHandle(), { timeout: 2000 });
         const remaining = workflow.locator('.workflow-unobserved');
         assert.equal(await remaining.getAttribute('open'), null, label);
         await remaining.locator('summary').click();
