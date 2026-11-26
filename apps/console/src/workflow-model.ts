@@ -52,6 +52,20 @@ export const latestObservation = (jobs: readonly ObservedJob[]): ObservedJob | u
   jobs.reduce<ObservedJob | undefined>((latest, job) => !latest || Date.parse(job.updatedAt) > Date.parse(latest.updatedAt) ||
     (Date.parse(job.updatedAt) === Date.parse(latest.updatedAt) && job.attempt > latest.attempt) ? job : latest, undefined);
 
+export const observedStages = (job: ObservedJob) => {
+  const history = job.phaseHistory ?? [];
+  return history.map((entry, index) => {
+    const next = history[index + 1];
+    const last = !next;
+    const matches = last && job.phase === entry.phase;
+    const failure = matches && job.state === 'failed';
+    const end = next?.timestamp ?? (matches ? job.finishedAt : undefined);
+    const interval = Date.parse(end ?? '') - Date.parse(entry.timestamp);
+    return { ...entry, intervalMs: Number.isFinite(interval) && interval >= 0 ? interval : undefined,
+      state: failure ? 'failed' as const : matches && job.state === 'running' ? 'running' as const : 'observed' as const };
+  });
+};
+
 export type CanvasPoint = { x: number; y: number };
 export type CanvasSize = { width: number; height: number };
 export type CanvasViewport = CanvasPoint & { scale: number };
