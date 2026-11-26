@@ -27,3 +27,13 @@ test('sidebar inset rules apply only to unpositioned Select fallback menus', () 
   assert.equal(selectors.length, 2);
   assert.ok(selectors.every(match => match[0].includes(':not([data-positioned="true"])')));
 });
+
+test('compact dashboard keeps readable type and primary control targets', () => {
+  const css = readFileSync(new URL('../apps/console/src/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /\.shell \{[^}]+font-size: var\(--console-length-14\)/);
+  assert.match(css, /\.fleet-row small \{[^}]+font-size: var\(--console-length-12\)/);
+  assert.match(css, /\.overview-metrics \.metric-link \{[^}]+min-height: var\(--console-length-44\)/);
+  assert.match(css, /\.repository-toggle \{[^}]+width: var\(--console-length-44\); height: var\(--console-length-44\)/);
+  assert.match(css, /\.console-nav a \{[^}]+min-block-size: var\(--console-length-44\)/);
+  assert.match(css, /\.activity-filters \.om-select, \.language-control \.om-select \{ min-height: var\(--console-length-44\)/);
+});
