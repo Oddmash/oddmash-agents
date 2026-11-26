@@ -122,10 +122,11 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
       <header><div><h2 ref={headingRef} tabIndex={-1}>{t(viewLabels[view])}</h2></div><span role="status" aria-live="polite" className="live-label" data-connected={connected && !error}>{!error && <><span className="status-dot" aria-hidden="true"/>{t(loading && !snapshot ? 'Loading status…' : connected ? 'Connected to worker telemetry' : 'Telemetry storage is not configured.')}</>}</span></header>
       <div role="status" aria-live="polite" className="muted status-line">{error && <Alert tone="danger">{t(error)}{snapshot?.connected ? t(" Showing the last successful snapshot.") : ''}</Alert>}</div>
       {loading && !snapshot && view !== 'settings' && view !== 'contributors' && <ConsoleSkeleton view={view} language={language}/>}
+      {view === 'usage' && error !== 'Session expired. Sign in again.' && <AdoptionMetrics language={language}/>}
       <div hidden={!snapshot && (view !== 'settings' || error === 'Session expired. Sign in again.')}>
       {view === 'overview' && <div className="overview-content">
         <section className="metrics overview-metrics" aria-label={t('Overview')}>
-          {([['running','Running'],['queued','Queued'],['failed','Recent failures'],['stale','Stale observations']] as const).map(([state,label])=><button key={state} type="button" className="metric-link" data-metric={state} onClick={()=>openMetric(state)}><span className="metric-label"><span className="metric-mark" aria-hidden="true"/>{t(label)}</span><strong>{connected?counts[state]:'—'}</strong><Chevron direction="right"/></button>)}
+          {([['running','Running'],['queued','Queued'],['failed','Recent failures'],['stale','Stale observations']] as const).map(([state,label])=><button key={state} type="button" className="metric-link" data-metric={state} data-active={state==='running'&&connected&&counts.running>0&&!error} onClick={()=>openMetric(state)}><span className="metric-label"><span className="metric-mark" aria-hidden="true"/>{t(label)}</span><strong>{connected?counts[state]:'—'}</strong><Chevron direction="right"/></button>)}
         </section>
         <div className="overview-heading"><h2>{t('Recent review targets')}</h2><a href={href('activity')}>{t('View history')} <Chevron direction="right"/></a></div>
         {overview.groups.length ? <div className="overview-targets">{overview.groups.map(group=>{
@@ -169,6 +170,6 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
       {snapshot && view !== 'contributors' && <p className="muted">{t("Last observed:")} <time dateTime={snapshot.observedAt}>{new Date(snapshot.observedAt).toLocaleString(language)}</time></p>}
       </div>
       {view === 'contributors' && error !== 'Session expired. Sign in again.' && <ContributorPulls language={language} jobs={jobs} renderAgent={role => <AgentIdentity role={role} compact/>}/>}
-      {view === 'usage' && error !== 'Session expired. Sign in again.' && <AdoptionMetrics language={language}/>}
+
     </main></div>;
 }

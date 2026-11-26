@@ -15,3 +15,9 @@ test('weekly and monthly chart periods use observed dates and distinguish zero f
   assert.equal(downloadSeries(history,30).points.length,30);
   assert.equal(downloadSeries([],7).total,null);
 });
+test('all zero results retain the observed total while missing dates remain unknown',()=>{
+  const result=downloadSeries([{day:'2026-01-01',downloads:0},{day:'2026-01-03',downloads:0}],7);
+  assert.equal(result.total,0);
+  assert.equal(result.missing,5);
+  assert.equal(result.points.filter(point=>point.downloads===0).length,2);
+});
