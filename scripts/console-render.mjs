@@ -232,10 +232,18 @@ try {
         await page.locator('.agent-settings-panel').waitFor({state:'visible'});
         await page.locator('.settings-tabs button').first().click();
         assert(await page.locator('.runtime-controls:visible .control-check input').first().isChecked(),label+' draft persists across settings tabs');
+        const themeButtons=page.locator('.theme-options button');
+        assert.equal(await themeButtons.count(),3,label+' icon theme choices');
+        assert.equal(await themeButtons.locator('svg').count(),3,label+' icon-only theme selection');
+        await themeButtons.nth(theme==='dark'?1:2).click();
+        assert.equal(await themeButtons.nth(theme==='dark'?1:2).getAttribute('aria-pressed'),'true',label+' theme selection');
+        await themeButtons.nth(theme==='dark'?2:1).click();
+        assert(await page.locator('.console-logout').first().evaluate(el=>getComputedStyle(el).color!==getComputedStyle(document.querySelector('.theme-options button')).color),label+' distinct sign out');
         await page.screenshot({path:dir+'/'+label+'-settings.png',fullPage:true,animations:'disabled'});
         await page.locator('.console-nav a').first().click();
         const discardDialog=page.getByRole('dialog');
         await discardDialog.waitFor({state:'visible'});
+        await page.screenshot({path:dir+'/'+label+'-settings-confirm.png',fullPage:true,animations:'disabled'});
         await discardDialog.getByRole('button',{name:language==='ko'?'계속 편집':'Stay',exact:true}).click();
         await discardDialog.waitFor({state:'hidden'});
         assert(await page.locator('.runtime-controls:visible .control-check input').first().isChecked(),label+' canceled departure retains draft');
