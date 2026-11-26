@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const { chromium } = await import(process.env.CONSOLE_PLAYWRIGHT_MODULE ?? 'playwright');
-const base = 'http://127.0.0.1:4175';
-const host = spawn('pnpm', ['--filter', '@oddmash/agents-console', 'exec', 'vite', '--host', '127.0.0.1', '--port', '4175', '--strictPort'], { stdio: 'inherit' });
+const port = process.env.CONSOLE_RENDER_PORT ?? '4175';
+const base = 'http://127.0.0.1:' + port;
+const consoleRoot = new URL('../apps/console/', import.meta.url);
+const vite = fileURLToPath(new URL('node_modules/vite/bin/vite.js', consoleRoot));
+const host = spawn(process.execPath, [vite, '--host', '127.0.0.1', '--port', port, '--strictPort'], { cwd: consoleRoot, stdio: 'inherit' });
 const dir = 'render-evidence';
 const target = { repository: 'Oddmash/example', number: 42 };
 const startedAt = '2026-01-01T12:00:00Z';
@@ -23,6 +27,7 @@ try {
   await mkdir(dir, { recursive: true });
   let ready = false;
   for (let i = 0; i < 60; i++) {
+    if (host.exitCode !== null) throw new Error('Fixture Vite process exited before readiness');
     try { if ((await fetch(base + '/tests/render-fixture.html')).ok) { ready = true; break; } } catch {}
     await new Promise(resolve => setTimeout(resolve, 500));
   }
@@ -40,10 +45,14 @@ try {
         page.on('response', response => { if (response.status() >= 400) console.error('HTTP', response.status(), response.url()); });
         let adoptionRequests = 0;
         let releaseContributors;
+        let contributorRequests = 0;
+        let contributorResponse = 200;
         const contributorsGate = new Promise(resolve => { releaseContributors = resolve; });
         await page.route('**/api/**', async route => {
           const path = new URL(route.request().url()).pathname;
           if (path === '/api/contributors') {
+            contributorRequests++;
+            if (contributorResponse !== 200) return route.fulfill({status:contributorResponse,json:{error:'Synthetic error'}});
             await contributorsGate;
             return route.fulfill({json:{observedAt:updatedAt,partial:false,pulls:[{repository:target.repository, number:43, title:'Improve component accessibility for long localized labels on narrow screens',author:'external-contributor',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[{role:'reviewer',state:'APPROVED',currentHead:true,submittedAt:updatedAt,id:91}],workflow:{state:'action-required',id:71}}},{repository:target.repository,number:45,title:'Workflow rerun in progress',author:'guest',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[{role:'reviewer',state:'APPROVED',currentHead:true,submittedAt:updatedAt,id:92}],workflow:{state:'running',id:72,attempt:2,name:'CI'}}},{repository:target.repository,number:46,title:'Failed browser tests',author:'guest',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[],reviewStatus:{state:'failed',id:93,updatedAt,reason:'checks-failed'},workflow:{state:'failed',id:73,attempt:2,name:'CI',failures:[{job:'extension',step:'Chromium extension E2E',conclusion:'failure',jobId:74}]}}},{repository:target.repository,number:44,title:'Handle missing workflow evidence',author:'guest',updatedAt,draft:false}]}});
           }
@@ -146,7 +155,19 @@ try {
         await cards.first().waitFor({state:'visible'});
         assert.equal(await cards.count(),4,label);
         assert.match(await cards.first().innerText(), language === 'ko' ? /승인 또는 조치 필요/ : /Workflow approval or action required/,label);
+        const cardBounds = await cards.first().boundingBox();
+        assert(Math.abs(skeletonBounds.width-cardBounds.width) <= 1,label+' skeleton matches card width');
+        assert(Math.abs(skeletonBounds.y-cardBounds.y) <= 5,label+' skeleton matches card location');
+        const summaries = cards.locator('.contributor-evidence > summary');
+        assert.equal(await cards.locator('.contributor-evidence[open]').count(), 0, label);
+        await page.screenshot({path:dir+'/'+label+'-contributor.png',fullPage:true,animations:'disabled'});
+        await summaries.first().focus();
+        await page.keyboard.press('Enter');
+        await summaries.nth(1).click();
+        await summaries.nth(2).click();
         assert.match(await cards.first().innerText(), /Lead/,label);
+        const pullLink = cards.first().getByRole('link', {name: language === 'ko' ? 'PR 보기' : 'View pull request'});
+        assert.equal(await pullLink.getAttribute('href'), 'https://github.com/Oddmash/example/pull/43');
         assert.match(await cards.nth(3).innerText(), language === 'ko' ? /확인 불가/ : /unavailable/,label);
         assert.equal(await cards.first().locator('.contributor-workflow-link').getAttribute('href'),'https://github.com/Oddmash/example/actions/runs/71',label);
         assert.match(await cards.nth(1).innerText(),language === 'ko' ? /현재 검사 완료 대기/ : /Waiting on current checks/,label);
@@ -157,14 +178,28 @@ try {
         await page.emulateMedia({reducedMotion:'no-preference'});
         assert.equal(await indicator.evaluate(element => getComputedStyle(element).animationName),'contributor-spin',label);
         await page.emulateMedia({reducedMotion:'reduce'});
-        const cardBounds = await cards.first().boundingBox();
-        assert(Math.abs(skeletonBounds.width-cardBounds.width) <= 1,label+' skeleton matches card width');
-        assert(Math.abs(skeletonBounds.y-cardBounds.y) <= 5,label+' skeleton matches card location');
-        if(width <= 390) assert(await cards.first().locator('.review-target-row').evaluate(element => element.firstElementChild.getBoundingClientRect().width >= element.getBoundingClientRect().width - 1),label+' full-width mobile title');
+        if (width <= 390) assert(await summaries.first().evaluate(element => {
+          const style = getComputedStyle(element);
+          const contentWidth = element.clientWidth - parseFloat(style.paddingInlineStart) - parseFloat(style.paddingInlineEnd);
+          return element.firstElementChild.getBoundingClientRect().width >= contentWidth - 1;
+        }), label+' full-width mobile title');
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),label+' contributor page overflow');
         assert.deepEqual(errors,[],label);
-        await page.screenshot({path:dir+'/'+label+'-contributor.png',fullPage:true,animations:'disabled'});
-        console.log('PASS '+label+': contributor skeleton, review evidence, approval action link and no overflow');
+        await page.screenshot({path:dir+'/'+label+'-contributor-evidence.png',fullPage:true,animations:'disabled'});
+        await page.locator('.console-nav a').first().click();
+        await page.locator('.console-nav a').nth(2).click();
+        await cards.first().waitFor();
+        assert.equal(contributorRequests, 1, label + ' fresh contributor list survives navigation');
+        contributorResponse = 503;
+        const refreshContributors = page.getByRole('button', { name: language === 'ko' ? '새로고침' : 'Refresh', exact: true });
+        await refreshContributors.click();
+        await page.getByRole('alert').first().waitFor();
+        assert.equal(await cards.count(), 4, label + ' retained results during contributor outage');
+        contributorResponse = 200;
+        await refreshContributors.click();
+        await page.getByRole('alert').first().waitFor({state:'hidden'});
+        assert.equal(contributorRequests, 3, label + ' retry requested the server');
+        console.log('PASS '+label+': contributor skeleton, review evidence, cache reuse and error recovery');
         await page.goto(base+'/tests/render-fixture.html?theme='+theme+'&language='+language+'&view=usage');
         const modelTab=page.getByRole('button',{name:language==='ko'?'모델 사용량':'Model usage',exact:true});
         const packageTab=page.getByRole('button',{name:language==='ko'?'패키지 사용량':'Package usage',exact:true});
@@ -254,6 +289,7 @@ try {
         await page.locator('.agent-settings-panel').waitFor({state:'visible'});
         await page.locator('.settings-tabs button').first().click();
         assert(await page.locator('.runtime-controls:visible .control-check input').first().isChecked(),label+' draft persists across settings tabs');
+        await page.locator('.console-preferences > summary').click();
         const themeButtons=page.locator('.theme-options button');
         assert.equal(await themeButtons.count(),3,label+' icon theme choices');
         assert.equal(await themeButtons.locator('svg').count(),3,label+' icon-only theme selection');
@@ -294,6 +330,15 @@ try {
         assert(await page.locator('.runtime-controls:visible .control-actions button').first().isDisabled(),label+' deployment cap cannot be expanded');
         await requestLimit.fill('1');
         assert(await page.locator('.runtime-controls:visible .control-actions button').first().isEnabled(),label+' restriction remains editable while status unavailable');
+        await page.locator('.settings-tabs button').last().click();
+        const executionText = page.locator('.execution-summary-meta > p');
+        await executionText.waitFor();
+        assert.equal(await executionText.locator('br').count(), 0, label + ' native execution copy wrapping');
+        assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).scrollbarGutter), 'stable');
+        await page.route('**/api/contributors', route => route.fulfill({status:401,json:{error:'Fixture session expired'}}));
+        await page.goto(base + '/tests/render-fixture.html?theme=' + theme + '&language=' + language + '&view=contributors');
+        await page.locator('.expired-session').waitFor();
+        assert.equal(await page.locator('.contributor-card').count(), 0, label + ' denied reads clear contributor content');
         assert.deepEqual(errors,[],label);
         await context.close();
       }

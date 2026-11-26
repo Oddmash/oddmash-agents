@@ -7,26 +7,26 @@ import { translate, type Language, type Message } from './i18n';
 
 const roleNames: Record<ControllableRole, string> = { reviewer: 'Lead', triage: 'Triage', impact: 'Impact', qa: 'QA', release: 'Release', docs: 'Docs', architect: 'Architect' };
 
-export const RuntimeControls = ({ language, onDirtyChange }: { language: Language; onDirtyChange?: (dirty: boolean) => void }) => {
+export const RuntimeControls = ({ language, onAccessLost, onDirtyChange }: { language: Language; onAccessLost: () => void; onDirtyChange?: (dirty: boolean) => void }) => {
   const t = (key: Message) => translate(language, key);
   const [saved, setSaved] = useState<ControlsResponse>();
   const [draft, setDraft] = useState<OperatorControls>();
   const [emptyLimit, setEmptyLimit] = useState<'requests' | 'seconds' | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Message | ''>('');
-  const [failed, setFailed] = useState<'unavailable' | 'unauthorized' | ''>('');
+  const [failed, setFailed] = useState<'unavailable' | ''>('');
   const [conflict, setConflict] = useState(false);
   const [needsReview, setNeedsReview] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     setSaved(undefined); setDraft(undefined); setNotice(''); setFailed(''); setConflict(false); setNeedsReview(false);
-    fetch('/api/controls', { cache: 'no-store', signal: controller.signal })
-      .then(response => { if (response.status === 401 || response.status === 403) throw new Error('unauthorized'); if (!response.ok) throw new Error('Controls unavailable'); return response.json() as Promise<ControlsResponse>; })
-      .then(record => { if (!controller.signal.aborted) { setSaved(record); setDraft(record.controls); } })
-      .catch(error => { if (!controller.signal.aborted) setFailed(error instanceof Error && error.message === 'unauthorized' ? 'unauthorized' : 'unavailable'); });
+    fetch('/api/controls', { cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]) })
+      .then(response => { if (response.status === 401 || response.status === 403) { if (!controller.signal.aborted) onAccessLost(); return; } if (!response.ok) throw new Error('Controls unavailable'); return response.json() as Promise<ControlsResponse>; })
+      .then(record => { if (record && !controller.signal.aborted) { setSaved(record); setDraft(record.controls); } })
+      .catch(() => { if (!controller.signal.aborted) setFailed('unavailable'); });
     return () => controller.abort();
-  }, [retry]);
+  }, [retry, onAccessLost]);
   const dirty = Boolean(saved && draft && controlsDirty(saved.controls, draft));
   useEffect(() => { onDirtyChange?.(dirty || busy); }, [dirty, busy, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
@@ -65,7 +65,7 @@ export const RuntimeControls = ({ language, onDirtyChange }: { language: Languag
   return <Card className="settings-panel runtime-controls">
     <h3>{t("Runtime controls")}</h3>
     <p className="muted">{t("Control new Lead and Triage runs and coordinated specialist participation.")}</p>
-    {failed ? <><Alert tone="danger">{t(failed === 'unauthorized' ? "Session expired. Sign in again." : "Runtime controls unavailable.")}</Alert><Button variant="secondary" onClick={() => setRetry(value => value + 1)}>{t("Refresh")}</Button></> : !draft ? <ConsoleSkeleton view="controls" language={language}/> :
+    {failed ? <><Alert tone="danger">{t("Runtime controls unavailable.")}</Alert><Button variant="secondary" onClick={() => setRetry(value => value + 1)}>{t("Refresh")}</Button></> : !draft ? <ConsoleSkeleton view="controls" language={language}/> :
       <form onSubmit={event => event.preventDefault()}>
         <div className="control-actions"><Button type="button" onClick={() => void save()} disabled={!dirty || !valid || busy || conflict || needsReview}>{t(busy ? "Saving…" : "Save changes")}</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => { setEmptyLimit(null); setDraft(defaultControls()); setNotice(saved && controlsDirty(saved.controls, defaultControls()) ? "Defaults staged. Save to apply." : ""); }}>{t("Restore defaults")}</Button>{!dirty && <Button type="button" variant="secondary" disabled={busy} onClick={() => setRetry(value => value + 1)}>{t("Reload saved settings")}</Button>}{dirty && !conflict && <Button type="button" variant="secondary" disabled={busy} onClick={() => { setEmptyLimit(null); if (saved) setDraft(saved.controls); setNeedsReview(false); setNotice(""); }}>{t("Discard changes")}</Button>}{conflict && <Button type="button" variant="secondary" disabled={busy} onClick={() => void reloadRevision()}>{t("Keep draft and reload revision")}</Button>}</div>
         <fieldset disabled={busy}><legend>{t("Participation")}</legend>

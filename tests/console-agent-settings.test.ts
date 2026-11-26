@@ -15,7 +15,8 @@ test('agent settings have one role list, retain owner model controls without wor
   assert.equal((dashboard.match(/<ModelSettings /g) ?? []).length, 1);
   assert.doesNotMatch(source('runtime-controls.tsx'), /<ModelSettings /);
   assert.doesNotMatch(dashboard, /className="config-grid data-row"/);
-  assert.match(dashboard, /hidden=\{!snapshot && \(view !== 'settings' \|\| error === 'Session expired\. Sign in again\.'\)\}/);
+  assert.match(dashboard, /hidden=\{!snapshot && view !== 'settings'\}/);
+  assert.match(dashboard, /if \(sessionExpired\) return <main/);
   assert.match(dashboard, /agents=\{snapshot\?\.settings\?\.agents\}/);
   const css = source('agent-settings.css');
   assert.match(css, /\.agent-settings-row \{[^}]*align-items: center/);
