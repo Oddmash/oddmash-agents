@@ -1,0 +1,7 @@
+# First-party session rollout
+
+Refs #251. The `CONSOLE_SESSION_MODE=first-party` mode is opt-in and must not be enabled in production until staged validation is complete. Unset/legacy mode preserves the current Auth.js flow; invalid values fail closed. After enabling first-party mode, never silently switch back to legacy because previously revoked access could be reaccepted.
+
+Use the existing approved operator store read/write configuration only if its namespace access is confirmed in an isolated staged test. No new GitHub scopes, provider credentials or store grants. First-party protected routes never accept the legacy JWT alone. Auth.js verifies owner identity and supplies a single-use bootstrap; old sessions without a fresh bootstrap require sign-in. The client checks status while visible and renews near expiry; no raw credentials enter JavaScript. Successful sign-out revokes the first-party family before Auth.js sign-out; failed revocation clears access and keeps the HttpOnly refresh cookie solely for retry, with protected content unmounted and automatic renewal suppressed.
+
+Before production activation, verify the exact reviewed staged build: owner sign-in, non-owner denial, all data routes, concurrent refresh across tabs, access expiry, logout/retry, new account selection, bounded store TTL and capacity, unavailable store, and no credentials in outputs or logs. Do not promote or mark #251 complete without observed evidence.

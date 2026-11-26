@@ -38,11 +38,13 @@ export function issueSession(state: SessionState, ownerId: string, expectedOwner
   return { state: { families: [...current.families, family] }, outcome: 'issued', credentials: { access, refresh, accessExpiresAt, expiresAt } };
 }
 
-export function authorizeSession(state: SessionState, access: string, expectedOwner: string, now: number, key: string): boolean {
+export function sessionAccessExpiry(state: SessionState, access: string, expectedOwner: string, now: number, key: string): number | undefined {
   const id = tokenId(access);
   const family = id && state.families.find(entry => entry.id === id);
-  return Boolean(family && key && !family.revoked && family.ownerId === expectedOwner && family.expiresAt > now && family.accessExpiresAt > now && matches(family.accessDigest, digest(key, 'access', access)));
+  if (family && key && !family.revoked && family.ownerId === expectedOwner && family.expiresAt > now && family.accessExpiresAt > now && matches(family.accessDigest, digest(key, 'access', access))) return family.accessExpiresAt;
 }
+
+export const authorizeSession = (state: SessionState, access: string, expectedOwner: string, now: number, key: string) => sessionAccessExpiry(state, access, expectedOwner, now, key) !== undefined;
 
 export function rotateSession(state: SessionState, refresh: string, expectedOwner: string, now: number, key: string): Transition {
   const current = prune(state, now);
