@@ -67,7 +67,7 @@ export async function readAdoptionMetrics(request: typeof fetch = fetch) {
   if (cached && Date.now() < cached.expires) return cached.metrics;
   if (pending) return pending;
   const promise = collectAdoptionMetrics(request).then(metrics => {
-    cached = { expires: Date.now() + (metrics.every(metric => metric.count === null) ? 60_000 : 3600_000), metrics };
+    cached = { expires: Date.now() + (metrics.some(metric => metric.count === null) ? 60_000 : 3600_000), metrics };
     return metrics;
   });
   pending = promise;

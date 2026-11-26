@@ -19,12 +19,15 @@ test('provider failure is unavailable, separate from successful zero; no credent
     assert.equal(new Headers(init?.headers).has('authorization'),false);
     const url = new URL(String(input));
     if(url.hostname==='marketplace.visualstudio.com') return new Response('',{status:429});
+    if(url.pathname.endsWith('/@oddmash/juliya')) return Response.json({error:'package not found'},{status:404});
     const id = url.pathname.split('/last-month/')[1];
     return Response.json({package:id, downloads:[{day:'2026-11-25',downloads:0}]});
   };
   const result = await collectAdoptionMetrics(request,new Date('2026-11-26T00:00:00Z'));
   assert.equal(result.length,4);
   assert.equal(result[0].count,0);
+  assert.equal(result[1].count,null);
+  assert.equal(result[1].history,null);
   assert.equal(result[3].count,null);
   assert.equal(result[3].history,null);
 });

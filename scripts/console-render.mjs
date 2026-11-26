@@ -46,7 +46,7 @@ try {
             await contributorsGate;
             return route.fulfill({json:{observedAt:updatedAt,partial:false,pulls:[{repository:target.repository, number:43, title:'Improve component accessibility for long localized labels on narrow screens',author:'external-contributor',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[{role:'reviewer',state:'APPROVED',currentHead:true,submittedAt:updatedAt,id:91}],workflow:{state:'action-required',id:71}}},{repository:target.repository,number:45,title:'Workflow rerun in progress',author:'guest',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[{role:'reviewer',state:'APPROVED',currentHead:true,submittedAt:updatedAt,id:92}],workflow:{state:'running',id:72,attempt:2,name:'CI'}}},{repository:target.repository,number:46,title:'Failed browser tests',author:'guest',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[],reviewStatus:{state:'failed',id:93,updatedAt,reason:'checks-failed'},workflow:{state:'failed',id:73,attempt:2,name:'CI',failures:[{job:'extension',step:'Chromium extension E2E',conclusion:'failure',jobId:74}]}}},{repository:target.repository,number:44,title:'Handle missing workflow evidence',author:'guest',updatedAt,draft:false}]}});
           }
-          if (path === '/api/adoption') return route.fulfill({json:{metrics:[{id:'@oddmash/ui',kind:'npm',source:'https://www.npmjs.com/package/@oddmash/ui',count:133,observedAt:updatedAt,history:Array.from({length:30},(_,index)=>({day:new Date(Date.UTC(2025,11,index+2)).toISOString().slice(0,10),downloads:index===24?0:index%7===0?50:index})).filter((_,index)=>index!==26)},{id:'oddmash.boundra-vscode',kind:'marketplace',source:'https://marketplace.visualstudio.com/items?itemName=oddmash.boundra-vscode',count:12,history:null,observedAt:updatedAt}]}});
+          if (path === '/api/adoption') return route.fulfill({json:{metrics:[{id:'@oddmash/ui',kind:'npm',source:'https://www.npmjs.com/package/@oddmash/ui',count:133,observedAt:updatedAt,history:Array.from({length:30},(_,index)=>({day:new Date(Date.UTC(2025,11,index+2)).toISOString().slice(0,10),downloads:index===24?0:index%7===0?50:index})).filter((_,index)=>index!==26)},{id:'@oddmash/juliya',kind:'npm',source:'https://www.npmjs.com/package/@oddmash/juliya',count:null,history:null,observedAt:updatedAt},{id:'oddmash.boundra-vscode',kind:'marketplace',source:'https://marketplace.visualstudio.com/items?itemName=oddmash.boundra-vscode',count:12,history:null,observedAt:updatedAt}]}});
           if (path === '/api/status') return route.fulfill({ json: snapshot });
           if (path === '/api/models') return route.fulfill({ json: { revision: 'fixture', overrides: {}, policy: Object.fromEntries(['reviewer','impact','triage','qa','release','docs','architect'].map(role => [role, { defaultModel: 'fixture-model', allowed: [] }])) } });
           if (path === '/api/controls') return route.fulfill({ json: { revision: 'fixture', controls: { paused: false, excludedRoles: [], maxRequests: null, maxMs: null } } });
@@ -174,6 +174,19 @@ try {
         assert.match(await page.locator('.adoption-reported-total').first().innerText(),/133/,label+' reported monthly aggregate');
         await chart.locator('.download-bar').first().focus();
         assert(await chart.locator('.download-bar').first().getAttribute('aria-label'),label);
+        const tooltip=chart.locator('.download-hover-tooltip');
+        await tooltip.waitFor({state:'visible'});
+        assert.match(await tooltip.innerText(),/23/,label+' exact focused count');
+        await chart.locator('[data-zero="true"]').hover();
+        assert.equal(await tooltip.locator('strong').innerText(),'0',label+' exact hover zero');
+        await chart.locator('[data-missing="true"]').hover();
+        assert.match(await tooltip.innerText(),language==='ko'?/사용 불가/:/Unavailable/,label);
+        assert(await chart.locator('.download-bars').evaluate(el=>getComputedStyle(el,'::before').borderBottomStyle==='solid'&&getComputedStyle(el,'::before').backgroundImage!=='none'),label+' continuous shared guides');
+        await chart.locator('.download-bar').last().click();
+        assert(await tooltip.evaluate(el=>{const a=el.getBoundingClientRect(),b=el.parentElement.getBoundingClientRect();return a.left>=b.left-1&&a.right<=b.right+1}),label+' tooltip within plot');
+        await page.keyboard.press('Escape');
+        assert.equal(await tooltip.count(),0,label+' tooltip dismiss');
+        assert.match(await page.locator('.adoption-card').filter({hasText:'@oddmash/juliya'}).innerText(),language==='ko'?/통계 서비스/:/npm download service/,label);
         assert.equal(await chart.locator('.download-bar-fill').first().evaluate(el=>getComputedStyle(el).animationName),'none',label);
         await page.screenshot({path:dir+'/'+label+'-downloads-week.png',fullPage:true,animations:'disabled'});
         await page.getByRole('button',{name:language==='ko'?'월간':'Month',exact:true}).click();

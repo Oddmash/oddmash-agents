@@ -33,7 +33,7 @@ export const AdoptionMetrics = ({ language }: { language: Language }) => {
     {metrics && <div className="review-list">{metrics.map(metric => <Card key={metric.id} className="review-group adoption-card">
       <div className="detail-intro adoption-card-heading"><h3><a href={metric.source} target="_blank" rel="noreferrer">{metric.id}</a></h3><div className="adoption-reported-total"><small className="muted">{t(metric.kind === 'npm' ? 'Downloads in reported month' : 'Marketplace reported installs')}</small><strong>{metric.count === null ? t('Unavailable') : metric.count.toLocaleString(language)}</strong></div></div>
       <p className="muted adoption-observed">{t('Last observed:')} <time dateTime={metric.observedAt}>{new Date(metric.observedAt).toLocaleString(language)}</time></p>
-      {metric.history?.length ? <DownloadChart history={metric.history} name={metric.id} language={language} period={period}/> : metric.kind === 'marketplace' ? <p className="muted">{t('Historical observations are retained in the daily collection runs.')}</p> : null}
+      {metric.history?.length ? <DownloadChart history={metric.history} name={metric.id} language={language} period={period}/> : metric.kind === 'marketplace' ? <p className="muted">{t('Historical observations are retained in the daily collection runs.')}</p> : <p className="muted adoption-observed">{t('The npm download service has not returned statistics for this package. Try again later.')}</p>}
     </Card>)}</div>}
     <a href="https://github.com/Oddmash/oddmash-agents/actions/workflows/public-adoption-metrics.yml" target="_blank" rel="noreferrer">{t('Daily collection history')}</a>
   </section>;
