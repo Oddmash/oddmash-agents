@@ -211,6 +211,13 @@ export function protectedBranch(branch: Branch, base: string): boolean {
   return branch.protected === true && branch.commit.sha === base && p?.enabled === true && p.required_status_checks?.enforcement_level === 'everyone' && !!p.required_status_checks.checks?.some(c => c.context === 'verify' && c.app_id === 15368);
 }
 
+function matchesMergeRevision(pull: MergePull, candidate: Candidate, target: Target): boolean {
+  const original = candidate.pull;
+  return eligiblePull(pull, target) && pull.head.sha === original.head.sha &&
+    pull.base.ref === original.base.ref && pull.base.sha === original.base.sha &&
+    pull.merge_commit_sha === original.merge_commit_sha && linkedIssue(pull.body) === candidate.acceptance.issue;
+}
+
 export async function mergeAuthorized(api: Api, target: Target, candidate: Candidate, bot: string, reviewId: number, issueVerified: boolean, mint: () => Promise<Api>, withheld: (reason: string) => void = () => {}): Promise<boolean> {
   const deny = (reason: string) => { withheld(reason); return false; };
   if (!issueVerified) return deny('issue evidence not verified');
@@ -220,7 +227,11 @@ export async function mergeAuthorized(api: Api, target: Target, candidate: Candi
   if (!current) return false;
   if (current.repositoryOptIn !== candidate.repositoryOptIn || current.acceptance.digest !== candidate.acceptance.digest || current.pull.head.sha !== candidate.pull.head.sha || current.pull.base.ref !== candidate.pull.base.ref || current.pull.base.sha !== candidate.pull.base.sha || current.pull.merge_commit_sha !== candidate.pull.merge_commit_sha) return deny('candidate changed');
   if (current.pull.mergeable === null || current.pull.mergeable_state === 'unknown') throw new Error('Mergeability evidence pending');
-  if (current.pull.mergeable !== true || current.pull.mergeable_state !== 'clean') return deny('candidate is not clean');
+  // The Mobile branch restricts updates to the maintainer and Lead. The read token
+  // can see blocked even though the scoped merge token is an authorized actor.
+  const readableMergeability = (pull: MergePull) => pull.mergeable === true &&
+    (pull.mergeable_state === 'clean' || (target.repository === 'Oddmash/oddmash-mobile' && pull.mergeable_state === 'blocked'));
+  if (!readableMergeability(current.pull)) return deny('candidate is not clean');
   const branch = await api<Branch>(root + '/branches/' + current.pull.base.ref);
   if (!protectedBranch(branch, current.pull.base.sha)) return deny('required branch protection unavailable');
   const compare = await api<{ behind_by: number; merge_base_commit: { sha: string } }>(root + '/compare/' + current.pull.base.sha + '...' + current.pull.head.sha);
@@ -235,7 +246,7 @@ export async function mergeAuthorized(api: Api, target: Target, candidate: Candi
   }
   const final = await api<MergePull>(root + '/pulls/' + number);
   if (final.mergeable === null || final.mergeable_state === 'unknown') throw new Error('Mergeability evidence pending');
-  if (!eligiblePull(final, target) || final.head.sha !== current.pull.head.sha || final.base.ref !== current.pull.base.ref || final.base.sha !== current.pull.base.sha || final.merge_commit_sha !== current.pull.merge_commit_sha || final.mergeable_state !== 'clean' || final.mergeable !== true || linkedIssue(final.body) !== current.acceptance.issue) return deny('final PR state changed');
+  if (!matchesMergeRevision(final, current, target) || !readableMergeability(final)) return deny('final PR state changed');
   const finalIssue = acceptanceForPull(await api<Issue>(root + '/issues/' + current.acceptance.issue), final, Boolean(target.private));
   if (!finalIssue || finalIssue.digest !== current.acceptance.digest) return deny('issue changed during review');
   const finalOptIn = await repositoryMergeOptIn(api, target.repository);
@@ -244,6 +255,16 @@ export async function mergeAuthorized(api: Api, target: Target, candidate: Candi
   if ((finalOptIn === 'documentation' ? finalOptIn : undefined) !== current.repositoryOptIn) return deny('candidate changed');
   const writer = await mint();
   try {
+    if (current.pull.mergeable_state === 'blocked' || final.mergeable_state === 'blocked') {
+      const authorized = await writer<MergePull>(root + '/pulls/' + number);
+      if (authorized.mergeable === null || authorized.mergeable_state === 'unknown') {
+        throw new Error('Mergeability evidence pending');
+      }
+      if (!matchesMergeRevision(authorized, current, target) ||
+          authorized.mergeable !== true || authorized.mergeable_state !== 'clean') {
+        return deny('candidate is not clean');
+      }
+    }
     const merged = await writer<{ merged: boolean }>(root + '/pulls/' + number + '/merge', { method: 'PUT', body: JSON.stringify({ sha: final.head.sha, merge_method: 'merge' }) });
     return merged.merged === true || deny('GitHub did not merge the PR');
   } finally {
