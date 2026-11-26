@@ -19,7 +19,11 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--om-semantic-space-sm);
-  padding: var(--om-semantic-space-sm);
+  padding: var(--om-semantic-space-xs) var(--om-semantic-space-sm);
+  border-block-end: var(--om-semantic-border-width) solid var(--om-semantic-color-border-subtle);
+  border-start-start-radius: inherit;
+  border-start-end-radius: inherit;
+  background: var(--om-semantic-color-surface);
 }
 .workflow-legend, .workflow-controls, .workflow-pan-controls {
   display: flex;
@@ -36,20 +40,19 @@
 .workflow-line-key { inline-size: var(--console-length-24); border-block-start: var(--console-length-2) dashed var(--om-semantic-color-muted); }
 .workflow-line-key.observed { border-block-start-style: solid; border-color: var(--om-semantic-color-success); }
 .workflow-controls .om-button { min-inline-size: var(--console-length-32); min-block-size: var(--console-length-32); padding-inline: var(--om-semantic-space-xs); }
-.workflow-pan-controls { flex-wrap: nowrap; }
+.workflow-pan-controls { flex-wrap: nowrap; border-inline-start: var(--om-semantic-border-width) solid var(--om-semantic-color-border-subtle); padding-inline-start: var(--om-semantic-space-xs); }
 .workflow-zoom-value { font-size: var(--console-length-12); font-variant-numeric: tabular-nums; min-inline-size: var(--console-length-36); text-align: center; }
 .workflow-interaction {
   font-size: var(--console-length-12);
   color: var(--om-semantic-color-muted);
   margin: 0;
-  padding: 0 var(--om-semantic-space-sm) var(--om-semantic-space-sm);
+  flex-basis: 100%;
 }
 .workflow-viewport {
   overflow: hidden;
   overflow: clip;
   position: relative;
   block-size: clamp(calc(var(--console-length-292) + var(--console-length-56)), 52vh, calc(var(--console-length-292) + var(--console-length-96) + var(--console-length-20)));
-  border-block-start: var(--om-semantic-border-width) solid var(--om-semantic-color-border-subtle);
   border-end-start-radius: var(--om-semantic-radius-lg);
   border-end-end-radius: var(--om-semantic-radius-lg);
   background-image: radial-gradient(var(--om-semantic-color-border-subtle) var(--console-length-1), transparent var(--console-length-1));
@@ -108,9 +111,17 @@
   cursor: pointer;
 }
 .workflow-node:hover { border-color: var(--om-semantic-color-focus); }
+.workflow-node[data-running="true"] { border-color: var(--om-semantic-color-focus); animation: workflow-active 2.4s ease-in-out infinite; }
+@keyframes workflow-active {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 0 2px var(--om-semantic-color-focus); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workflow-node[data-running="true"] { animation: none; }
+}
 .workflow-node-title { display: flex; align-items: center; justify-content: space-between; gap: var(--om-semantic-space-xs); min-inline-size: 0; inline-size: 100%; overflow-wrap: anywhere; }
 .workflow-node-title .agent-identity { font-size: var(--console-length-15); gap: var(--om-semantic-space-xs); }
-.workflow-node-title .agent-identity .agent-avatar { width: var(--console-length-20); height: var(--console-length-20); }
+.workflow-node-title .agent-identity .agent-avatar { width: var(--console-length-20); height: var(--console-length-20); flex: 0 0 auto; align-self: center; }
 .workflow-node-title small { display: none; }
 .workflow-node-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--om-semantic-space-xs); min-inline-size: 0; }
 .workflow-node .om-badge { white-space: normal; overflow-wrap: anywhere; font-size: var(--console-length-12); line-height: var(--console-line-height-compact); }
@@ -137,3 +148,13 @@
 .workflow-facts > div { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr); gap: var(--om-semantic-space-sm); }
 .workflow-facts dt { color: var(--om-semantic-color-muted); }
 .workflow-facts dd { margin: 0; overflow-wrap: anywhere; }
+.workflow-stage-history { margin-block-start: var(--om-semantic-space-md); }
+.workflow-stage-history h5 { display: flex; align-items: center; gap: var(--om-semantic-space-xs); font: inherit; font-weight: var(--console-font-weight-600); margin: 0; }
+.workflow-stage-history h5 span, .workflow-stage-history time, .workflow-stage-interval { color: var(--om-semantic-color-muted); font-size: var(--console-length-12); }
+.workflow-timeline { display: grid; list-style: none; margin-block: var(--om-semantic-space-sm); padding: 0; }
+.workflow-timeline li { position: relative; display: grid; gap: var(--om-semantic-space-xs); padding: var(--om-semantic-space-sm) 0 var(--om-semantic-space-sm) var(--om-semantic-space-lg); border-inline-start: var(--om-semantic-border-width) solid var(--om-semantic-color-border-subtle); margin-inline-start: var(--om-semantic-space-xs); }
+.workflow-timeline li > div { display: flex; align-items: center; gap: var(--om-semantic-space-xs); flex-wrap: wrap; }
+.workflow-timeline-marker { position: absolute; inset-inline-start: calc(-1 * var(--console-length-5)); inset-block-start: var(--om-semantic-space-md); inline-size: var(--console-length-9); block-size: var(--console-length-9); border-radius: 50%; background: var(--om-semantic-color-muted); }
+.workflow-timeline li[data-stage-state="running"] .workflow-timeline-marker { background: var(--om-semantic-color-focus); }
+.workflow-timeline li[data-stage-state="failed"] .workflow-timeline-marker { background: var(--om-semantic-color-danger); }
+.workflow-failure-phase { overflow-wrap: anywhere; }
