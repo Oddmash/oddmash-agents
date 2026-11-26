@@ -46,6 +46,7 @@ export const korean = {
   "Unable to save runtime controls. Your draft is retained.": "운영 제어를 저장하지 못했습니다. 입력값은 유지됩니다.",
   "Repository": "저장소",
   "All repositories": "모든 저장소",
+  "Date range": "날짜 범위",
   "Activity day": "활동 날짜",
   "All days": "모든 날짜",
   "Local time zone": "현지 시간대",
