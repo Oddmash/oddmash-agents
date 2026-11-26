@@ -1,6 +1,6 @@
 # Public onboarding
 
-The existing hosted agent service is restricted to explicitly enrolled Oddmash repositories and authorized maintainer operations. An App profile exists, but GitHub's public installation availability and first-use outside Oddmash have not been verified. Public self-service is not supported or advertised. No installation, visibility or permission settings were changed.
+The existing hosted agent service is restricted to explicitly enrolled Oddmash repositories and authorized maintainer operations. The Lead GitHub App is private: the maintainer's Advanced settings show the option to make it public, not an enabled public installation. First-use outside Oddmash is not supported. Public self-service is not supported or advertised. No installation, visibility or permission settings were changed.
 
 ## First use as a contributor
 
