@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { executionContext, executionRole, publicationRecorder, recordSkippedExecution, recordReviewPhase, runAgentExecution } from '../apps/worker/src/agent-execution.ts';
+import { executionContext, executionRole, publicationRecorder, recordCurrentExecutionSkipped, recordSkippedExecution, recordReviewPhase, runAgentExecution } from '../apps/worker/src/agent-execution.ts';
 
 test('retries preserve correlation but keep roles separate', () => {
   const delivery = '12345678-1234-1234-1234-123456789012';
@@ -89,4 +89,13 @@ test('unattributed parent publishes an independent observation for each verified
   assert.notEqual(publications[0].correlationId, context.correlationId);
   assert.notEqual(publications[0].correlationId, publications[1].correlationId);
   assert.deepEqual(publications.map(event => event.target?.number), [7, 8]);
+});
+
+test('a paused primary role keeps its original correlation and records one skipped terminal outcome', async () => {
+  const context = executionContext('triage', '');
+  const events: import('../packages/operator-contract/src/index.ts').ExecutionEvent[] = [];
+  await runAgentExecution(context, async () => recordCurrentExecutionSkipped('excluded'), event => events.push(event));
+  assert.deepEqual(events.map(event => event.outcome), ['started', 'skipped']);
+  assert.equal(events[1].correlationId, context.correlationId);
+  assert.equal(events[1].skipReason, 'excluded');
 });

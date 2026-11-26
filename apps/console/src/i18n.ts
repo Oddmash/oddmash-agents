@@ -1,5 +1,8 @@
 export const korean = {
   "Last successful data; latest refresh unavailable.": "마지막 정상 집계입니다. 최신 집계를 불러오지 못했습니다.",
+  "Control new Lead and Triage runs and coordinated specialist participation.": "Lead와 Triage의 새 실행 및 협업 에이전트 참여를 설정합니다.",
+  "New Lead and Triage runs": "Lead 및 Triage 새 실행",
+  "Turning off a role pauses new jobs. Runs already in progress can finish.": "역할을 끄면 새 작업을 일시 중지합니다. 진행 중인 작업은 계속 실행됩니다.",
   "Refreshing…": "새로 고치는 중…",
   "Discard and leave": "변경 사항 버리고 나가기",
   "Stay": "계속 편집",
