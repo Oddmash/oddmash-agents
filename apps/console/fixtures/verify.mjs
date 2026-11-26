@@ -39,7 +39,7 @@ try {
         await dialog.waitFor();
         await page.keyboard.press('Escape');
         await dialog.waitFor({ state: 'hidden' });
-        assert(await role.evaluate(element => document.activeElement === element), label + ' dialog focus restored');
+        await page.waitForFunction(element => document.activeElement === element, await role.elementHandle(), { timeout: 2000 });
 
         await page.locator('.console-nav a').nth(2).click();
         const card = page.locator('.contributor-card').first();
