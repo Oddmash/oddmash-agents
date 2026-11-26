@@ -47,7 +47,7 @@ try {
             await contributorsGate;
             return route.fulfill({json:{observedAt:updatedAt,partial:false,pulls:[{repository:target.repository, number:43, title:'Improve component accessibility for long localized labels on narrow screens',author:'external-contributor',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[{role:'reviewer',state:'APPROVED',currentHead:true,submittedAt:updatedAt,id:91}],workflow:{state:'action-required',id:71}}},{repository:target.repository,number:45,title:'Workflow rerun in progress',author:'guest',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[{role:'reviewer',state:'APPROVED',currentHead:true,submittedAt:updatedAt,id:92}],workflow:{state:'running',id:72,attempt:2,name:'CI'}}},{repository:target.repository,number:46,title:'Failed browser tests',author:'guest',updatedAt,draft:false,evidence:{observedAt:updatedAt,reviewsComplete:true,reviews:[],reviewStatus:{state:'failed',id:93,updatedAt,reason:'checks-failed'},workflow:{state:'failed',id:73,attempt:2,name:'CI',failures:[{job:'extension',step:'Chromium extension E2E',conclusion:'failure',jobId:74}]}}},{repository:target.repository,number:44,title:'Handle missing workflow evidence',author:'guest',updatedAt,draft:false}]}});
           }
-          if (path === '/api/adoption') { adoptionRequests++; return route.fulfill({json:{metrics:[{id:'@oddmash/ui',kind:'npm',source:'https://www.npmjs.com/package/@oddmash/ui',count:133,observedAt:new Date().toISOString(),history:Array.from({length:30},(_,index)=>({day:new Date(Date.UTC(2025,11,index+2)).toISOString().slice(0,10),downloads:index===24?0:index%7===0?50:index})).filter((_,index)=>index!==26)},{id:'@oddmash/juliya',kind:'npm',source:'https://www.npmjs.com/package/@oddmash/juliya',count:null,history:null,observedAt:new Date().toISOString()},{id:'oddmash.boundra-vscode',kind:'marketplace',source:'https://marketplace.visualstudio.com/items?itemName=oddmash.boundra-vscode',count:12,history:null,observedAt:new Date().toISOString()}]}}); }
+          if (path === '/api/adoption') { adoptionRequests++; return route.fulfill({json:{metrics:[{id:'@oddmash/ui',kind:'npm',source:'https://www.npmjs.com/package/@oddmash/ui',count:adoptionRequests===1?133:null,observedAt:new Date().toISOString(),history:adoptionRequests!==1?null:Array.from({length:30},(_,index)=>({day:new Date(Date.UTC(2025,11,index+2)).toISOString().slice(0,10),downloads:index===24?0:index%7===0?50:index})).filter((_,index)=>index!==26)},{id:'@oddmash/juliya',kind:'npm',source:'https://www.npmjs.com/package/@oddmash/juliya',count:null,history:null,observedAt:new Date().toISOString()},{id:'oddmash.boundra-vscode',kind:'marketplace',source:'https://marketplace.visualstudio.com/items?itemName=oddmash.boundra-vscode',count:adoptionRequests===1?12:13,history:null,observedAt:new Date().toISOString()}]}}); }
           if (path === '/api/status') return route.fulfill({ json: snapshot });
           if (path === '/api/models') return route.fulfill({ json: { revision: 'fixture', overrides: {}, policy: Object.fromEntries(['reviewer','impact','triage','qa','release','docs','architect'].map(role => [role, { defaultModel: 'fixture-model', allowed: [] }])) } });
           if (path === '/api/controls') return route.fulfill({ json: { revision: 'fixture', controls: { paused: false, excludedRoles: [], maxRequests: null, maxMs: null } } });
@@ -224,6 +224,12 @@ try {
         await chart.waitFor({state:'visible'});
         assert.equal(adoptionRequests,beforeReturn,label+' adoption cache survives route changes');
         assert.equal(await chart.locator('.download-bar').count(),30,label+' period preserved');
+        await page.locator('.adoption-actions button').last().click();
+        const staleCard=page.locator('.adoption-card').filter({hasText:'@oddmash/ui'});
+        await staleCard.locator('.om-alert').waitFor({state:'visible'});
+        assert.match(await staleCard.locator('.adoption-reported-total').innerText(),/133/,label+' partial failure retains last good count');
+        assert.equal(await staleCard.locator('.download-bar').count(),30,label+' partial failure retains chart');
+        assert.match(await page.locator('.adoption-card').filter({hasText:'oddmash.boundra-vscode'}).locator('.adoption-reported-total').innerText(),/13/,label+' successful source refreshes independently');
         await page.locator('.console-nav a').nth(4).click();
         await page.locator('.settings-summary').waitFor({state:'visible'});
         await page.locator('.runtime-controls:visible .control-check').first().waitFor({state:'visible'});
@@ -248,10 +254,14 @@ try {
         await discardDialog.getByRole('button',{name:language==='ko'?'계속 편집':'Stay',exact:true}).click();
         await discardDialog.waitFor({state:'hidden'});
         assert(await page.locator('.runtime-controls:visible .control-check input').first().isChecked(),label+' canceled departure retains draft');
-        await page.locator('.console-nav a').first().click();
+        await page.goBack();
         await discardDialog.waitFor({state:'visible'});
         await discardDialog.getByRole('button',{name:language==='ko'?'변경 사항 버리고 나가기':'Discard and leave',exact:true}).click();
+        await chart.waitFor({state:'visible'});
+        await page.goBack();
         await page.locator('.overview-content').waitFor({state:'visible'});
+        await page.goForward();
+        await chart.waitFor({state:'visible'});
         await page.locator('.console-nav a').nth(4).click();
         await page.locator('.runtime-controls:visible .control-check input').first().waitFor({state:'visible'});
         assert.equal(await page.locator('.runtime-controls:visible .control-check input').first().isChecked(),false,label+' confirmed departure discards only draft');
