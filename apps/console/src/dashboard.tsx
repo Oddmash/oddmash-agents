@@ -117,7 +117,7 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
     <main>
       <header><div><h2 ref={headingRef} tabIndex={-1}>{t(viewLabels[view])}</h2></div><span role="status" aria-live="polite" className="live-label" data-connected={connected && !error}>{!error && <><span className="status-dot" aria-hidden="true"/>{t(loading && !snapshot ? 'Loading status…' : connected ? 'Connected to worker telemetry' : 'Telemetry storage is not configured.')}</>}</span></header>
       <div role="status" aria-live="polite" className="muted status-line">{error && <Alert tone="danger">{t(error)}{snapshot?.connected ? t(" Showing the last successful snapshot.") : ''}</Alert>}</div>
-      {loading && !snapshot && view !== 'settings' && <ConsoleSkeleton view={view} language={language}/>}
+      {loading && !snapshot && view !== 'settings' && view !== 'contributors' && <ConsoleSkeleton view={view} language={language}/>}
       <div hidden={!snapshot && (view !== 'settings' || error === 'Session expired. Sign in again.')}>
       <section hidden={view !== 'overview'} className="metrics overview-metrics" aria-label={t("Overview")}>
         {([
