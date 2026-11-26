@@ -124,6 +124,8 @@ try {
         assert.equal(await cards.first().locator('.contributor-workflow-link').getAttribute('href'),'https://github.com/Oddmash/example/actions/runs/71',label);
         const cardBounds = await cards.first().boundingBox();
         assert(Math.abs(skeletonBounds.width-cardBounds.width) <= 1,label+' skeleton matches card width');
+        assert(Math.abs(skeletonBounds.y-cardBounds.y) <= 5,label+' skeleton matches card location');
+        if(width <= 390) assert(await cards.first().locator('.review-target-row').evaluate(element => element.firstElementChild.getBoundingClientRect().width >= element.getBoundingClientRect().width - 1),label+' full-width mobile title');
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),label+' contributor page overflow');
         assert.deepEqual(errors,[],label);
         await page.screenshot({path:dir+'/'+label+'-contributor.png',fullPage:true,animations:'disabled'});
