@@ -1,0 +1,30 @@
+name: Public Adoption Metrics
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-adoption-metrics
+  cancel-in-progress: false
+jobs:
+  collect:
+    if: github.repository == 'Oddmash/oddmash-agents' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24'
+      - name: Collect public package and extension aggregates
+        run: node scripts/collect-adoption-metrics.ts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: adoption-metrics
+          path: adoption-metrics.json
+          retention-days: 30
+          if-no-files-found: error
