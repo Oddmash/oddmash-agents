@@ -47,7 +47,7 @@ export async function recordQueued(context: ExecutionContext) {
   await persistEvent(event);
 }
 
-const activeExecution = new AsyncLocalStorage<{ context: ExecutionContext; emit: (event: ReturnType<typeof executionEvent>) => void; clock: () => number }>();
+const activeExecution = new AsyncLocalStorage<{ context: ExecutionContext; emit: (event: ReturnType<typeof executionEvent>) => void; clock: () => number; skipped: boolean }>();
 
 export function recordSkippedExecution(role: AgentRole, target: Pick<Target, 'repository' | 'number' | 'private'>, reason: SkipReason) {
   const active = activeExecution.getStore();
@@ -55,6 +55,13 @@ export function recordSkippedExecution(role: AgentRole, target: Pick<Target, 're
   if (!active || !scope) return;
   const context = executionContext(role, '', 1, scope);
   active.emit({ ...executionEvent(context, 'skipped', active.clock()), skipReason: reason });
+}
+
+export function recordCurrentExecutionSkipped(reason: SkipReason) {
+  const active = activeExecution.getStore();
+  if (!active) return;
+  active.skipped = true;
+  active.emit({ ...executionEvent(active.context, 'skipped', active.clock()), skipReason: reason });
 }
 
 export function publicationRecorder(target: Pick<Target, 'repository' | 'number' | 'private'>) {
@@ -88,12 +95,13 @@ export async function runAgentExecution<T>(context: ExecutionContext, action: ()
   const start = clock();
   publish(executionEvent(context, 'started', start));
   let usage: ModelUsageSummary | undefined;
+  const execution = { context, emit: publish, clock, skipped: false };
   try {
-    const result = await trackModelUsage(() => trackGitHubRequests(() => activeExecution.run({ context, emit: publish, clock }, action), counts => {
+    const result = await trackModelUsage(() => trackGitHubRequests(() => activeExecution.run(execution, action), counts => {
       if (!emit && counts.length) console.info(JSON.stringify({ event: 'oddmash_github_request_counts', role: context.role, correlationId: context.correlationId, attempt: context.attempt, counts }));
     }), observed => { usage = observed; });
     const end = clock();
-    publish({ ...executionEvent(context, 'returned', end, end - start), ...(usage ? { usage } : {}) });
+    if (!execution.skipped) publish({ ...executionEvent(context, 'returned', end, end - start), ...(usage ? { usage } : {}) });
     return result;
   } catch (error) {
     const end = clock();

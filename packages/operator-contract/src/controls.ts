@@ -1,6 +1,9 @@
 export const optionalRoles = ['impact', 'qa', 'release', 'docs', 'architect'] as const;
+export const primaryRoles = ['reviewer', 'triage'] as const;
+export const controllableRoles = [...optionalRoles, ...primaryRoles] as const;
+export type ControllableRole = typeof controllableRoles[number];
 export type OptionalRole = typeof optionalRoles[number];
-export type OperatorControls = { paused: boolean; excludedRoles: OptionalRole[]; maxRequests: number | null; maxMs: number | null };
+export type OperatorControls = { paused: boolean; excludedRoles: ControllableRole[]; maxRequests: number | null; maxMs: number | null };
 export type ControlsRecord = { revision: string | null; controls: OperatorControls; updatedAt: string | null };
 export type DeploymentControlLimits = { maxRequests: number; maxMs: number };
 export type ControlsResponse = ControlsRecord & { limits: DeploymentControlLimits };
@@ -25,11 +28,11 @@ export function parseOperatorControls(input: unknown): OperatorControls | undefi
   if (!input || typeof input !== 'object' || Array.isArray(input)) return;
   const value = input as Record<string, unknown>;
   if (Object.keys(value).length !== 4 || typeof value.paused !== 'boolean' || !Array.isArray(value.excludedRoles) ||
-      value.excludedRoles.length > optionalRoles.length || value.excludedRoles.some(role => !optionalRoles.includes(role as OptionalRole)) ||
+      value.excludedRoles.length > controllableRoles.length || value.excludedRoles.some(role => !controllableRoles.includes(role as ControllableRole)) ||
       new Set(value.excludedRoles).size !== value.excludedRoles.length) return;
   const bound = (number: unknown, max: number) => number === null || typeof number === 'number' && Number.isSafeInteger(number) && number >= 0 && number <= max;
   if (!bound(value.maxRequests, 5) || !bound(value.maxMs, 120000)) return;
-  return { paused: value.paused, excludedRoles: optionalRoles.filter(role => (value.excludedRoles as unknown[]).includes(role)), maxRequests: value.maxRequests as number | null, maxMs: value.maxMs as number | null };
+  return { paused: value.paused, excludedRoles: controllableRoles.filter(role => (value.excludedRoles as unknown[]).includes(role)), maxRequests: value.maxRequests as number | null, maxMs: value.maxMs as number | null };
 }
 
 export function parseControlsRecord(input: unknown): ControlsRecord | undefined {
@@ -38,7 +41,10 @@ export function parseControlsRecord(input: unknown): ControlsRecord | undefined 
   const controls = parseOperatorControls(value.controls);
   if (!controls || typeof value.revision !== 'string' || !/^[a-f0-9-]{36}$/.test(value.revision) ||
       typeof value.updatedAt !== 'string' || !Number.isFinite(Date.parse(value.updatedAt))) return;
-  return { revision: value.revision, controls, updatedAt: value.updatedAt };
+  const paused = value.pausedPrimaryRoles;
+  if (paused !== undefined && (!Array.isArray(paused) || paused.some(role => !primaryRoles.includes(role)) || new Set(paused).size !== paused.length)) return;
+  const excludedRoles = controllableRoles.filter(role => controls.excludedRoles.includes(role) || (Array.isArray(paused) && paused.includes(role)));
+  return { revision: value.revision, controls: { ...controls, excludedRoles }, updatedAt: value.updatedAt };
 }
 
 export function restrictAdvisoryBudget(base: { maxRequests: number; elapsedMs: number }, controls: OperatorControls) {

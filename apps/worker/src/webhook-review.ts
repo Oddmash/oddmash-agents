@@ -1,9 +1,9 @@
-import { executionContext, publicationRecorder, recordSkippedExecution, recordReviewPhase, runAgentExecution } from './agent-execution.ts';
+import { executionContext, executionRole, publicationRecorder, recordCurrentExecutionSkipped, recordSkippedExecution, recordReviewPhase, runAgentExecution } from './agent-execution.ts';
 import { createHash } from 'node:crypto';
 import { runImpact } from './impact.ts';
 import { runAdvisory } from './advisory.ts';
 import { sameFindingText, verifiedReviewer } from './specialist-findings.ts';
-import { defaultControls, restrictAdvisoryBudget } from '../../../packages/operator-contract/src/controls.ts';
+import { defaultControls, restrictAdvisoryBudget, type OperatorControls } from '../../../packages/operator-contract/src/controls.ts';
 import { operatorStoreConfig, readOperatorControls } from '../../../packages/operator-store/src/index.ts';
 import { advisoryModelConfig, readReviewModelOverrides } from './runtime-config.ts';
 import { effectiveOperatorModel, modelPolicy } from '../../../packages/operator-contract/src/model-settings.ts';
@@ -118,12 +118,30 @@ export async function attachReviewFindings(api: Api, path: string, pendingId: nu
 
 const statuses = ['review: pending', 'review: approved', 'review: changes requested', 'review: needs human', 'review: follow-up', 'review: stale'];
 
-export async function reviewWebhook(target: Target, config: { appId: string; key: string; slug: string; openaiKey: string; model: string; autoMerge?: boolean }) {
+export async function readExecutionControls(target: Target): Promise<OperatorControls | undefined> {
+  const role = executionRole(target);
+  if (target.reply || (role !== 'reviewer' && role !== 'triage')) return;
+  const storeUrl = process.env.OPERATOR_STORE_URL;
+  const readToken = process.env.OPERATOR_STORE_READ_TOKEN;
+  if (!storeUrl && !readToken) return defaultControls();
+  const store = operatorStoreConfig(storeUrl, readToken);
+  if (!store) throw new Error('Operator controls unavailable');
+  try { return (await readOperatorControls(store)).controls; }
+  catch { throw new Error('Operator controls unavailable'); }
+}
+
+export async function reviewWebhook(target: Target, config: { appId: string; key: string; slug: string; openaiKey: string; model: string; autoMerge?: boolean }, admittedControls?: OperatorControls) {
   const executionStarted = Date.now();
   if (target.advisoryIdentity && target.advisory !== target.advisoryIdentity) throw new Error('Invalid advisory identity');
   const { appId, key, slug, openaiKey } = config;
+  const role = executionRole(target);
+  // Direct deliveries have already confirmed this snapshot before returning 202.
+  const controls = admittedControls ?? await readExecutionControls(target);
+  if ((role === 'reviewer' || role === 'triage') && controls?.excludedRoles.includes(role)) {
+    recordCurrentExecutionSkipped('excluded');
+    return;
+  }
   const overrides = await readReviewModelOverrides();
-  const role = target.advisoryIdentity ?? target.advisory ?? (target.impact ? 'impact' : 'reviewer');
   const model = effectiveOperatorModel(role, config.model, overrides, modelPolicy(process.env));
   const effectiveConfig = { ...config, model };
   const bot = slug + '[bot]';
@@ -363,10 +381,9 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
       let selectedRoles: readonly string[] = [];
       if (!target.recheck && process.env.REVIEWER_AUTO_ADVISORY_ENABLED !== 'true') console.info('Coordinated advisors disabled');
       if (coordinatedAdvisoriesEnabled(target, process.env.REVIEWER_AUTO_ADVISORY_ENABLED, incrementalFiles !== undefined)) {
-        const controlStore = operatorStoreConfig(process.env.OPERATOR_STORE_URL, process.env.OPERATOR_STORE_READ_TOKEN);
-        const controls = controlStore ? await readOperatorControls(controlStore).then(record => record.controls).catch(() => ({ ...defaultControls(), paused: true })) : defaultControls();
+        const specialistControls = controls ?? { ...defaultControls(), paused: true };
         const baselineBudget = automaticAdvisoryBudget(process.env, Date.now() - executionStarted);
-        const budget = restrictAdvisoryBudget(baselineBudget, controls);
+        const budget = restrictAdvisoryBudget(baselineBudget, specialistControls);
         if (budget.maxRequests > 0 && budget.elapsedMs > 0) {
           const planningStarted = Date.now();
           const planningSignal = AbortSignal.timeout(budget.elapsedMs);
@@ -377,7 +394,7 @@ export async function reviewWebhook(target: Target, config: { appId: string; key
           const remaining = { ...budget, elapsedMs: Math.max(0, budget.elapsedMs - (Date.now() - planningStarted)) };
           const plannedRoles = selectAdvisoryRoles(scoped, baselineBudget.maxRequests);
           const executionTarget = { repository, number: current.number, private: target.private };
-          const enabledRoles = plannedRoles.filter(role => !controls.excludedRoles.some(excluded => excluded === role));
+          const enabledRoles = plannedRoles.filter(role => !specialistControls.excludedRoles.some(excluded => excluded === role));
           const roles = enabledRoles.slice(0, remaining.maxRequests);
           for (const role of plannedRoles) {
             if (!enabledRoles.includes(role)) recordSkippedExecution(role, executionTarget, 'excluded');
