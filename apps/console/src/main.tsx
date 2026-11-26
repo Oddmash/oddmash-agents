@@ -8,6 +8,7 @@ import { parseTheme, resolveTheme, type ThemePreference } from './console-prefer
 import { Dashboard } from './dashboard';
 import { ThemeControl, SignOutButton } from './preference-controls';
 import { useUnsavedGuard } from './unsaved-guard';
+import { useConsoleHistory } from './use-console-history';
 import { SignInScreen } from './sign-in-screen';
 import { clearSignInError, signInErrorMessage } from './sign-in-feedback';
 import { useFirstPartySession } from './use-first-party-session';
@@ -40,29 +41,7 @@ const Console = () => {
   }, [theme]);
   const t = (message: Parameters<typeof translate>[1]) => translate(language, message);
   const { unsaved, setUnsaved, guard, dialog } = useUnsavedGuard(language);
-  const navigateNow = (nextLanguage: Language, nextView: ConsoleView) => {
-    const url = localizedUrl(window.location.href, nextLanguage, nextView);
-    if (url.href !== window.location.href) window.history.pushState(window.history.state, '', url);
-    setRoute({ language: nextLanguage, view: nextView });
-  };
-  const navigate = (nextLanguage: Language, nextView: ConsoleView) => {
-    if (nextView !== view) guard(() => navigateNow(nextLanguage, nextView));
-    else navigateNow(nextLanguage, nextView);
-  };
-  useEffect(() => {
-    const sync = () => {
-      const next = consoleRoute(window.location.href);
-      if (unsaved && next.view !== view) {
-        window.history.pushState(window.history.state, '', localizedUrl(window.location.href, language, view));
-        guard(() => navigateNow(next.language ?? language, next.view));
-        return;
-      }
-      setRoute(current => ({ language: next.language ?? current.language, view: next.view }));
-    };
-    window.addEventListener('popstate', sync);
-    window.addEventListener('hashchange', sync);
-    return () => { window.removeEventListener('popstate', sync); window.removeEventListener('hashchange', sync); };
-  }, [unsaved, view, language]);
+  const navigate = useConsoleHistory(route, setRoute, unsaved, guard);
   useEffect(() => { const url = localizedUrl(window.location.href, language, view); if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url); try { localStorage.setItem('oddmash-console-language', language); } catch {} }, [language, view]);
   const languageControl = <div className="language-control"><span>{t('Language')}</span><LocalePicker label={t('Language')} value={language} options={[{ value: 'en', label: 'English', lang: 'en', href: localizedUrl(window.location.href, 'en', view).href }, { value: 'ko', label: '한국어', lang: 'ko', href: localizedUrl(window.location.href, 'ko', view).href }]} onValueChange={value => navigate(chooseLanguage(value), view)}/></div>;
   const themeControl = <ThemeControl language={language} theme={theme} onChange={setTheme}/>;
