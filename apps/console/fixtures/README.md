@@ -12,3 +12,5 @@ curl 'http://127.0.0.1:4312/__fixture'
 ```
 
 Set `populated` to reset the resource. Other scenarios are `empty`, `partial`, `unavailable` and `expired`. Empty fixtures are supported for status, contributors and adoption. Partial applies to contributors. Restart the process to reset all scenarios and request counts.
+
+With the server running, run `node apps/console/fixtures/verify.mjs /path/to/evidence` from the root. The verifier requires an installed Playwright Chromium. Set `CONSOLE_PLAYWRIGHT_MODULE` to the absolute path of Playwright's `index.mjs` when installed outside this worktree. It runs the responsive and state matrix and writes synthetic screenshots to the output directory.
