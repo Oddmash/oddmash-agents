@@ -1,4 +1,4 @@
-import { authorizeSession, issueSession, revokeSession, rotateSession, type SessionCredentials } from './session-family.ts';
+import { issueSession, revokeSession, rotateSession, sessionAccessExpiry, REFRESH_WINDOW_MS, type SessionCredentials } from './session-family.ts';
 import { parseSessionState, transactSession, type SessionStore } from './session-store.ts';
 
 const accessName = '__Host-oddmash-access';
@@ -11,10 +11,10 @@ const readCookie = (request: Request, name: string) => {
   const values = (request.headers.get('cookie') ?? '').split(';').map(entry => entry.trim()).filter(entry => entry.startsWith(name + '='));
   return values.length === 1 ? values[0].slice(name.length + 1) : '';
 };
-const reply = (status: number, authenticated: boolean, cookies: string[] = []) => {
+const reply = (status: number, authenticated: boolean, cookies: string[] = [], refreshAfterMs?: number) => {
   const headers = new Headers({ 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
   for (const value of cookies) headers.append('Set-Cookie', value);
-  return new Response(JSON.stringify({ authenticated }), { status, headers });
+  return new Response(JSON.stringify({ authenticated, ...(refreshAfterMs === undefined ? {} : { refreshAfterMs }) }), { status, headers });
 };
 const expired = (name: string) => cookie(name, '', 0);
 
@@ -23,18 +23,18 @@ export function createSessionHttp(options: Options) {
   const validOrigin = (request: Request) => new URL(request.url).origin === options.origin;
   const validWrite = (request: Request) => request.method === 'POST' && validOrigin(request) && request.headers.get('origin') === options.origin && request.headers.get('content-type')?.split(';')[0].trim() === 'application/json';
   const setCredentials = (credentials: SessionCredentials, at: number) => [cookie(accessName, credentials.access, credentials.accessExpiresAt - at), cookie(refreshName, credentials.refresh, credentials.expiresAt - at)];
-  const accessAuthorized = async (request: Request) => {
-    if (!validOrigin(request)) return false;
+  const accessExpiry = async (request: Request) => {
+    if (!validOrigin(request)) return undefined;
     const access = readCookie(request, accessName);
-    if (!access) return false;
+    if (!access) return undefined;
     const state = parseSessionState(await options.store.read(), options.ownerId);
-    return authorizeSession(state, access, options.ownerId, clock(), options.key);
+    return sessionAccessExpiry(state, access, options.ownerId, clock(), options.key);
   };
   return {
-    accessAuthorized,
+    accessAuthorized: async (request: Request) => (await accessExpiry(request)) !== undefined,
     async status(request: Request) {
       if (request.method !== 'GET' || !validOrigin(request)) return reply(403, false);
-      try { return reply(200, await accessAuthorized(request)); } catch { return reply(503, false); }
+      try { const expiry = await accessExpiry(request); return reply(200, expiry !== undefined, [], expiry === undefined ? undefined : Math.max(0, expiry - clock() - REFRESH_WINDOW_MS)); } catch { return reply(503, false); }
     },
     async bootstrap(request: Request, verified: Bootstrap | undefined) {
       if (!validWrite(request)) return reply(403, false);
