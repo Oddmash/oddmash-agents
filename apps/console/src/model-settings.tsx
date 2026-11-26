@@ -14,7 +14,7 @@ const messages = {
   "No alternate approved for this agent.": "이 에이전트에 승인된 대체 모델이 없습니다.",
   "Model for future jobs": "이후 작업에 사용할 모델",
   "Observed deployment model": "관측된 배포 모델",
-  "Observed worker configuration is read-only. Model choices are staged until saved.": "관측된 워커 설정은 읽기 전용입니다. 모델 선택은 저장해야 반영됩니다.",
+  "Agent availability, credentials, and merge authority are deployment-owned. Approved model choices are staged until saved.": "에이전트 활성화, 인증 정보, 병합 권한은 배포 설정에서 관리합니다. 승인된 모델 선택은 저장해야 반영됩니다.",
   "Inherit": "기본값",
   "Unavailable choice": "승인이 해제된 선택",
   "Choose approved models before saving.": "저장하기 전에 승인된 모델을 선택하세요.",
@@ -93,7 +93,7 @@ export const ModelSettings = ({ language, agents, updatedAt, renderAgent, onDirt
   return <Card className="settings-panel runtime-controls agent-settings-panel">
     <h3>{translate(language, 'Agent configuration')}</h3>
     <p className="muted">{t('Choose a deployment-approved model for future webhook and queued jobs. Defaults follow deployment configuration.')}</p>
-    <p className="muted">{t('Observed worker configuration is read-only. Model choices are staged until saved.')}{updatedAt && <> · {translate(language, 'Updated')}: {new Date(updatedAt).toLocaleString(language)}</>}</p>
+    <p className="muted">{t('Agent availability, credentials, and merge authority are deployment-owned. Approved model choices are staged until saved.')}{updatedAt && <> · {translate(language, 'Updated')}: {new Date(updatedAt).toLocaleString(language)}</>}</p>
     {failed && <><Alert tone="danger">{failed === 'unauthorized' ? translate(language, 'Session expired. Sign in again.') : t('Model selection unavailable.')}</Alert><Button variant="secondary" onClick={() => setRetry(value => value + 1)}>{translate(language, 'Refresh')}</Button></>}
     {saved && !approvedAlternates && <p className="muted">{t('No alternate models are approved for this deployment.')}</p>}
     {!failed && !saved && <span role="status" aria-label={translate(language, 'Loading status…')} className="skeleton-line"/>}

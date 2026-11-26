@@ -1,4 +1,4 @@
-import { parseOperatorControls, type OperatorControls, type ControlsRecord } from '../../packages/operator-contract/src/controls.ts';
+import { deploymentControlLimits, parseOperatorControls, withinDeploymentControlLimits, type DeploymentControlLimits, type OperatorControls, type ControlsRecord } from '../../packages/operator-contract/src/controls.ts';
 
 export async function readOperatorWriteInput(request: Request): Promise<Record<string, unknown> | undefined> {
     const length = Number(request.headers.get('content-length') ?? 0);
@@ -23,13 +23,14 @@ export async function readOperatorWriteInput(request: Request): Promise<Record<s
     return input as Record<string, unknown>;
 }
 
-export async function handleControlWrite(request: Request, persist: (revision: string | null, controls: OperatorControls) => Promise<ControlsRecord | null>) {
+export async function handleControlWrite(request: Request, persist: (revision: string | null, controls: OperatorControls) => Promise<ControlsRecord | null>, limits: DeploymentControlLimits = deploymentControlLimits({})) {
     const body = await readOperatorWriteInput(request);
     if (!body) return { status: 400 as const, body: { error: 'Invalid controls' } };
     const controls = parseOperatorControls(body.controls);
     const revision = body.revision;
     if (Object.keys(body).length !== 2 || !controls || revision !== null && (typeof revision !== 'string' || !/^[a-f0-9-]{36}$/.test(revision))) return { status: 400 as const, body: { error: 'Invalid controls' } };
+    if (!withinDeploymentControlLimits(controls, limits)) return { status: 422 as const, body: { error: 'Controls exceed deployment limits' } };
     const result = await persist(revision as string | null, controls);
-    return result ? { status: 200 as const, body: result } : { status: 409 as const, body: { error: 'Controls changed; reload' } };
+    return result ? { status: 200 as const, body: { ...result, limits } } : { status: 409 as const, body: { error: 'Controls changed; reload' } };
 
 }

@@ -2,6 +2,22 @@ export const optionalRoles = ['impact', 'qa', 'release', 'docs', 'architect'] as
 export type OptionalRole = typeof optionalRoles[number];
 export type OperatorControls = { paused: boolean; excludedRoles: OptionalRole[]; maxRequests: number | null; maxMs: number | null };
 export type ControlsRecord = { revision: string | null; controls: OperatorControls; updatedAt: string | null };
+export type DeploymentControlLimits = { maxRequests: number; maxMs: number };
+export type ControlsResponse = ControlsRecord & { limits: DeploymentControlLimits };
+
+const boundedLimit = (value: string | undefined, fallback: number, maximum: number) => {
+  if (value === undefined || !/^\d+$/.test(value)) return fallback;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? Math.min(parsed, maximum) : fallback;
+};
+
+export function deploymentControlLimits(env: Readonly<Record<string, string | undefined>>): DeploymentControlLimits {
+  return { maxRequests: boundedLimit(env.REVIEWER_AUTO_ADVISORY_MAX_REQUESTS, optionalRoles.length, optionalRoles.length), maxMs: boundedLimit(env.REVIEWER_AUTO_ADVISORY_MAX_MS, 90_000, 120_000) };
+}
+
+export function withinDeploymentControlLimits(controls: OperatorControls, limits: DeploymentControlLimits): boolean {
+  return (controls.maxRequests === null || controls.maxRequests <= limits.maxRequests) && (controls.maxMs === null || controls.maxMs <= limits.maxMs);
+}
 
 export const defaultControls = (): OperatorControls => ({ paused: false, excludedRoles: [], maxRequests: null, maxMs: null });
 

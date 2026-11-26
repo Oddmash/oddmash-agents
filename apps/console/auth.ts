@@ -8,6 +8,7 @@ import { authorizedSessionId, isAuthorizedOwner } from './auth-policy.ts';
 import { operatorStoreConfig, readOperatorStatus, readOperatorControls, saveOperatorControls, readOperatorModels, saveOperatorModels } from '../../packages/operator-store/src/index.ts';
 
 import { modelPolicy } from '../../packages/operator-contract/src/model-settings.ts';
+import { deploymentControlLimits } from '../../packages/operator-contract/src/controls.ts';
 import { handleModelWrite } from './model-request.ts';
 import { verifyModelAvailability } from './model-availability.ts';
 import { handleControlWrite } from './control-request.ts';
@@ -113,7 +114,7 @@ consoleApi.get('/api/controls', dataAuth, async c => {
   if (!firstPartyMode() && !owner(c.get('authUser').token?.operatorId)) return c.json({ error: 'Unauthorized' }, 401);
   const config = operatorStoreConfig(process.env.OPERATOR_STORE_URL, process.env.OPERATOR_STORE_READ_TOKEN);
   if (!config) return c.json({ error: 'Controls unavailable' }, 503);
-  try { return c.json(await readOperatorControls(config)); } catch { return c.json({ error: 'Controls unavailable' }, 503); }
+  try { return c.json({ ...await readOperatorControls(config), limits: deploymentControlLimits(process.env) }); } catch { return c.json({ error: 'Controls unavailable' }, 503); }
 });
 consoleApi.post('/api/controls', dataAuth, async c => {
   const id = firstPartyMode() ? process.env.CONSOLE_OWNER_GITHUB_ID : c.get('authUser').token?.operatorId;
@@ -121,7 +122,7 @@ consoleApi.post('/api/controls', dataAuth, async c => {
   const config = operatorStoreConfig(process.env.OPERATOR_STORE_URL, process.env.OPERATOR_STORE_WRITE_TOKEN);
   if (!config) return c.json({ error: 'Controls unavailable' }, 503);
   try {
-    const result = await handleControlWrite(c.req.raw, (revision, controls) => saveOperatorControls(config, revision, controls, String(id)));
+    const result = await handleControlWrite(c.req.raw, (revision, controls) => saveOperatorControls(config, revision, controls, String(id)), deploymentControlLimits(process.env));
     return c.json(result.body, result.status);
   } catch { return c.json({ error: 'Controls unavailable' }, 503); }
 });
