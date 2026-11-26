@@ -1,4 +1,5 @@
 export const korean = {
+  "Usage": "사용량",
   "Public product adoption": "제품 사용량",
   "Public aggregate counts are not unique users. Missing values are unavailable, not zero.": "공개 집계 수치는 고유 사용자 수가 아닙니다. 누락된 값은 0이 아니라 확인 불가입니다.",
   "Product adoption metrics unavailable.": "제품 사용량을 불러올 수 없습니다.",

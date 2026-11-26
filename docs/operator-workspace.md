@@ -19,7 +19,7 @@ The worker emits its existing role-correlated lifecycle events. Events now optio
 
 ## Public contributor and adoption views
 
-The [Contributor PRs view](contributor-pr-view.md) lists open public external contributions and retained agent observations independently of the telemetry store. The Model usage page also includes [public product adoption](public-adoption-metrics.md), with bounded provider reads and daily aggregate snapshots. Both APIs remain owner-only and use no additional GitHub or provider credentials.
+The [Contributor PRs view](contributor-pr-view.md) lists open public external contributions and retained agent observations independently of the telemetry store. The Usage page also includes [public product adoption](public-adoption-metrics.md), with bounded provider reads and daily aggregate snapshots. Both APIs remain owner-only and use no additional GitHub or provider credentials.
 
 ## Configuration
 
