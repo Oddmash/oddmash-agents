@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Job } from '@oddmash/agent-operator-contract';
-import { filterActivity, historyNeedsRepository, metricFilter, repositoryActivity, withRepositoryFilter } from '../apps/console/src/activity.ts';
+import { activeAdvancedFilters, filterActivity, hasActivityFilters, historyNeedsRepository, metricFilter, repositoryActivity, resetActivityFilters, withRepositoryFilter } from '../apps/console/src/activity.ts';
 import { parseTheme, resolveTheme } from '../apps/console/src/console-preferences.ts';
 import { executionLabel, executionTone } from '../apps/console/src/execution-status.ts';
 
@@ -43,6 +43,24 @@ test('theme preference distinguishes explicit and live system selection', () => 
   assert.equal(resolveTheme('dark', false), 'dark');
   assert.equal(resolveTheme('system', false), 'light');
   assert.equal(resolveTheme('system', true), 'dark');
+});
+
+test('applied filter summary counts advanced constraints and resets independently from history repository scope', () => {
+  const defaults = metricFilter('all');
+  const selected = withRepositoryFilter(defaults, 'oddmash/ui');
+  const ranged = { ...selected, range: { from: '2026-05-09T00:00:00', to: '' } };
+  const filtered = { ...ranged, role: 'reviewer' as const, state: 'failed' as const };
+  assert.equal(activeAdvancedFilters(defaults), 0);
+  assert.equal(hasActivityFilters(selected), false);
+  assert.equal(hasActivityFilters(selected, true), true);
+  assert.equal(activeAdvancedFilters(ranged), 0);
+  assert.equal(hasActivityFilters(ranged), true);
+  assert.equal(activeAdvancedFilters(filtered), 2);
+  assert.equal(hasActivityFilters(filtered), true);
+  assert.deepEqual(resetActivityFilters(filtered, true), selected);
+  assert.deepEqual(resetActivityFilters(filtered, false), defaults);
+  assert.deepEqual(resetActivityFilters({ ...filtered, repository: 'all' }, true), defaults);
+  assert.equal(hasActivityFilters({ ...defaults, range: { from: '', to: '' }, day: 'all' }), false);
 });
 
 test('execution labels and tones describe only observed state', () => {

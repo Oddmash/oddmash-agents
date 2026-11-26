@@ -99,3 +99,15 @@ export function historyNeedsRepository(view: string, filter: ActivityFilter): bo
 export function withRepositoryFilter(filter: ActivityFilter, repository?: string): ActivityFilter {
   return { ...filter, repository: repository === 'all' ? undefined : repository };
 }
+
+export function activeAdvancedFilters(filter: ActivityFilter): number {
+  return Number(filter.role !== 'all') + Number(filter.state !== 'all');
+}
+
+export function hasActivityFilters(filter: ActivityFilter, includeRepository = false): boolean {
+  return activeAdvancedFilters(filter) > 0 || Boolean(filter.range?.from || filter.range?.to || (filter.day && filter.day !== 'all') || (includeRepository && filter.repository && filter.repository !== 'all'));
+}
+
+export function resetActivityFilters(filter: ActivityFilter, preserveRepository: boolean): ActivityFilter {
+  return { role: 'all', state: 'all', ...(preserveRepository && filter.repository && filter.repository !== 'all' ? { repository: filter.repository } : {}) };
+}
