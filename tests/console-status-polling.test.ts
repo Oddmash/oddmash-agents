@@ -69,3 +69,41 @@ test('expiration stops automatic polling and disposal clears timers', async () =
   await f.complete(1);
   assert.equal(f.timers.size, 0);
 });
+
+test('a fresh session snapshot defers the first poll and manual refresh cancels that delay', async () => {
+  const f = fixture();
+  f.polling.start(4000);
+  assert.equal(f.requests.length, 0);
+  assert.deepEqual([...f.timers.values()].map(timer => timer.delay), [4000]);
+  void f.polling.refresh();
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual([...f.timers.values()].map(timer => timer.delay), [15000]);
+  await f.complete(0);
+  assert.deepEqual([...f.timers.values()].map(timer => timer.delay), [10000]);
+});
+
+test('a timed-out status fetch reports failure and schedules the normal error backoff', async () => {
+  const f = fixture();
+  void f.polling.refresh();
+  const [timeout] = f.timers.values();
+  assert.equal(timeout.delay, 15000);
+  f.requests[0].signal.addEventListener('abort', () => f.requests[0].reject(new Error('Request aborted')));
+  timeout.callback();
+  await Promise.resolve();
+  assert.equal(f.errors(), 1);
+  assert.equal(f.settled(), 1);
+  assert.deepEqual([...f.timers.values()].map(timer => timer.delay), [30000]);
+});
+
+test('both startup paths respect pause while manual refresh remains available', async () => {
+  const f = fixture();
+  f.polling.setPaused(true);
+  f.polling.start();
+  f.polling.start(4000);
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.timers.size, 0);
+  void f.polling.refresh();
+  assert.equal(f.requests.length, 1);
+  await f.complete(0);
+  assert.equal(f.timers.size, 0);
+});

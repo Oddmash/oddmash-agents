@@ -13,13 +13,13 @@
   "dependencies": {
     "@oddmash/agent-operator-contract": "workspace:*",
     "@oddmash/agent-operator-store": "workspace:*",
-    "@oddmash/juliya": "0.4.1",
-    "@oddmash/ui": "0.10.0",
+    "@oddmash/juliya": "0.4.2",
+    "@oddmash/ui": "0.11.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "@auth/core": "0.41.3",
-    "@hono/auth-js": "1.1.1",
-    "hono": "4.13.17"
+    "@hono/auth-js": "1.1.2",
+    "hono": "4.13.22"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

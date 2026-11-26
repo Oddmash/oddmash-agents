@@ -9,6 +9,6 @@
   "dependencies": {
     "@oddmash/agent-operator-contract": "workspace:*",
     "@oddmash/agent-operator-store": "workspace:*",
-    "hono": "4.13.17"
+    "hono": "4.13.22"
   }
 }

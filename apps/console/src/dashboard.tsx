@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode, type MouseEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type MouseEvent } from 'react';
 import { Alert, Avatar, Badge, Button, Card, EmptyState, Select } from '@oddmash/ui';
 import { type Job, type WorkerSettings, type ModelUsageSummary, type AgentRole } from '@oddmash/agent-operator-contract';
 import { JuliyaText } from '@oddmash/juliya/react';
@@ -46,6 +46,8 @@ const StatusValue = ({ value, language, yes = 'Enabled', no = 'Disabled' }: { va
 export const Dashboard = ({ logout, language, languageControl, themeControl, view, navigate, onUnsavedChange }: { logout: ReactNode; language: Language; languageControl: ReactNode; themeControl: ReactNode; view: ConsoleView; navigate: (view: ConsoleView) => void; onUnsavedChange?: (dirty: boolean) => void }) => {
   const t = (message: Message) => translate(language, message);
   const [settingsTab, setSettingsTab] = useState<'runtime' | 'agents' | 'execution'>('runtime');
+  const [openedAgents, setOpenedAgents] = useState(false);
+  const [usageTab, setUsageTab] = useState<'model' | 'package'>('model');
   const [modelDirty, setModelDirty] = useState(false);
   const [runtimeDirty, setRuntimeDirty] = useState(false);
   useEffect(() => { onUnsavedChange?.(view === 'settings' && (modelDirty || runtimeDirty)); }, [view, modelDirty, runtimeDirty, onUnsavedChange]);
@@ -66,6 +68,8 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
   };
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [error, setError] = useState<Message | ''>('');
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const expireSession = useCallback(() => { setSnapshot(undefined); setSessionExpired(true); onUnsavedChange?.(false); }, [onUnsavedChange]);
   const [loading, setLoading] = useState(true);
   const [collapsedRepositories, setCollapsedRepositories] = useState<Set<string>>(() => new Set());
   const toggleRepository = (key: string) => setCollapsedRepositories(previous => toggleRepositoryCollapse(previous, key));
@@ -78,34 +82,45 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
   const openTarget = (key: string, repository: string) => { setSelectedTarget(key); setFilter({role:'all',state:'all',repository}); setCollapsedRepositories(previous=>{const next=new Set(previous);next.delete(repository);return next;}); navigate('activity'); };
   const openRepository = (repository: string) => { setSelectedTarget(undefined); setCollapsedRepositories(previous => { const next = new Set(previous); next.delete(repository); return next; }); setFilter(current => withRepositoryFilter(current, repository)); };
   const changeRepository = () => { setSelectedTarget(undefined); setFilter(current => withRepositoryFilter(current)); headingRef.current?.focus(); };
+  const showStatus = view === 'overview' || view === 'activity' || (view === 'usage' && usageTab === 'model') || (view === 'settings' && settingsTab === 'execution');
+  const needsTelemetry = showStatus || view === 'contributors' || (view === 'settings' && settingsTab === 'agents');
+  const telemetryFreshUntil = useRef(0);
+  const statusPolling = useRef<ReturnType<typeof createStatusPolling>>(null);
   useEffect(() => {
+    if (!needsTelemetry || sessionExpired) return;
     const polling = createStatusPolling({
       hidden: () => document.hidden,
       fetchStatus: async signal => {
         const response = await fetch('/api/status', { cache: 'no-store', signal });
         if (signal.aborted) throw new Error('Status request cancelled');
-        if (response.status === 401) {
-          setSnapshot(undefined);
-          setError('Session expired. Sign in again.');
+        if (response.status === 401 || response.status === 403) {
+          expireSession();
           return { delayMs: 30000, expired: true };
         }
         if (!response.ok) throw new Error('Status unavailable');
         const data = await response.json() as Snapshot;
         if (signal.aborted) throw new Error('Status request cancelled');
+        const delayMs = data.jobs.some(job => job.state === 'running' || job.state === 'queued') ? 10000 : 30000;
+        telemetryFreshUntil.current = Date.now() + delayMs;
         setSnapshot(data);
         setError('');
-        return { delayMs: data.jobs.some(job => job.state === 'running' || job.state === 'queued') ? 10000 : 30000 };
+        return { delayMs };
       },
-      onError: () => setError('Unable to refresh live status. Retrying automatically.'),
+      onError: () => {
+        telemetryFreshUntil.current = 0;
+        setError('Unable to refresh live status. Retrying automatically.');
+      },
       onSettled: () => setLoading(false)
     });
+    statusPolling.current = polling;
     document.addEventListener('visibilitychange', polling.visibilityChanged);
-    void polling.refresh();
+    polling.start(telemetryFreshUntil.current - Date.now());
     return () => {
       polling.dispose();
+      statusPolling.current = null;
       document.removeEventListener('visibilitychange', polling.visibilityChanged);
     };
-  }, []);
+  }, [needsTelemetry, sessionExpired, expireSession]);
   const jobs = snapshot?.jobs ?? [];
   const repositories = repositoryActivity(jobs);
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -120,14 +135,18 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
   const connected = snapshot?.connected === true;
   const advancedCount = activeAdvancedFilters(filter);
   const filtered = hasActivityFilters(filter, false);
+  if (sessionExpired) return <main className="session-loading expired-session"><Alert tone="danger" role="alert">{t('Session expired. Sign in again.')}</Alert><Button onClick={() => window.location.reload()}>{t('Reload console')}</Button></main>;
   return <div className="shell" onClick={follow}>
-    <aside><a className="console-brand" href={href("overview")} aria-label={t("Agents Console")}><img src={brandLogo} width={38} height={38} alt=""/><span>oddmash<span className="brand-dot">.</span></span></a><p className="muted">{t("Release:")} {typeof releaseTag === 'string' && /^v\d+\.\d+\.\d+$/.test(releaseTag) ? releaseTag : t("Unknown")}</p><nav className="console-nav" aria-label={t('Console navigation')}><ul>{views.map(item => <li key={item}><a href={href(item)} aria-current={item === view ? 'page' : undefined}><NavigationIcon view={item}/><span>{t(viewLabels[item])}</span></a></li>)}</ul></nav><div className="logout">{themeControl}{languageControl}{logout}</div></aside>
+    <aside><div className="console-sidebar-heading"><a className="console-brand" href={href("overview")} aria-label={t("Agents Console")}><img src={brandLogo} width={32} height={32} alt=""/><span>oddmash<span className="brand-dot">.</span></span></a>{typeof releaseTag === 'string' && /^v\d+\.\d+\.\d+$/.test(releaseTag) && <small className="muted">{t("Release:")} {releaseTag}</small>}</div><nav className="console-nav" aria-label={t('Console navigation')}><ul>{views.map(item => <li key={item}><a href={href(item)} aria-current={item === view ? 'page' : undefined}><NavigationIcon view={item}/><span>{t(viewLabels[item])}</span></a></li>)}</ul></nav><div className="logout"><details className="console-preferences"><summary>{t('Preferences')}<Chevron disclosure/></summary><div>{themeControl}{languageControl}</div></details>{logout}</div></aside>
     <main>
-      <header><div><h2 ref={headingRef} tabIndex={-1}>{t(viewLabels[view])}</h2></div><span role="status" aria-live="polite" className="live-label" data-connected={connected && !error}>{!error && <><span className="status-dot" aria-hidden="true"/>{t(loading && !snapshot ? 'Loading status…' : connected ? 'Connected to worker telemetry' : 'Telemetry storage is not configured.')}</>}</span></header>
-      <div role="status" aria-live="polite" className="muted status-line">{error && <Alert tone="danger">{t(error)}{snapshot?.connected ? t(" Showing the last successful snapshot.") : ''}</Alert>}</div>
-      {loading && !snapshot && view !== 'settings' && view !== 'contributors' && <ConsoleSkeleton view={view} language={language}/>}
-      {error !== 'Session expired. Sign in again.' && <div hidden={view !== 'usage'}><AdoptionMetrics language={language} active={view === 'usage'}/></div>}
-      <div hidden={!snapshot && (view !== 'settings' || error === 'Session expired. Sign in again.')}>
+      <header><h2 ref={headingRef} tabIndex={-1}>{t(viewLabels[view])}</h2>{showStatus && !error && <span role="status" className="live-label" data-connected={connected}><span className="status-dot" aria-hidden="true"/>{t(loading && !snapshot ? 'Loading status…' : connected ? 'Connected to worker telemetry' : 'Telemetry storage is not configured.')}</span>}</header>
+      {showStatus && error && <div className="status-line status-recovery"><Alert tone="danger" role="alert">{t(error)}{snapshot?.connected && t(' Showing the last successful snapshot.')}</Alert><Button variant="secondary" onClick={() => void statusPolling.current?.refresh()}>{t('Refresh')}</Button></div>}
+      {view === 'usage' && <div className="usage-tabs" role="group" aria-label={t('Usage')}>
+        {(['model','package'] as const).map(tab => <Button key={tab} variant={usageTab === tab ? 'primary' : 'secondary'} aria-pressed={usageTab === tab} onClick={() => setUsageTab(tab)}>{t(tab === 'model' ? 'Model usage' : 'Package usage')}</Button>)}
+      </div>}
+      {loading && !snapshot && (view === 'overview' || view === 'activity' || (view === 'usage' && usageTab === 'model')) && <ConsoleSkeleton view={view} language={language}/>}
+      <div hidden={view !== 'usage' || usageTab !== 'package'}><AdoptionMetrics language={language} active={view === 'usage' && usageTab === 'package'} onAccessLost={expireSession}/></div>
+      <div hidden={!snapshot && view !== 'settings'}>
       {view === 'overview' && <div className="overview-content">
         <section className="metrics overview-metrics" aria-label={t('Overview')}>
           {([['running','Running'],['queued','Queued'],['failed','Recent failures'],['stale','Stale observations']] as const).map(([state,label])=><button key={state} type="button" className="metric-link" data-metric={state} data-active={state==='running'&&connected&&counts.running>0&&!error} onClick={()=>openMetric(state)}><span className="metric-label"><span className="metric-mark" aria-hidden="true"/>{t(label)}</span><strong>{connected?counts[state]:'—'}</strong><Chevron direction="right"/></button>)}
@@ -160,23 +179,23 @@ export const Dashboard = ({ logout, language, languageControl, themeControl, vie
         {(choosingRepository ? !matchedRepositories.length : !displayedGroups.length) && <Card><EmptyState className="empty">{!connected ? t("Live activity unavailable.") : jobs.length ? t("No executions match these filters.") : t("No recent execution events.")}</EmptyState></Card>}
       </section>
       </div>}
-      <section hidden={view !== 'usage'} id="usage" className="detail-view">
+      <section hidden={view !== 'usage' || usageTab !== 'model'} id="usage" className="detail-view">
         <h2>{t("Model usage")}</h2>
         <JuliyaText as="p" locale={language} className="muted view-description">{t("Observed usage in retained terminal executions, including retries. Missing counts and unobserved calls are not zero-cost; these are token counts, not a billing total.")}</JuliyaText>
         {snapshot?.usage?.length ? <Card className="data-panel"><div aria-hidden="true" className="data-heading usage-grid"><span>{t("Agent")}</span><span>{t("Observed calls:")}</span><span>{t("Known input tokens:")}</span><span>{t("Known output tokens:")}</span></div><ul className="data-rows">{snapshot.usage.map(row => <li key={row.role} className="usage-grid data-row"><AgentIdentity role={row.role}/><div><small className="field-label">{t("Observed calls:")}</small><strong>{row.calls.toLocaleString(language)}</strong></div><div><small className="field-label">{t("Known input tokens:")}</small><strong>{row.inputTokens.toLocaleString(language)}</strong><small className="muted">{missingCalls(language, row.missingInput)}</small></div><div><small className="field-label">{t("Known output tokens:")}</small><strong>{row.outputTokens.toLocaleString(language)}</strong><small className="muted">{missingCalls(language, row.missingOutput)}</small></div></li>)}</ul></Card> : <Card><EmptyState className="empty">{t("No measured model usage is retained yet.")}</EmptyState></Card>}
       </section>
-      {view === 'settings' && error !== 'Session expired. Sign in again.' && <section id="settings" className="detail-view settings-workspace">
+      {view === 'settings' && <section id="settings" className="detail-view settings-workspace">
         <Card className="settings-summary"><div><strong>{t('Auto-merge:')}</strong><p className="muted">{t('Automatic merge is managed by deployment configuration.')}</p></div><StatusValue value={snapshot?.settings?.agents.find(agent => agent.role === 'reviewer')?.autoMerge} language={language}/></Card>
-        <div className="settings-tabs" role="group" aria-label={t('Settings')}>{(['runtime','agents','execution'] as const).map((tab,index)=><Button key={tab} variant={tab===settingsTab?'primary':'secondary'} aria-pressed={tab===settingsTab} onClick={()=>setSettingsTab(tab)}>{t((['Runtime controls','Agents','Execution'] as const)[index])}{(tab==='runtime'&&runtimeDirty||tab==='agents'&&modelDirty) && <span aria-hidden="true"> •</span>}</Button>)}</div>
-        <div hidden={settingsTab!=='runtime'}><RuntimeControls language={language} onDirtyChange={setRuntimeDirty}/></div>
-        <div hidden={settingsTab!=='agents'}><ModelSettings language={language} onDirtyChange={setModelDirty} agents={snapshot?.settings?.agents} updatedAt={snapshot?.settingsUpdatedAt} renderAgent={role => <AgentIdentity role={role} caption={t(descriptions[role])}/>}/></div>
-        <div hidden={settingsTab!=='execution'}><div className="detail-intro"><JuliyaText as="p" locale={language} className="muted view-description">{t("Read-only snapshot of effective worker settings. Credentials are never returned.")}</JuliyaText>{snapshot?.settingsUpdatedAt && <small className="muted">{t("Updated")}: {new Date(snapshot.settingsUpdatedAt).toLocaleString(language)}</small>}</div>
-        {snapshot?.settings ? <div className="settings-panels"><Card className="settings-panel"><h3>{t("Execution")}</h3><dl><div><dt>{t("Queue")}</dt><dd><StatusValue value={snapshot.settings.queueEnabled} language={language}/></dd></div><div><dt>{t("Coordinated advisories")}</dt><dd><StatusValue value={snapshot.settings.coordinatedAdvisoriesEnabled} language={language}/></dd></div><div><dt>{t("Authenticated guidance")}</dt><dd><StatusValue value={snapshot.settings.authenticatedGuidanceEnabled} language={language}/></dd></div><div><dt>{t("Scoped thread resolution")}</dt><dd><StatusValue value={snapshot.settings.scopedThreadResolutionEnabled} language={language}/></dd></div></dl></Card><Card className="settings-panel"><h3>{t("Review limits")}</h3><dl><div><dt>{t("Advisory request limit")}</dt><dd>{snapshot.settings.advisoryMaxRequests ?? t("Unknown")}</dd></div><div><dt>{t("Advisory time budget")}</dt><dd>{snapshot.settings.advisoryMaxMs === undefined ? t("Unknown") : new Intl.NumberFormat(language, { style: 'unit', unit: 'second', unitDisplay: 'short' }).format(snapshot.settings.advisoryMaxMs / 1000)}</dd></div></dl></Card></div> : <Card><EmptyState className="empty">{t("No worker configuration snapshot is available.")}</EmptyState></Card>}
+        <div className="settings-tabs" role="group" aria-label={t('Settings')}>{(['runtime','agents','execution'] as const).map((tab,index)=><Button key={tab} variant={tab===settingsTab?'primary':'secondary'} aria-pressed={tab===settingsTab} onClick={()=>{ if (tab === 'agents') setOpenedAgents(true); setSettingsTab(tab); }}>{t((['Runtime controls','Agents','Execution'] as const)[index])}{(tab==='runtime'&&runtimeDirty||tab==='agents'&&modelDirty) && <span aria-hidden="true"> •</span>}</Button>)}</div>
+        <div hidden={settingsTab!=='runtime'}><RuntimeControls language={language} onDirtyChange={setRuntimeDirty} onAccessLost={expireSession}/></div>
+        <div hidden={settingsTab!=='agents'}>{openedAgents && <ModelSettings onAccessLost={expireSession} language={language} onDirtyChange={setModelDirty} agents={snapshot?.settings?.agents} updatedAt={snapshot?.settingsUpdatedAt} renderAgent={role => <AgentIdentity role={role} caption={t(descriptions[role])}/>}/>}</div>
+        <div hidden={settingsTab!=='execution'}><div className="detail-intro execution-summary-meta"><p className="muted view-description">{t("Read-only worker settings.")}</p>{snapshot?.settingsUpdatedAt && <small className="muted">{t("Updated")}: {new Date(snapshot.settingsUpdatedAt).toLocaleString(language)}</small>}</div>
+        {snapshot?.settings ? <div className="settings-panels"><Card className="settings-panel"><h3>{t("Execution")}</h3><dl><div><dt>{t("Queue")}</dt><dd><StatusValue value={snapshot.settings.queueEnabled} language={language}/></dd></div><div><dt>{t("Coordinated advisories")}</dt><dd><StatusValue value={snapshot.settings.coordinatedAdvisoriesEnabled} language={language}/></dd></div><div><dt>{t("Authenticated guidance")}</dt><dd><StatusValue value={snapshot.settings.authenticatedGuidanceEnabled} language={language}/></dd></div><div><dt>{t("Scoped thread resolution")}</dt><dd><StatusValue value={snapshot.settings.scopedThreadResolutionEnabled} language={language}/></dd></div></dl></Card><Card className="settings-panel"><h3>{t("Review limits")}</h3><dl><div><dt>{t("Advisory request limit")}</dt><dd>{snapshot.settings.advisoryMaxRequests ?? t("Unknown")}</dd></div><div><dt>{t("Advisory time budget")}</dt><dd>{snapshot.settings.advisoryMaxMs === undefined ? t("Unknown") : new Intl.NumberFormat(language, { style: 'unit', unit: 'second', unitDisplay: 'short' }).format(snapshot.settings.advisoryMaxMs / 1000)}</dd></div></dl></Card></div> : loading && !snapshot ? <ConsoleSkeleton view="controls" language={language}/> : !error && <Card><EmptyState className="empty">{t("No worker configuration snapshot is available.")}</EmptyState></Card>}
         </div>
       </section>}
-      {snapshot && view !== 'contributors' && <p className="muted">{t("Last observed:")} <time dateTime={snapshot.observedAt}>{new Date(snapshot.observedAt).toLocaleString(language)}</time></p>}
+      {snapshot && showStatus && <p className="muted">{t("Last observed:")} <time dateTime={snapshot.observedAt}>{new Date(snapshot.observedAt).toLocaleString(language)}</time></p>}
       </div>
-      {view === 'contributors' && error !== 'Session expired. Sign in again.' && <ContributorPulls language={language} jobs={jobs} renderAgent={role => <AgentIdentity role={role} compact/>}/>}
+      <ContributorPulls active={view === 'contributors'} onAccessLost={expireSession} language={language} jobs={jobs} renderAgent={role => <AgentIdentity role={role} compact/>}/>
 
     </main></div>;
 }

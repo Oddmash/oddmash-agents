@@ -34,8 +34,8 @@ importers:
         specifier: 0.41.3
         version: 0.41.3
       '@hono/auth-js':
-        specifier: 1.1.1
-        version: 1.1.1(@auth/core@0.41.3)(hono@4.13.17)(react@19.3.1)
+        specifier: 1.1.2
+        version: 1.1.2(@auth/core@0.41.3)(hono@4.13.22)(react@19.3.1)
       '@oddmash/agent-operator-contract':
         specifier: workspace:*
         version: link:../../packages/operator-contract
@@ -43,14 +43,14 @@ importers:
         specifier: workspace:*
         version: link:../../packages/operator-store
       '@oddmash/juliya':
-        specifier: 0.4.1
-        version: 0.4.1(react@19.3.1)
+        specifier: 0.4.2
+        version: 0.4.2(react@19.3.1)
       '@oddmash/ui':
-        specifier: 0.10.0
-        version: 0.10.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        specifier: 0.11.0
+        version: 0.11.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       hono:
-        specifier: 4.13.17
-        version: 4.13.17
+        specifier: 4.13.22
+        version: 4.13.22
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -60,7 +60,7 @@ importers:
     devDependencies:
       '@hono/node-server':
         specifier: 1.19.19
-        version: 1.19.19(hono@4.13.17)
+        version: 1.19.19(hono@4.13.22)
       '@types/node':
         specifier: 24.19.2
         version: 24.19.2
@@ -89,8 +89,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/operator-store
       hono:
-        specifier: 4.13.17
-        version: 4.13.17
+        specifier: 4.13.22
+        version: 4.13.22
 
   packages/operator-contract: {}
 
@@ -125,8 +125,8 @@ packages:
   '@emnapi/wasi-threads@2.2.0':
     resolution: {integrity: sha512-JP7OYH38Q7+pyTAe14raZHLQIK7BDKbdwji+Xi3pcd/6QkJYQH3SX4wu6EplGrGJWRepoNzedfm0G3B9Z4e9Rw==}
 
-  '@hono/auth-js@1.1.1':
-    resolution: {integrity: sha512-FM1B9OpRLtehz0uwfH+fVOa9B/b4814jYNMvyXpeibJONRDiPVNflrvolNIgeakB1AmTKxBI+XcY0NnspvSCaw==}
+  '@hono/auth-js@1.1.2':
+    resolution: {integrity: sha512-PiP8668GTUybXfgUMT37GB7fQZ0pOju1apWVEaRk8R09xwvOLXSj78qxNo1rOMZ2yTHUr6liT6ILu90am96wsA==}
     engines: {node: '>=18.4.0'}
     peerDependencies:
       '@auth/core': '>=0.35.0'
@@ -146,8 +146,8 @@ packages:
       '@emnapi/core': ^1.7.1 || 2.0.0-beta.2
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2
 
-  '@oddmash/juliya@0.4.1':
-    resolution: {integrity: sha512-sbbRNpabWZNdbw+dxTq7yZKS0do3rzhT+YXBO7uBsCssZCGctSIRd1AQPwn7ppZHnd2ue8+5CB7kiDnsBUKe3g==}
+  '@oddmash/juliya@0.4.2':
+    resolution: {integrity: sha512-QgXspB3g80/gUG9sc+JRBS7BwtiPZGoBxQvhu8F9+/DcV5ZKXznvM+DEk+UHkdolKkUgzz58ItVrS1ET/bmkAQ==}
     engines: {node: '>=20'}
     peerDependencies:
       react: ^18.2.0 || ^19.0.0
@@ -155,8 +155,8 @@ packages:
       react:
         optional: true
 
-  '@oddmash/ui@0.10.0':
-    resolution: {integrity: sha512-nescymH8BhtqZhh9zgcgSLEz5ClBZRGmAWJoKr9BGU7bHFbKT73i9YvwLyi7ChBj9kilFAjphIKIGmwsKrg/Wg==}
+  '@oddmash/ui@0.11.0':
+    resolution: {integrity: sha512-CVLMW5Clp3Rlalyd5S/QKvKnyWAhv0E1To/6eo+V7NWf+4gMfdxIN6wr+PMsb10ShCefQN6eWbfGziijdaQR8Q==}
     engines: {node: '>=24'}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
@@ -612,8 +612,8 @@ packages:
     resolution: {integrity: sha512-ts6Wi+2j3jQjqi70w5AlN8DFnkSwC+MqmxEzdEALB2qXZYV3X/b1CTfgPLGJNMeAWxdPfU8FO1ms3NUfaHCPYg==}
     engines: {node: '>=10'}
 
-  hono@4.13.17:
-    resolution: {integrity: sha512-vZIcbkvjOR5hHRWERbGkr8fGfF0GGM1ooYkuH448iO3b2AdVEr3AXZSw4Z3Kn+1L5z0CVoVeyV29VGYmFh05kQ==}
+  hono@4.13.22:
+    resolution: {integrity: sha512-wncKd5/40Pj8grx0RZ2fgNIicFEmVFwIHT5UFLTnphR8I6AQWFf9c2JoM6ZJ9g8y4pMzg3sNlCVNe0m2Yclg0Q==}
     engines: {node: '>=16.9.0'}
 
   human-signals@2.1.0:
@@ -958,15 +958,15 @@ snapshots:
       tslib: 2.9.1
     optional: true
 
-  '@hono/auth-js@1.1.1(@auth/core@0.41.3)(hono@4.13.17)(react@19.3.1)':
+  '@hono/auth-js@1.1.2(@auth/core@0.41.3)(hono@4.13.22)(react@19.3.1)':
     dependencies:
       '@auth/core': 0.41.3
-      hono: 4.13.17
+      hono: 4.13.22
       react: 19.3.1
 
-  '@hono/node-server@1.19.19(hono@4.13.17)':
+  '@hono/node-server@1.19.19(hono@4.13.22)':
     dependencies:
-      hono: 4.13.17
+      hono: 4.13.22
 
   '@napi-rs/wasm-runtime@1.2.6(@emnapi/core@2.0.0-beta.2)(@emnapi/runtime@2.0.0-beta.2)':
     dependencies:
@@ -975,11 +975,11 @@ snapshots:
       '@tybys/wasm-util': 0.10.5
     optional: true
 
-  '@oddmash/juliya@0.4.1(react@19.3.1)':
+  '@oddmash/juliya@0.4.2(react@19.3.1)':
     dependencies:
       react: 19.3.1
 
-  '@oddmash/ui@0.10.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+  '@oddmash/ui@0.11.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
       '@radix-ui/react-dialog': 1.3.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@radix-ui/react-tabs': 1.2.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -1349,7 +1349,7 @@ snapshots:
 
   get-stream@6.0.1: {}
 
-  hono@4.13.17: {}
+  hono@4.13.22: {}
 
   human-signals@2.1.0: {}
 
